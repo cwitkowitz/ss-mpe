@@ -3,13 +3,14 @@
 from tqdm import tqdm
 
 import requests
-import zipfile
+import tarfile
 import os
 
 
 def stream_url_resource(url, save_path, chunk_size=1024):
     """
     Download a file at a URL by streaming it.
+
     Parameters
     ----------
     url : string
@@ -38,27 +39,28 @@ def stream_url_resource(url, save_path, chunk_size=1024):
                 file.write(chunk)
 
 
-def unzip_and_remove(zip_path, target=None):
+def untar_and_remove(tar_path, target=None):
     """
-    Unzip a zip file and remove it.
+    Untar a tar file and remove it.
+
     Parameters
     ----------
-    zip_path : string
-      Path to the zip file
+    tar_path : string
+      Path to the tar file
     target : string or None
-      Directory to extract the zip file contents into
+      Directory to extract the tar file contents into
     """
 
-    print(f'Unzipping {os.path.basename(zip_path)}')
+    print(f'Untarring {os.path.basename(tar_path)}')
 
-    # Default the save location as the same directory as the zip file
+    # Default the save location as the same directory as the tar file
     if target is None:
-        target = os.path.dirname(zip_path)
+        target = os.path.dirname(tar_path)
 
-    # Open the zip file in read mode
-    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-        # Extract the contents of the zip file into the target directory
-        zip_ref.extractall(target)
+    # Open the tar file in read mode
+    with tarfile.open(tar_path, 'r') as tar_ref:
+        # Extract the contents of the tar file into the target directory
+        tar_ref.extractall(target)
 
-    # Delete the zip file
-    os.remove(zip_path)
+    # Delete the tar file
+    os.remove(tar_path)

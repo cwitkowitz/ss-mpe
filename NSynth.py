@@ -1,7 +1,7 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from utils import stream_url_resource, unzip_and_remove
+from utils import stream_url_resource, untar_and_remove
 
 # Regular imports
 from torch.utils.data import Dataset
@@ -110,4 +110,4 @@ class NSynth(Dataset):
             stream_url_resource(url, save_path, 1000 * 1024)
 
             # Unzip the downloaded file and remove it
-            unzip_and_remove(save_path)
+            untar_and_remove(save_path)
