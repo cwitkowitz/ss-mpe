@@ -1,7 +1,7 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from utils import stream_url_resource, untar_and_remove
+from utils import normalize, stream_url_resource, untar_and_remove
 
 # Regular imports
 from torch.utils.data import Dataset
@@ -88,6 +88,9 @@ class NSynth(Dataset):
 
         # TODO
         audio, _ = sf.read(self.get_wav_path(self.tracks[index]))
+
+        # Normalize the audio between the range [-1, 1]
+        audio = normalize(audio)
 
         return audio
 

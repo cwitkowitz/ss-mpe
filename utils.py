@@ -2,6 +2,7 @@
 
 from tqdm import tqdm
 
+import numpy as np
 import requests
 import tarfile
 import random
@@ -67,6 +68,7 @@ def untar_and_remove(tar_path, target=None):
     # Delete the tar file
     os.remove(tar_path)
 
+
 def seed_everything(seed):
     """
     Set all necessary seeds for PyTorch at once.
@@ -85,3 +87,28 @@ def seed_everything(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     random.seed(seed)
+
+
+def normalize(_arr):
+    """
+    Normalize an array such that values fall within the range [-1, 1].
+
+    Parameters
+    ----------
+    _arr : np.ndarray
+      Original data
+
+    Returns
+    ----------
+    arr : np.ndarray
+      Normalized data
+    """
+
+    # Identify the element with the highest magnitude
+    max = np.max(np.abs(_arr))
+
+    if max > 0:
+        # Divide by this value
+        arr = _arr / max
+
+    return arr
