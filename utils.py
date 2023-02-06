@@ -4,6 +4,8 @@ from tqdm import tqdm
 
 import requests
 import tarfile
+import random
+import torch
 import os
 
 
@@ -64,3 +66,22 @@ def untar_and_remove(tar_path, target=None):
 
     # Delete the tar file
     os.remove(tar_path)
+
+def seed_everything(seed):
+    """
+    Set all necessary seeds for PyTorch at once.
+    WARNING: the number of workers in the training loader affects behavior:
+             this is because each sample will inevitably end up being processed
+             by a different worker if num_workers is changed, and each worker
+             has its own random seed
+
+    Parameters
+    ----------
+    seed : int
+      Seed to use for random number generation
+    """
+
+    torch.backends.cudnn.deterministic = True
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    random.seed(seed)
