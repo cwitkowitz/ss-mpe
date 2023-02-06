@@ -25,7 +25,7 @@ nsynth = NSynth(base_dir=dataset_base_dir, seed=seed)
 batch_size = 10
 loader = DataLoader(nsynth, batch_size=batch_size, shuffle=True, num_workers=0, drop_last=True)
 
-model = PlaceHolderNet()
+model = PlaceHolderNet().to('cuda:0')
 
 # Initialize an optimizer for the model parameters
 optimizer = torch.optim.Adam(model.parameters(), lr=1E-4)
@@ -36,6 +36,7 @@ iter = 0
 
 while True:
     for batch in loader:
+        batch = batch.to('cuda:0')
         isolated_embeddings = model(batch)
 
         mixtures = batch.unsqueeze(0).repeat(batch_size, 1, 1) + \
@@ -52,7 +53,7 @@ while True:
 
         mixture_embeddings = model(mixtures)
 
-        pair_weights = 1 - torch.eye(batch_size).flatten()
+        pair_weights = 1 - torch.eye(batch_size).flatten().to('cuda:0')
 
         target_embeddings = isolated_embeddings[mixture_idcs_r] + \
                             isolated_embeddings[mixture_idcs_c]
