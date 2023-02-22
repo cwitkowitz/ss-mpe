@@ -64,7 +64,11 @@ while True:
 
         writer.add_scalar('train/loss', loss, iter)
 
-        print(f'iter: {iter} | loss: {loss}')
+        rms = torch.sqrt(torch.mean(mixture_embeddings ** 2))
+
+        writer.add_scalar('train/rms', rms, iter)
+
+        print(f'iter: {iter} | loss: {loss} | rms: {rms}')
 
         # Zero the accumulated gradients
         optimizer.zero_grad()
