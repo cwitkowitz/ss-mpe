@@ -13,8 +13,6 @@ import shutil
 import json
 import os
 
-# TODO - define transcription-relevant and transcription-irrelevant transformations
-
 
 class NSynth(Dataset):
     """

@@ -3,3 +3,4 @@ numpy
 soundfile
 requests
 tqdm
+sacred
