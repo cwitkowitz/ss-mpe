@@ -1,8 +1,7 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from transforms import TestTransform
-from objectives import compute_linearity_loss, compute_content_loss
+from objectives import compute_content_loss, compute_linearity_loss, compute_invariance_loss
 from utils import seed_everything
 from model import PlaceHolderNet
 from NSynth import NSynth
@@ -11,6 +10,7 @@ from NSynth import NSynth
 from torch.utils.tensorboard import SummaryWriter
 from sacred.observers import FileStorageObserver
 from torch.utils.data import DataLoader
+from torch_audiomentations import *
 from sacred import Experiment
 from tqdm import tqdm
 
@@ -18,7 +18,7 @@ import torch
 import os
 
 
-EX_NAME = '_'.join(['Self-Supervised-Sandbox'])
+EX_NAME = '_'.join(['Self-Supervised-Sandbox_invariance'])
 
 ex = Experiment('Train a model to learn representations for MPE.')
 
@@ -76,6 +76,13 @@ model = PlaceHolderNet().to(gpu_id)
 # Initialize an optimizer for the model parameters
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
+# Define the collection of augmentations to use when training for invariance
+invariance_transforms = Compose(
+    transforms=[
+        PolarityInversion(p=0.5)
+    ]
+)
+
 # Construct the path to the directory for saving models
 log_dir = os.path.join(root_dir, 'models')
 
@@ -92,25 +99,29 @@ for i in range(max_epochs):
         # Add the audio to the appropriate GPU
         audio = audio.to(gpu_id)
 
-        # Compute the linearity loss for this batch
-        linearity_loss = compute_linearity_loss(audio, model)
-
-        # Log the linearity loss for this batch
-        writer.add_scalar('train/loss/linearity', linearity_loss, batch_count)
-
         # Compute the content loss for this batch
         content_loss = compute_content_loss(audio, model)
 
         # Log the content loss for this batch
         writer.add_scalar('train/loss/content', content_loss, batch_count)
 
+        # Compute the linearity loss for this batch
+        linearity_loss = compute_linearity_loss(audio, model)
+
+        # Log the linearity loss for this batch
+        writer.add_scalar('train/loss/linearity', linearity_loss, batch_count)
+
+        # Compute the invariance loss for this batch
+        invariance_loss = compute_invariance_loss(audio, model, invariance_transforms)
+
+        # Log the invariance loss for this batch
+        writer.add_scalar('train/loss/invariance', invariance_loss, batch_count)
+
         # Compute the total loss for this batch
-        loss = linearity_loss + 10 * content_loss
+        loss = linearity_loss + 10 * content_loss + invariance_loss
 
         # Log the total loss for this batch
         writer.add_scalar('train/loss/total', loss, batch_count)
-
-        #test = TestTransform().transform_audio(audio[1])
 
         # Zero the accumulated gradients
         optimizer.zero_grad()
