@@ -3,8 +3,9 @@
 # My imports
 from objectives import compute_content_loss, compute_linearity_loss, compute_timbre_invariance_loss
 from utils import seed_everything
-from model import PlaceHolderNet
 from NSynth import NSynth
+from model import SAUNet
+from features import HCQT
 
 # Regular imports
 from torch.utils.tensorboard import SummaryWriter
@@ -63,6 +64,12 @@ dataset_base_dir = os.path.join(os.path.expanduser('~'), 'Desktop', 'Datasets', 
 nsynth = NSynth(base_dir=dataset_base_dir,
                 seed=seed)
 
+# Initialize the HCQT feature extraction module
+hcqt = HCQT(sample_rate=22050, # TODO - this will be incorrect
+            hop_length=512,
+            n_bins=216,
+            bins_per_octave=36)
+
 # Initialize a PyTorch dataloader for the data
 loader = DataLoader(dataset=nsynth,
                     batch_size=batch_size,
@@ -71,7 +78,7 @@ loader = DataLoader(dataset=nsynth,
                     drop_last=True)
 
 # Initialize MPE representation learning model
-model = PlaceHolderNet().to(gpu_id)
+model = SAUNet().to(gpu_id)
 
 # Initialize an optimizer for the model parameters
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
@@ -98,6 +105,12 @@ for i in range(max_epochs):
     for audio in tqdm(loader, desc=f'Epoch {i}'):
         # Add the audio to the appropriate GPU
         audio = audio.to(gpu_id)
+
+        with torch.no_grad():
+            # Obtain spectral features for the audio
+            features = hcqt(audio)
+
+            # TODO - perform augmentations here
 
         # Compute the content loss for this batch
         content_loss = compute_content_loss(audio, model)
