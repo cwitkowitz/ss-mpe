@@ -1,5 +1,7 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
+
+import torch.nn.functional as F
 import torch
 
 
@@ -16,6 +18,7 @@ def compute_linearity_loss(audio, model, transforms=None):
 
     # TODO - try random mixtures (w/ random scaling) instead of pairwise?
     # TODO - if transforms != None, transform audio before training for linearity
+    # TODO - make sure this will work for combinations of the same pitch
 
     mixtures = mixtures.reshape(batch_size ** 2, -1)
 
@@ -38,6 +41,8 @@ def compute_linearity_loss(audio, model, transforms=None):
 def compute_content_loss(audio, model):
     # TODO - might be OK if input audio contains silence
 
+    # TODO - should scale with loudness of audio
+
     isolated_embeddings = model(audio)
 
     # compute RMS value on embedding elements
@@ -46,54 +51,79 @@ def compute_content_loss(audio, model):
     return content_loss
 
 
-def compute_invariance_loss(audio, model, transforms):
+def compute_contrastive_loss(originals, augmentations, temperature=0.07):
+    # SimCLR
+
+    # TODO - more than one augmentation?
+
+    assert originals.shape == augmentations.shape
+
+    # Determine which device to use for processing
+    device = originals.device
+
+    # Keep track of original dimensionality
+    B, T, E = originals.shape
+
+    # Concatenate both sets of embeddings along the batch dimension
+    embeddings = torch.cat((originals, augmentations), dim=0)
+
+    # Normalize both sets of embeddings
+    embeddings = F.normalize(embeddings, dim=-1)
+
+    # Switch the batch and frame dimensions for the embeddings
+    embeddings = embeddings.transpose(0, 1)
+
+    # Compute cosine similarity between every embedding across each frame
+    similarities = torch.bmm(embeddings, embeddings.transpose(-1, -2))
+
+    # Construct a matrix indicating same-sample membership for each embedding
+    labels = (torch.eye(2 * B) + torch.eye(2 * B).roll(B, dims=-1)).to(device)
+
+    # Create mask to indicate which elements belong to diagonal
+    diagonal = torch.eye(2 * B, dtype=torch.bool).to(device)
+
+    # Discard labels indicating identity
+    labels = labels[~diagonal].view(2 * B, -1)
+    # Discard similarities for identical pairs across each frame
+    similarities = similarities[:, ~diagonal].view(T, 2 * B, -1)
+
+    # Obtain the similarity measures for positive pairs
+    positives = similarities[:, labels.bool()].view(T, 2 * B, -1)
+
+    # Obtain the similarity measures for negative pairs
+    negatives = similarities[:, ~labels.bool()].view(T, 2 * B, -1)
+
+    # Combine all similarities, ordering the positive pair similarities first
+    logits = torch.cat([positives, negatives], dim=-1) / temperature
+
+    # Construct labels indicating first index as pertaining to ground-truth class
+    targets = torch.zeros(logits.shape[:-1], dtype=torch.long).to(device)
+
+    # Compute loss based on similarity of embeddings originating from same sample
+    contrastive_loss = F.cross_entropy(logits.view(2 * B * T, -1),
+                                       targets.flatten(), reduction='none')
+
+    # Restore the original dimensions to the computed losses
+    contrastive_loss = contrastive_loss.view(T, 2 * B).t()
+
+    # Average the loss across frames and then across the batch
+    contrastive_loss = contrastive_loss.mean(-1).mean(-1)
+
+    return contrastive_loss
+
+
+def compute_timbre_invariance_loss(audio, model, transforms):
     original_embeddings = model(audio)
 
     transformed_audio = transforms(audio.unsqueeze(1), sample_rate=16000).squeeze(1)
 
     transformed_embeddings = model(transformed_audio)
 
-    test = info_nce_loss(torch.cat((original_embeddings, transformed_embeddings), dim=0))
-
-    pair_losses = torch.nn.functional.mse_loss(transformed_embeddings, original_embeddings, reduction='none')
-
-    invariance_loss = torch.mean(pair_losses.sum(-1).mean(-1))
+    invariance_loss = compute_contrastive_loss(original_embeddings, transformed_embeddings)
 
     return invariance_loss
 
 
-import torch.nn.functional as F
-
-
-def SimCLR_loss(features, temperature=0.07):
-    labels = torch.cat([torch.arange(8) for i in range(2)], dim=0)
-    labels = (labels.unsqueeze(0) == labels.unsqueeze(1)).float()
-    labels = labels.to(0)
-
-
-    features = features[:, 0, :]
-
-    features = F.normalize(features, dim=1)
-
-    similarity_matrix = torch.matmul(features, features.T)
-    # assert similarity_matrix.shape == (
-    #     self.args.n_views * self.args.batch_size, self.args.n_views * self.args.batch_size)
-    # assert similarity_matrix.shape == labels.shape
-
-    # discard the main diagonal from both: labels and similarities matrix
-    mask = torch.eye(labels.shape[0], dtype=torch.bool).to(0)
-    labels = labels[~mask].view(labels.shape[0], -1)
-    similarity_matrix = similarity_matrix[~mask].view(similarity_matrix.shape[0], -1)
-    # assert similarity_matrix.shape == labels.shape
-
-    # select and combine multiple positives
-    positives = similarity_matrix[labels.bool()].view(labels.shape[0], -1)
-
-    # select only the negatives the negatives
-    negatives = similarity_matrix[~labels.bool()].view(similarity_matrix.shape[0], -1)
-
-    logits = torch.cat([positives, negatives], dim=1)
-    labels = torch.zeros(logits.shape[0], dtype=torch.long).to(0)
-
-    logits = logits / temperature
-    return logits, labels
+def compute_shift_invariance_loss():
+    # TODO
+    pass

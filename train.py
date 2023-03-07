@@ -1,7 +1,7 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from objectives import compute_content_loss, compute_linearity_loss, compute_invariance_loss
+from objectives import compute_content_loss, compute_linearity_loss, compute_timbre_invariance_loss
 from utils import seed_everything
 from model import PlaceHolderNet
 from NSynth import NSynth
@@ -112,7 +112,7 @@ for i in range(max_epochs):
         writer.add_scalar('train/loss/linearity', linearity_loss, batch_count)
 
         # Compute the invariance loss for this batch
-        invariance_loss = compute_invariance_loss(audio, model, invariance_transforms)
+        invariance_loss = compute_timbre_invariance_loss(audio, model, invariance_transforms)
 
         # Log the invariance loss for this batch
         writer.add_scalar('train/loss/invariance', invariance_loss, batch_count)
