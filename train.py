@@ -5,7 +5,7 @@ from objectives import compute_content_loss, compute_linearity_loss, compute_tim
 from utils import seed_everything
 from NSynth import NSynth
 from model import SAUNet
-from features import HCQT
+from lhvqt import LHVQT
 
 # Regular imports
 from torch.utils.tensorboard import SummaryWriter
@@ -65,10 +65,12 @@ nsynth = NSynth(base_dir=dataset_base_dir,
                 seed=seed)
 
 # Initialize the HCQT feature extraction module
-hcqt = HCQT(sample_rate=22050, # TODO - this will be incorrect
-            hop_length=512,
-            n_bins=216,
-            bins_per_octave=36)
+hcqt = LHVQT(fs=16000,
+             hop_length=512,
+             n_bins=216,
+             bins_per_octave=36,
+             update=False,
+             batch_norm=False).to(gpu_id)
 
 # Initialize a PyTorch dataloader for the data
 loader = DataLoader(dataset=nsynth,
@@ -106,11 +108,13 @@ for i in range(max_epochs):
         # Add the audio to the appropriate GPU
         audio = audio.to(gpu_id)
 
-        with torch.no_grad():
-            # Obtain spectral features for the audio
-            features = hcqt(audio)
+        # Add a channel dimension to the audio
+        audio = audio.unsqueeze(-2).float()
 
-            # TODO - perform augmentations here
+        # Obtain spectral features for the audio
+        features = hcqt(audio)
+
+        # TODO - perform augmentations here
 
         # Compute the content loss for this batch
         content_loss = compute_content_loss(audio, model)

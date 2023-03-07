@@ -4,4 +4,4 @@ soundfile
 requests
 tqdm
 sacred
-nnAudio
+lhvqt
