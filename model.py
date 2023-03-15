@@ -66,18 +66,17 @@ class SAUNet(nn.Module):
                        padding=1)
         )
 
-        #self.bottleneck = nn.Sequential(
-        self.pos = SinusoidalEncodings()#,
-        self.sa1 = nn.TransformerEncoderLayer(d_model=d_attention,
+        self.bottleneck = nn.Sequential(
+            SinusoidalEncodings(),
+            nn.TransformerEncoderLayer(d_model=d_attention,
                                        nhead=n_heads,
                                        dim_feedforward=d_forward,
-                                       batch_first=True)#,
-        self.sa2 = nn.TransformerEncoderLayer(d_model=d_attention,
+                                       batch_first=True),
+            nn.TransformerEncoderLayer(d_model=d_attention,
                                        nhead=n_heads,
                                        dim_feedforward=d_forward,
                                        batch_first=True)
-            # TODO - reshape
-        #)
+        )
 
         self.concat_up = ConcatenativeUpSample2d(factor=2)
 
@@ -107,9 +106,6 @@ class SAUNet(nn.Module):
         TODO
         """
 
-        # TODO - remove the following line
-        hcqt = hcqt[..., :75]
-
         # Normalize harmonic channels and frequency bins of HCQTs
         hcqt = self.layernorm(hcqt.transpose(-1, -2).transpose(-2, -3)
                               ).transpose(-2, -3).transpose(-1, -2)
@@ -123,15 +119,19 @@ class SAUNet(nn.Module):
         x4 = self.down_block_3(x3)
         embeddings = self.down_block_4(x4)
 
-        # Flatten time and frequency dimensions, then switch with channel dimension
+        # Keep track of dimensionality before the bottleneck
+        dimensionality = embeddings.size()
+
+        # Flatten time and frequency dimensions and switch with channel dimension
         embeddings = embeddings.flatten(-2).transpose(-1, -2)
 
-        #embeddings = self.bottleneck(embeddings)
+        # Feed the features through the self-attention bottleneck
+        embeddings = self.bottleneck(embeddings)
 
-        xt = self.pos(embeddings)
-        xt = self.sa1(xt)
-        xt = self.sa2(xt)
+        # Restore original dimensions to the embeddings
+        embeddings = embeddings.transpose(-1, -2).view(dimensionality)
 
+        # Feed features through all upsampling blocks
         x = self.up_conv_1(self.concat_up(embeddings, x4))
         x = self.up_conv_2(self.concat_up(x, x3))
         x = self.up_conv_3(self.concat_up(x, x2))
@@ -179,7 +179,7 @@ class SinusoidalEncodings(nn.Module):
     Module to add fixed (sinusoidal) positional encoding to embeddings.
     """
 
-    def __init__(self, upper_bound=10000):
+    def __init__(self, upper_bound=10000, interleave=True):
         """
         Initialize the module.
 
@@ -192,8 +192,9 @@ class SinusoidalEncodings(nn.Module):
         nn.Module.__init__(self)
 
         self.upper_bound = upper_bound
+        self.interleave = interleave
 
-    def forward(self, features, interleave=True):
+    def forward(self, features):
         """
         TODO
         """
@@ -210,7 +211,7 @@ class SinusoidalEncodings(nn.Module):
         angles_sin = torch.sin(angles)
         angles_cos = torch.cos(angles)
 
-        if interleave:
+        if self.interleave:
             # Add an extra dimension to each vector
             angles_sin = torch.unsqueeze(angles_sin, dim=-1)
             angles_cos = torch.unsqueeze(angles_cos, dim=-1)
@@ -218,12 +219,15 @@ class SinusoidalEncodings(nn.Module):
         # Interleave the two positional encodings
         sinusoidal_encodings = torch.cat((angles_sin, angles_cos), dim=-1)
 
-        if interleave:
+        if self.interleave:
             # Collapse the added dimension to interleave the vectors
             sinusoidal_encodings = sinusoidal_encodings.view(seq_length, d_model)
 
+        # Add the encodings to the appropriate device
+        sinusoidal_encodings = sinusoidal_encodings.to(features.device)
+
         # Repeat encodings for each sample in the batch and add to appropriate device
-        features += torch.tile(sinusoidal_encodings.to(features.device), (batch_size, 1, 1))
+        features = features + torch.tile(sinusoidal_encodings, (batch_size, 1, 1))
 
         return features
 
