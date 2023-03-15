@@ -176,17 +176,22 @@ class DoubleConv(nn.Module):
 
 class SinusoidalEncodings(nn.Module):
     """
-    TODO
+    Module to add fixed (sinusoidal) positional encoding to embeddings.
     """
 
-    def __init__(self, max_freq=10000):
+    def __init__(self, upper_bound=10000):
         """
-        TODO
+        Initialize the module.
+
+        Parameters
+        ----------
+        upper_bound : int or float
+          Upper boundary for geometric progression of periods (in 2π radians)
         """
 
         nn.Module.__init__(self)
 
-        self.max_freq = max_freq
+        self.upper_bound = upper_bound
 
     def forward(self, features, interleave=True):
         """
@@ -194,12 +199,12 @@ class SinusoidalEncodings(nn.Module):
         """
 
         # Determine the dimensionality of the input features
-        B, T, E = features.size()
+        batch_size, seq_length, d_model = features.size()
 
-        # Determine the frequencies corresponding to each dimension (pair)
-        frequencies = self.max_freq ** (torch.arange(0, E, 2) / E)
-        # Multiply every position by every frequency
-        angles = torch.outer(torch.arange(0, T), 1 / frequencies)
+        # Determine the periods of the sinusoids
+        periods = self.upper_bound ** (torch.arange(0, d_model, 2) / d_model)
+        # Multiply every position by every period
+        angles = torch.outer(torch.arange(0, seq_length), 1 / periods)
 
         # Compute the sine and cosine of the angles
         angles_sin = torch.sin(angles)
@@ -215,10 +220,10 @@ class SinusoidalEncodings(nn.Module):
 
         if interleave:
             # Collapse the added dimension to interleave the vectors
-            sinusoidal_encodings = sinusoidal_encodings.view(T, E)
+            sinusoidal_encodings = sinusoidal_encodings.view(seq_length, d_model)
 
         # Repeat encodings for each sample in the batch and add to appropriate device
-        features += torch.tile(sinusoidal_encodings.to(features.device), (B, 1, 1))
+        features += torch.tile(sinusoidal_encodings.to(features.device), (batch_size, 1, 1))
 
         return features
 
