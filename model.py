@@ -9,6 +9,7 @@ import torch
 class SAUNet(nn.Module):
     """
     SA U-Net adapted from https://github.com/christofw/multipitch_architectures (simple_u_net_doubleselfattn).
+    TODO - better description
     """
 
     def __init__(self, n_ch_in=6, n_bins_in=216, n_heads=8, model_complexity=1):
@@ -25,7 +26,7 @@ class SAUNet(nn.Module):
         n_ch_4 = 64 * 2 ** (model_complexity - 1)
 
         # Embedding sizes for self-attention modules
-        d_attention = 8 * (8 * 2 ** (model_complexity - 1))
+        d_attention = 8 * 8 * 2 ** (model_complexity - 1)
         d_forward = 1024 * 2 ** (model_complexity - 1)
 
         # Layer normalization over frequency and channels (harmonics of HCQT)
@@ -66,8 +67,7 @@ class SAUNet(nn.Module):
         )
 
         #self.bottleneck = nn.Sequential(
-        self.flatten = nn.Flatten(start_dim=-2)#,
-        self.pos = SinusoidalEncodings(feature_size=d_attention)#,
+        self.pos = SinusoidalEncodings()#,
         self.sa1 = nn.TransformerEncoderLayer(d_model=d_attention,
                                        nhead=n_heads,
                                        dim_feedforward=d_forward,
@@ -80,9 +80,6 @@ class SAUNet(nn.Module):
         #)
 
         self.concat_up = ConcatenativeUpSample2d(factor=2)
-
-        # TODO - remove the following
-        #sc = 2 ** (4 - model_complexity)
 
         self.up_conv_1 = DoubleConv(in_channels=2 * n_ch_4,
                                     mid_channels=n_ch_4,
@@ -117,17 +114,23 @@ class SAUNet(nn.Module):
         hcqt = self.layernorm(hcqt.transpose(-1, -2).transpose(-2, -3)
                               ).transpose(-2, -3).transpose(-1, -2)
 
+        # Obtain an initial set of features
         x1 = self.initial_conv(hcqt)
+
+        # Feed features through all downsampling blocks
         x2 = self.down_block_1(x1)
         x3 = self.down_block_2(x2)
         x4 = self.down_block_3(x3)
         embeddings = self.down_block_4(x4)
 
+        # Flatten time and frequency dimensions, then switch with channel dimension
+        embeddings = embeddings.flatten(-2).transpose(-1, -2)
+
         #embeddings = self.bottleneck(embeddings)
-        #xt = self.flatten(embeddings)
-        #xt = self.pos(xt)
-        #xt = self.sa1(xt)
-        #xt = self.sa2(xt)
+
+        xt = self.pos(embeddings)
+        xt = self.sa1(xt)
+        xt = self.sa2(xt)
 
         x = self.up_conv_1(self.concat_up(embeddings, x4))
         x = self.up_conv_2(self.concat_up(x, x3))
@@ -176,14 +179,14 @@ class SinusoidalEncodings(nn.Module):
     TODO
     """
 
-    def __init__(self, feature_size):
+    def __init__(self, max_freq=10000):
         """
         TODO
         """
 
         nn.Module.__init__(self)
 
-        self.feature_size = feature_size
+        self.max_freq = max_freq
 
     def forward(self, features, interleave=True):
         """
@@ -193,8 +196,8 @@ class SinusoidalEncodings(nn.Module):
         # Determine the dimensionality of the input features
         B, T, E = features.size()
 
-        # Determine the frequencies corresponding to each (pair of) dimension
-        frequencies = 10000 ** (torch.arange(0, self.feature_size, 2) / self.feature_size)
+        # Determine the frequencies corresponding to each dimension (pair)
+        frequencies = self.max_freq ** (torch.arange(0, E, 2) / E)
         # Multiply every position by every frequency
         angles = torch.outer(torch.arange(0, T), 1 / frequencies)
 
@@ -212,11 +215,10 @@ class SinusoidalEncodings(nn.Module):
 
         if interleave:
             # Collapse the added dimension to interleave the vectors
-            sinusoidal_encodings = sinusoidal_encodings.view(T, self.feature_size)
+            sinusoidal_encodings = sinusoidal_encodings.view(T, E)
 
-        sinusoidal_encodings = torch.tile(sinusoidal_encodings, (B, 1, 1))
-
-        features += pe[:features.shape[1], :]
+        # Repeat encodings for each sample in the batch and add to appropriate device
+        features += torch.tile(sinusoidal_encodings.to(features.device), (B, 1, 1))
 
         return features
 
