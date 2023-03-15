@@ -79,26 +79,29 @@ class SAUNet(nn.Module):
             # TODO - reshape
         #)
 
-        self.upsample = ConcatenativeUpSample2d(factor=2)
+        self.concat_up = ConcatenativeUpSample2d(factor=2)
 
-        self.up_conv_1 = DoubleConv(in_channels=1024//sc,
-                                    out_channels=512//(sc*2),
-                                    mid_channels=1024//(sc*2),
+        # TODO - remove the following
+        #sc = 2 ** (4 - model_complexity)
+
+        self.up_conv_1 = DoubleConv(in_channels=2 * n_ch_4,
+                                    mid_channels=n_ch_4,
+                                    out_channels=n_ch_3,
                                     kernel_size=3,
                                     padding=1)
-        self.up_conv_2 = DoubleConv(in_channels=512//sc,
-                                    out_channels=256//(sc*2),
-                                    mid_channels=512//(sc*2),
+        self.up_conv_2 = DoubleConv(in_channels=2 * n_ch_3,
+                                    mid_channels=n_ch_3,
+                                    out_channels=n_ch_2,
                                     kernel_size=5,
                                     padding=2)
-        self.up_conv_3 = DoubleConv(in_channels=256//sc,
-                                    out_channels=128//(sc*2),
-                                    mid_channels=256//(sc*2),
+        self.up_conv_3 = DoubleConv(in_channels=2 * n_ch_2,
+                                    mid_channels=n_ch_2,
+                                    out_channels=n_ch_1,
                                     kernel_size=9,
                                     padding=4)
-        self.up_conv_4 = DoubleConv(in_channels=128//sc,
+        self.up_conv_4 = DoubleConv(in_channels=2 * n_ch_1,
+                                    mid_channels=n_ch_1,
                                     out_channels=1,
-                                    mid_channels=128//(sc*2),
                                     kernel_size=15,
                                     padding=7)
 
@@ -108,7 +111,7 @@ class SAUNet(nn.Module):
         """
 
         # TODO - remove the following line
-        #hcqt = hcqt[..., :75]
+        hcqt = hcqt[..., :75]
 
         # Normalize harmonic channels and frequency bins of HCQTs
         hcqt = self.layernorm(hcqt.transpose(-1, -2).transpose(-2, -3)
@@ -118,18 +121,18 @@ class SAUNet(nn.Module):
         x2 = self.down_block_1(x1)
         x3 = self.down_block_2(x2)
         x4 = self.down_block_3(x3)
-        x5 = self.down_block_4(x4)
+        embeddings = self.down_block_4(x4)
 
-        #x5 = self.bottleneck(x5)
-        #xt = self.flatten(x5)
+        #embeddings = self.bottleneck(embeddings)
+        #xt = self.flatten(embeddings)
         #xt = self.pos(xt)
         #xt = self.sa1(xt)
         #xt = self.sa2(xt)
 
-        x = self.upconv1(self.upconcat(x5, x4))
-        x = self.upconv2(self.upconcat(x, x3))
-        x = self.upconv3(self.upconcat(x, x2))
-        salience = self.upconv4(self.upconcat(x, x1))
+        x = self.up_conv_1(self.concat_up(embeddings, x4))
+        x = self.up_conv_2(self.concat_up(x, x3))
+        x = self.up_conv_3(self.concat_up(x, x2))
+        salience = self.up_conv_4(self.concat_up(x, x1))
 
         return salience
 
@@ -139,7 +142,7 @@ class DoubleConv(nn.Module):
     TODO
     """
 
-    def __init__(self, in_channels, out_channels, mid_channels=None, kernel_size=None, padding=None):
+    def __init__(self, in_channels, out_channels, mid_channels=None, kernel_size=3, padding=1):
         """
         TODO
         """
@@ -230,22 +233,36 @@ class ConcatenativeUpSample2d(nn.Module):
 
         nn.Module.__init__(self)
 
-        # Since using bilinear, use the normal convolutions to reduce the number of channels
-        self.up = nn.Upsample(scale_factor=factor, mode='bilinear', align_corners=True)
+        self.upsample = nn.Upsample(scale_factor=factor, mode='bilinear', align_corners=True)
 
-    def forward(self, x1, skip_features):
+    def forward(self, in_features, skip_features):
         """
         TODO
         """
 
-        x1 = self.up(x1)
-        diffY = skip_features.size()[2] - x1.size()[2]
-        diffX = skip_features.size()[3] - x1.size()[3]
+        # Upsample the features using biliniear interpolation
+        x = self.upsample(in_features)
 
-        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
-                        diffY // 2, diffY - diffY // 2])
-        # if you have padding issues, see
-        # https://github.com/HaiyongJiang/U-Net-Pytorch-Unstructured-Buggy/commit/0e854509c2cea854e247a9c615f175f76fbb2e3a
-        # https://github.com/xiaopeng-liao/Pytorch-UNet/commit/8ebac70e633bac59fc22bb5195e513d5832fb3bd
-        x = torch.cat([skip_features, x1], dim=1)
-        return x
+        # Determine the target dimensionality of the upsampled features
+        target_height, target_width = skip_features.shape[-2:]
+
+        # Determine the actual dimensionality of the upsampled features
+        actual_height, actual_width = x.shape[-2:]
+
+        # Compute the number of missing rows and/or columns
+        missing_rows = target_height - actual_height
+        missing_cols = target_width - actual_width
+
+        # Compute the appropriate padding for the features
+        pad_l = missing_cols // 2
+        pad_r = missing_cols - pad_l
+        pad_t = missing_rows // 2
+        pad_b = missing_rows - pad_t
+
+        # Pad the upsampled features to match the dimensionality of the skip features
+        x = F.pad(x, [pad_l, pad_r, pad_t, pad_b])
+
+        # Concatenate the features along the channel dimension
+        out_features = torch.cat([skip_features, x], dim=-3)
+
+        return out_features
