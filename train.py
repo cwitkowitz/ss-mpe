@@ -79,8 +79,12 @@ loader = DataLoader(dataset=nsynth,
                     num_workers=0,
                     drop_last=True)
 
+n_channels = len(hcqt.harmonics)
+
 # Initialize MPE representation learning model
-model = SAUNet().to(gpu_id)
+model = SAUNet(n_ch_in=n_channels,
+               n_bins_in=216,
+               model_complexity=2).to(gpu_id)
 
 # Initialize an optimizer for the model parameters
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
@@ -115,6 +119,8 @@ for i in range(max_epochs):
         features = hcqt(audio)
 
         # TODO - perform augmentations here
+
+        model(features)
 
         # Compute the content loss for this batch
         content_loss = compute_content_loss(audio, model)

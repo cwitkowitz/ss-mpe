@@ -5,3 +5,4 @@ requests
 tqdm
 sacred
 lhvqt
+tensorboard
