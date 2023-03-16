@@ -5,50 +5,65 @@ import torch.nn.functional as F
 import torch
 
 
-def compute_linearity_loss(audio, model, transforms=None):
-    batch_size = audio.size(0)
-
-    isolated_embeddings = model(audio)
-
-    mixtures = audio.unsqueeze(0).repeat(batch_size, 1, 1) + \
-               audio.unsqueeze(1).repeat(1, batch_size, 1)
-
-    mixture_idcs_r = torch.arange(batch_size).unsqueeze(0).repeat(batch_size, 1).flatten()
-    mixture_idcs_c = torch.arange(batch_size).unsqueeze(1).repeat(1, batch_size).flatten()
-
-    # TODO - try random mixtures (w/ random scaling) instead of pairwise?
-    # TODO - if transforms != None, transform audio before training for linearity
-    # TODO - make sure this will work for combinations of the same pitch
-
-    mixtures = mixtures.reshape(batch_size ** 2, -1)
-
-    mixtures = mixtures / 2
-
-    mixture_embeddings = model(mixtures)
-
-    pair_weights = 1 - torch.eye(batch_size).flatten().to('cuda:0')
-
-    target_embeddings = isolated_embeddings[mixture_idcs_r] + \
-                        isolated_embeddings[mixture_idcs_c]
-
-    pair_losses = torch.nn.functional.mse_loss(mixture_embeddings, target_embeddings, reduction='none')
-
-    linearity_loss = torch.mean(pair_weights * pair_losses.sum(-1).mean(-1)) / 2
-
-    return linearity_loss
-
-
-def compute_content_loss(audio, model):
+def compute_content_loss(features, activations):
     # TODO - might be OK if input audio contains silence
 
     # TODO - should scale with loudness of audio
 
-    isolated_embeddings = model(audio)
+    # Compute magnitude difference between average energy across harmonics and salience
+    content_loss = torch.abs(torch.mean(features, dim=-3) - torch.mean(activations, dim=-3))
 
-    # compute RMS value on embedding elements
-    content_loss = torch.mean(torch.e ** (-1 * (isolated_embeddings ** 2).mean(-1).sqrt()))
+    # Sum across frequency bins and average across time and batch
+    content_loss = content_loss.sum(-2).mean(-1).mean(-1)
 
     return content_loss
+
+
+def get_random_mixtures(audio, p=0.8):
+    # Determine the amount of tracks in the batch
+    N = audio.size(0)
+
+    # Randomly sample a matrix for mixing
+    legend = torch.rand((N, N), device=audio.device)
+
+    # Threshold to determine which tracks should be mixed
+    legend = torch.threshold(legend, threshold=p, value=0)
+    # Include the original track in each mix (diagonal)
+    legend = torch.logical_or(torch.eye(N, device=legend.device), legend)
+
+    # Determine how many tracks will be included in each mixture
+    n_mix = torch.sum(legend, dim=-1).unsqueeze(-1)
+
+    # Randomly sample mixture weights
+    legend = torch.rand((N, N), device=legend.device) * legend
+
+    # Mix the tracks based on the legend
+    mixtures = torch.matmul(legend, audio)
+    # Apply the mixture weights
+    mixtures /= n_mix
+
+    return mixtures, legend
+
+
+def compute_linearity_loss(activations, mixture_activations, legend):
+    # Keep track of original dimensionality
+    dimensionality = activations.size()
+
+    # Superimpose thresholded activations for mixture targets
+    pseudo_ground_truth = torch.matmul(torch.ceil(legend),
+                                       torch.round(activations).flatten(-3))
+
+    # Ignore overlapping activations and restore dimensionality
+    # TODO - make sure this will work for combinations of the same pitch
+    pseudo_ground_truth = torch.clip(pseudo_ground_truth, max=1).view(dimensionality)
+
+    # Compute BCE loss to push activations of mixture toward linear combination of individual activations
+    linearity_loss = F.binary_cross_entropy(mixture_activations, pseudo_ground_truth, reduction='none')
+
+    # Sum across frequency bins and average across time and batch
+    linearity_loss = linearity_loss.sum(-2).mean(-1).mean()
+
+    return linearity_loss
 
 
 def compute_contrastive_loss(originals, augmentations, temperature=0.07):

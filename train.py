@@ -1,7 +1,7 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from objectives import compute_content_loss, compute_linearity_loss, compute_timbre_invariance_loss
+from objectives import compute_content_loss, compute_linearity_loss, compute_timbre_invariance_loss, get_random_mixtures
 from utils import seed_everything
 from NSynth import NSynth
 from model import SAUNet
@@ -31,6 +31,9 @@ ex = Experiment('Train a model to learn representations for MPE.')
 #def config():
 # Maximum number of training iterations to conduct
 max_epochs = 1000
+
+# Number of iterations between checkpoints
+checkpoint_interval = 100
 
 # Number of samples to gather for a batch
 batch_size = 8
@@ -110,38 +113,62 @@ for i in range(max_epochs):
     # Loop through batches
     for audio in tqdm(loader, desc=f'Epoch {i}'):
         # Add the audio to the appropriate GPU
-        audio = audio.to(gpu_id)
+        audio = audio.to(gpu_id).float()
+
+        # TODO - perform augmentations on audio here
+
+        with torch.no_grad():
+            # Create random mixtures of the audio and keep track of mixing
+            mixtures, legend = get_random_mixtures(audio)
 
         # Add a channel dimension to the audio
-        audio = audio.unsqueeze(-2).float()
+        audio = audio.unsqueeze(-2)
 
         # Obtain spectral features for the audio
         features = hcqt(audio)
 
-        # TODO - perform augmentations here
+        # Obtain an implicit salience map for the audio
+        salience = model(features)
 
-        model(features)
+        # Convert the logits to activations
+        activations = torch.sigmoid(salience)
 
         # Compute the content loss for this batch
-        content_loss = compute_content_loss(audio, model)
+        content_loss = compute_content_loss(features, activations)
 
         # Log the content loss for this batch
         writer.add_scalar('train/loss/content', content_loss, batch_count)
 
+        # Add a channel dimension to the mixtures
+        mixtures = mixtures.unsqueeze(-2)
+
+        # Obtain spectral features for the mixtures
+        mixture_features = hcqt(mixtures)
+
+        # Obtain an implicit salience map for the mixtures
+        mixture_salience = model(mixture_features)
+
+        # Convert the logits to mixed activations
+        mixture_activations = torch.sigmoid(mixture_salience)
+
         # Compute the linearity loss for this batch
-        linearity_loss = compute_linearity_loss(audio, model)
+        linearity_loss = compute_linearity_loss(activations, mixture_activations, legend)
 
         # Log the linearity loss for this batch
         writer.add_scalar('train/loss/linearity', linearity_loss, batch_count)
+
+        """
+        # TODO - don't think contrastve loss should be computed on mixtures
 
         # Compute the invariance loss for this batch
         invariance_loss = compute_timbre_invariance_loss(audio, model, invariance_transforms)
 
         # Log the invariance loss for this batch
         writer.add_scalar('train/loss/invariance', invariance_loss, batch_count)
+        """
 
         # Compute the total loss for this batch
-        loss = linearity_loss + 10 * content_loss + invariance_loss
+        loss = content_loss + linearity_loss #+ invariance_loss
 
         # Log the total loss for this batch
         writer.add_scalar('train/loss/total', loss, batch_count)
@@ -155,6 +182,10 @@ for i in range(max_epochs):
 
         # Increment the batch counter
         batch_count += 1
+
+        if batch_count % checkpoint_interval:
+            # TODO - quick and dirty visualization
+            print()
 
     # Save the model checkpoint after each epoch is complete
     torch.save(model, os.path.join(log_dir, f'model-{i + 1}.pt'))
