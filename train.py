@@ -33,13 +33,13 @@ ex = Experiment('Train a model to learn representations for MPE.')
 max_epochs = 1000
 
 # Number of iterations between checkpoints
-checkpoint_interval = 100
+checkpoint_interval = 50
 
 # Number of samples to gather for a batch
-batch_size = 8
+batch_size = 32
 
 # Fixed learning rate
-learning_rate = 1e-4
+learning_rate = 1e-3
 
 # ID of the gpu to use, if available
 gpu_id = 0
@@ -90,7 +90,7 @@ model = SAUNet(n_ch_in=n_channels,
                model_complexity=2).to(gpu_id)
 
 # Initialize an optimizer for the model parameters
-optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
 # Define the collection of augmentations to use when training for invariance
 invariance_transforms = Compose(
@@ -183,9 +183,10 @@ for i in range(max_epochs):
         # Increment the batch counter
         batch_count += 1
 
-        if batch_count % checkpoint_interval:
-            # TODO - quick and dirty visualization
-            print()
+        if batch_count % checkpoint_interval == 0:
+            # Log the input features and output salience for this batch
+            writer.add_image('train/vis/cqt', features[0, 1 : 2].flip(-2), batch_count)
+            writer.add_image('train/vis/salience', salience[0, 0:].flip(-2), batch_count)
 
     # Save the model checkpoint after each epoch is complete
     torch.save(model, os.path.join(log_dir, f'model-{i + 1}.pt'))
