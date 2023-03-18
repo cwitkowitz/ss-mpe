@@ -145,7 +145,7 @@ def compute_contrastive_loss(original_embeddings, augment_embeddings, temperatur
     return contrastive_loss
 
 
-def batch_translate(batch, shifts, dim=-1):
+def translate_batch(batch, shifts, dim=-1):
     # Determine the dimensionality of the batch
     dimensionality = batch.size()
 
@@ -176,12 +176,12 @@ def compute_translation_loss(model, original_features, original_activations, max
 
     with torch.no_grad():
         # Translate the features by the sampled number of bins
-        shifted_features = batch_translate(original_features, freq_shifts, -2)
-        shifted_features = batch_translate(shifted_features, time_shifts)
+        shifted_features = translate_batch(original_features, freq_shifts, -2)
+        shifted_features = translate_batch(shifted_features, time_shifts)
 
         # Translate the activations by the sampled number of bins
-        shifted_activations = batch_translate(original_activations, freq_shifts, -2)
-        shifted_activations = batch_translate(shifted_activations, time_shifts, -1)
+        shifted_activations = translate_batch(original_activations, freq_shifts, -2)
+        shifted_activations = translate_batch(shifted_activations, time_shifts, -1)
 
     # Process the shifted features with the model
     activations = torch.sigmoid(model(shifted_features))
