@@ -32,6 +32,7 @@ class SAUNet(nn.Module):
         # Layer normalization over frequency and channels (harmonics of HCQT)
         self.layernorm = nn.LayerNorm(normalized_shape=[n_ch_in, n_bins_in])
 
+        # TODO - these hyperparameters were originally intended for fs=22050
         self.initial_conv = DoubleConv(in_channels=n_ch_in,
                                        out_channels=n_ch_1,
                                        kernel_size=15,
@@ -107,6 +108,7 @@ class SAUNet(nn.Module):
         """
 
         # Normalize harmonic channels and frequency bins of HCQTs
+        # TODO - is this causing problems?
         hcqt = self.layernorm(hcqt.transpose(-1, -2).transpose(-2, -3)
                               ).transpose(-2, -3).transpose(-1, -2)
 

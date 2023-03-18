@@ -5,16 +5,41 @@ import torch.nn.functional as F
 import torch
 
 
+def compute_bce_reconstruction_loss(features, activations):
+    # Compute the reconstruction loss as BCE of activations with respect to features
+    reconstruction_loss = F.binary_cross_entropy(activations, torch.round(features), reduction='none')
+
+    # Sum across frequency bins and average across time and batch
+    reconstruction_loss = reconstruction_loss.sum(-2).mean(-1).mean(-1)
+
+    return reconstruction_loss
+
+
+def compute_mse_reconstruction_loss(features, activations):
+    # Compute the reconstruction loss as MSE between activations and features
+    reconstruction_loss = F.mse_loss(activations, features, reduction='none')
+
+    # Sum across frequency bins and average across time and batch
+    reconstruction_loss = reconstruction_loss.sum(-2).mean(-1).mean(-1)
+
+    return reconstruction_loss
+
+
 def compute_content_loss(features, activations):
     # TODO - might be OK if input audio contains silence
 
     # TODO - should scale with loudness of audio
 
-    # Compute magnitude difference between average energy across harmonics and salience
-    content_loss = torch.abs(torch.mean(features, dim=-3) - torch.mean(activations, dim=-3))
+    # Compute the total energy (averaged across channels) in each frame
+    # TODO - just first harmonic?
+    energy_features = torch.sum(torch.mean(features, dim=-3), dim=-2)
+    energy_activations = torch.sum(torch.mean(activations, dim=-3), dim=-2)
 
-    # Sum across frequency bins and average across time and batch
-    content_loss = content_loss.sum(-2).mean(-1).mean(-1)
+    # Compute magnitude difference between total energy of features and activations
+    content_loss = torch.abs(energy_features - energy_activations)
+
+    # Average loss across time and batch
+    content_loss = content_loss.mean(-1).mean(-1)
 
     return content_loss
 

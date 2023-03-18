@@ -1,7 +1,7 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from objectives import compute_content_loss, compute_linearity_loss, compute_timbre_invariance_loss, get_random_mixtures
+from objectives import *
 from utils import seed_everything
 from NSynth import NSynth
 from model import SAUNet
@@ -19,7 +19,7 @@ import torch
 import os
 
 
-EX_NAME = '_'.join(['Self-Supervised-Sandbox_invariance'])
+EX_NAME = '_'.join(['Sandbox'])
 
 ex = Experiment('Train a model to learn representations for MPE.')
 
@@ -68,6 +68,7 @@ nsynth = NSynth(base_dir=dataset_base_dir,
                 seed=seed)
 
 # Initialize the HCQT feature extraction module
+# TODO - verify this is resembling librosa for some weird looking samples
 hcqt = LHVQT(fs=16000,
              hop_length=512,
              n_bins=216,
@@ -133,6 +134,12 @@ for i in range(max_epochs):
         # Convert the logits to activations
         activations = torch.sigmoid(salience)
 
+        # Compute the reconstruction loss for this batch
+        reconstruction_loss = compute_bce_reconstruction_loss(features[:, 1], activations[:, 0])
+
+        # Log the reconstruction loss for this batch
+        writer.add_scalar('train/loss/reconstruction', reconstruction_loss, batch_count)
+
         # Compute the content loss for this batch
         content_loss = compute_content_loss(features, activations)
 
@@ -168,7 +175,7 @@ for i in range(max_epochs):
         """
 
         # Compute the total loss for this batch
-        loss = content_loss + linearity_loss #+ invariance_loss
+        loss = reconstruction_loss + 0 * content_loss + 0 * linearity_loss #+ invariance_loss
 
         # Log the total loss for this batch
         writer.add_scalar('train/loss/total', loss, batch_count)
