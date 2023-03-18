@@ -112,3 +112,31 @@ def normalize(_arr):
         arr = _arr / max
 
     return arr
+
+
+def decibels_to_linear(decibels, negative_infinity_dB=-80):
+    """
+    Convert a tensor of decibels values to a linear scale.
+
+    Parameters
+    ----------
+    decibels : np.ndarray or torch.tensor
+      Tensor of decibel values with a ceiling of 0
+    negative_infinity_dB : float
+      Decibel cutoff beyond which is considered negative infinity
+
+    Returns
+    ----------
+    gain : np.ndarray or torch.tensor
+      Tensor of values linearly-scaled between 0 and 1
+    """
+
+    # Make sure provided lower boundary is negative
+    negative_infinity_dB = -abs(negative_infinity_dB)
+
+    # Convert decibels to a gain between 0 and 1
+    gain = 10 ** (decibels / 20)
+    # Set gain of values below -∞ to 0
+    gain[decibels <= negative_infinity_dB] = 0
+
+    return gain

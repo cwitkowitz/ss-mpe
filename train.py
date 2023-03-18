@@ -1,11 +1,11 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from objectives import *
-from utils import seed_everything
 from NSynth import NSynth
 from model import SAUNet
 from lhvqt import LHVQT
+from objectives import *
+from utils import *
 
 # Regular imports
 from torch.utils.tensorboard import SummaryWriter
@@ -67,15 +67,6 @@ dataset_base_dir = os.path.join(os.path.expanduser('~'), 'Desktop', 'Datasets', 
 nsynth = NSynth(base_dir=dataset_base_dir,
                 seed=seed)
 
-# Initialize the HCQT feature extraction module
-# TODO - verify this is resembling librosa for some weird looking samples
-hcqt = LHVQT(fs=16000,
-             hop_length=512,
-             n_bins=216,
-             bins_per_octave=36,
-             update=False,
-             batch_norm=False).to(gpu_id)
-
 # Initialize a PyTorch dataloader for the data
 loader = DataLoader(dataset=nsynth,
                     batch_size=batch_size,
@@ -83,15 +74,27 @@ loader = DataLoader(dataset=nsynth,
                     num_workers=0,
                     drop_last=True)
 
-n_channels = len(hcqt.harmonics)
+# Define some input parameters
+n_bins = 216
+harmonics = [0.5, 1, 2, 3, 4, 5]
 
 # Initialize MPE representation learning model
-model = SAUNet(n_ch_in=n_channels,
-               n_bins_in=216,
+model = SAUNet(n_ch_in=len(harmonics),
+               n_bins_in=n_bins,
                model_complexity=2).to(gpu_id)
 
 # Initialize an optimizer for the model parameters
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+
+# Initialize the HCQT feature extraction module
+hcqt = LHVQT(fs=16000,
+             hop_length=512,
+             n_bins=n_bins,
+             bins_per_octave=36,
+             harmonics=harmonics,
+             db_to_prob=False,
+             update=False,
+             batch_norm=False).to(gpu_id)
 
 # Define the collection of augmentations to use when training for invariance
 invariance_transforms = Compose(
@@ -126,58 +129,7 @@ for i in range(max_epochs):
         audio = audio.unsqueeze(-2)
 
         # Obtain spectral features for the audio
-        features = hcqt(audio)
-
-        """
-        from librosa.display import specshow
-        import matplotlib.pyplot as plt
-        import librosa
-        import numpy as np
-
-        def cosine_similarity(a, b):
-            assert len(a.shape) == 2
-            assert a.shape == b.shape
-
-            # Compute the dot product of matrix a and b as if they were vectors
-            ab_dot = np.trace(np.dot(a.T, b))
-            # Compute the norms of each matrix
-            a_norm = np.linalg.norm(a)
-            b_norm = np.linalg.norm(b)
-
-            # Compute cosine similarity
-            cos_sim = ab_dot / (a_norm * b_norm)
-
-            return cos_sim
-
-        test_librosa = librosa.cqt(audio[:, 0].cpu().detach().numpy(),
-                                   sr=hcqt.tfs.lvqt2.fs,
-                                   hop_length=hcqt.tfs.lvqt2.hop_length,
-                                   fmin=hcqt.tfs.lvqt2.fmin,
-                                   n_bins=hcqt.tfs.lvqt2.n_bins,
-                                   bins_per_octave=hcqt.tfs.lvqt2.bins_per_octave)
-        test_librosa = 1 + librosa.amplitude_to_db(test_librosa, ref=np.max) / 80
-
-        fig, ((ax1, ax2)) = plt.subplots(2, 1)
-        plt.sca(ax1)
-        specshow(test_librosa[0],
-                 sr=hcqt.tfs.lvqt2.fs,
-                 hop_length=hcqt.tfs.lvqt2.hop_length,
-                 fmin=hcqt.tfs.lvqt2.fmin,
-                 bins_per_octave=hcqt.tfs.lvqt2.bins_per_octave,
-                 x_axis='time',
-                 y_axis='cqt_hz')
-        ax1.set_title('Librosa HCQT')
-        plt.sca(ax2)
-        specshow(features[0, 1].cpu().detach().numpy(),
-                 sr=hcqt.tfs.lvqt2.fs,
-                 hop_length=hcqt.tfs.lvqt2.hop_length,
-                 fmin=hcqt.tfs.lvqt2.fmin,
-                 bins_per_octave=hcqt.tfs.lvqt2.bins_per_octave,
-                 x_axis='time',
-                 y_axis='cqt_hz')
-        ax2.set_title(f'LHCQT')
-        plt.show(block=True)
-        """
+        features = decibels_to_linear(hcqt(audio))
 
         # Obtain an implicit salience map for the audio
         salience = model(features)
@@ -201,7 +153,7 @@ for i in range(max_epochs):
         mixtures = mixtures.unsqueeze(-2)
 
         # Obtain spectral features for the mixtures
-        mixture_features = hcqt(mixtures)
+        mixture_features = decibels_to_linear(hcqt(mixtures))
 
         # Obtain an implicit salience map for the mixtures
         mixture_salience = model(mixture_features)
