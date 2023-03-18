@@ -76,6 +76,7 @@ loader = DataLoader(dataset=nsynth,
 
 # Define some input parameters
 n_bins = 216
+sample_rate = 16000
 harmonics = [0.5, 1, 2, 3, 4, 5]
 
 # Initialize MPE representation learning model
@@ -87,7 +88,8 @@ model = SAUNet(n_ch_in=len(harmonics),
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
 # Initialize the HCQT feature extraction module
-hcqt = LHVQT(fs=16000,
+# TODO - need to make sure features for silence or near-silence are very tiny
+hcqt = LHVQT(fs=sample_rate,
              hop_length=512,
              n_bins=n_bins,
              bins_per_octave=36,
@@ -96,9 +98,10 @@ hcqt = LHVQT(fs=16000,
              update=False,
              batch_norm=False).to(gpu_id)
 
-# Define the collection of augmentations to use when training for invariance
-invariance_transforms = Compose(
+# Define the collection of augmentations to use for timbre invariance
+transforms = Compose(
     transforms=[
+        # TODO - add more augmentations
         PolarityInversion(p=0.5)
     ]
 )
@@ -119,66 +122,57 @@ for i in range(max_epochs):
         # Add the audio to the appropriate GPU
         audio = audio.to(gpu_id).float()
 
-        # TODO - perform augmentations on audio here
-
-        with torch.no_grad():
-            # Create random mixtures of the audio and keep track of mixing
-            mixtures, legend = get_random_mixtures(audio)
-
         # Add a channel dimension to the audio
         audio = audio.unsqueeze(-2)
 
-        # Obtain spectral features for the audio
-        features = decibels_to_linear(hcqt(audio))
+        with torch.no_grad():
+            # Feed the audio through the augmentation pipeline
+            augmentations = transforms(audio, sample_rate=sample_rate)
+            # Create random mixtures of the audio and keep track of mixing
+            # TODO should original audio or augmentations be mixed?
+            mixtures, legend = get_random_mixtures(audio)
 
-        # Obtain an implicit salience map for the audio
-        salience = model(features)
+        # Obtain spectral features
+        original_features = decibels_to_linear(hcqt(audio))
+        augment_features = decibels_to_linear(hcqt(augmentations))
+        mixture_features = decibels_to_linear(hcqt(mixtures))
 
-        # Convert the logits to activations
-        activations = torch.sigmoid(salience)
+        # Compute implicit pitch salience
+        original_salience = model(original_features)
+        augment_salience = model(augment_features)
+        mixture_salience = model(mixture_features)
 
-        # Compute the reconstruction loss for this batch
-        reconstruction_loss = compute_bce_reconstruction_loss(features[:, 1], activations[:, 0])
+        # Convert logits to activations
+        original_activations = torch.sigmoid(original_salience)
+        augment_activations = torch.sigmoid(augment_salience)
+        mixture_activations = torch.sigmoid(mixture_salience)
+
+        # Compute the reconstruction loss with respect to the first harmonic for this batch
+        reconstruction_loss = compute_reconstruction_loss(original_features[:, 1], original_activations[:, 0])
 
         # Log the reconstruction loss for this batch
         writer.add_scalar('train/loss/reconstruction', reconstruction_loss, batch_count)
 
         # Compute the content loss for this batch
-        content_loss = compute_content_loss(features, activations)
+        content_loss = compute_content_loss(original_features, original_activations)
 
         # Log the content loss for this batch
         writer.add_scalar('train/loss/content', content_loss, batch_count)
 
-        # Add a channel dimension to the mixtures
-        mixtures = mixtures.unsqueeze(-2)
-
-        # Obtain spectral features for the mixtures
-        mixture_features = decibels_to_linear(hcqt(mixtures))
-
-        # Obtain an implicit salience map for the mixtures
-        mixture_salience = model(mixture_features)
-
-        # Convert the logits to mixed activations
-        mixture_activations = torch.sigmoid(mixture_salience)
-
         # Compute the linearity loss for this batch
-        linearity_loss = compute_linearity_loss(activations, mixture_activations, legend)
+        linearity_loss = compute_linearity_loss(original_activations, mixture_activations, legend)
 
         # Log the linearity loss for this batch
         writer.add_scalar('train/loss/linearity', linearity_loss, batch_count)
 
-        """
-        # TODO - don't think contrastve loss should be computed on mixtures
-
         # Compute the invariance loss for this batch
-        invariance_loss = compute_timbre_invariance_loss(audio, model, invariance_transforms)
+        invariance_loss = compute_contrastive_loss(original_salience, augment_salience)
 
         # Log the invariance loss for this batch
         writer.add_scalar('train/loss/invariance', invariance_loss, batch_count)
-        """
 
         # Compute the total loss for this batch
-        loss = reconstruction_loss + 0 * content_loss + 0 * linearity_loss #+ invariance_loss
+        loss = 1 * reconstruction_loss + 1 * content_loss + 1 * linearity_loss + 1 * invariance_loss
 
         # Log the total loss for this batch
         writer.add_scalar('train/loss/total', loss, batch_count)
@@ -195,8 +189,8 @@ for i in range(max_epochs):
 
         if batch_count % checkpoint_interval == 0:
             # Log the input features and output salience for this batch
-            writer.add_image('train/vis/cqt', features[0, 1 : 2].flip(-2), batch_count)
-            writer.add_image('train/vis/salience', salience[0, 0:].flip(-2), batch_count)
+            writer.add_image('train/vis/cqt', original_features[0, 1 : 2].flip(-2), batch_count)
+            writer.add_image('train/vis/salience', original_salience[0, 0:].flip(-2), batch_count)
 
     # Save the model checkpoint after each epoch is complete
     torch.save(model, os.path.join(log_dir, f'model-{i + 1}.pt'))

@@ -5,19 +5,9 @@ import torch.nn.functional as F
 import torch
 
 
-def compute_bce_reconstruction_loss(features, activations):
+def compute_reconstruction_loss(features, activations):
     # Compute the reconstruction loss as BCE of activations with respect to features
-    reconstruction_loss = F.binary_cross_entropy(activations, torch.round(features), reduction='none')
-
-    # Sum across frequency bins and average across time and batch
-    reconstruction_loss = reconstruction_loss.sum(-2).mean(-1).mean(-1)
-
-    return reconstruction_loss
-
-
-def compute_mse_reconstruction_loss(features, activations):
-    # Compute the reconstruction loss as MSE between activations and features
-    reconstruction_loss = F.mse_loss(activations, features, reduction='none')
+    reconstruction_loss = F.binary_cross_entropy(activations, features, reduction='none')
 
     # Sum across frequency bins and average across time and batch
     reconstruction_loss = reconstruction_loss.sum(-2).mean(-1).mean(-1)
@@ -26,12 +16,9 @@ def compute_mse_reconstruction_loss(features, activations):
 
 
 def compute_content_loss(features, activations):
-    # TODO - might be OK if input audio contains silence
-
-    # TODO - should scale with loudness of audio
+    # TODO - can likely intelligently combine content/reconstruction loss
 
     # Compute the total energy (averaged across channels) in each frame
-    # TODO - just first harmonic?
     energy_features = torch.sum(torch.mean(features, dim=-3), dim=-2)
     energy_activations = torch.sum(torch.mean(activations, dim=-3), dim=-2)
 
@@ -45,8 +32,14 @@ def compute_content_loss(features, activations):
 
 
 def get_random_mixtures(audio, p=0.8):
+    # Keep track of the original dimensionality of the audio
+    dimensionality = audio.size()
+
+    # Collapse the channel dimension if it exists
+    audio = audio.squeeze()
+
     # Determine the amount of tracks in the batch
-    N = audio.size(0)
+    N = dimensionality[0]
 
     # Randomly sample a matrix for mixing
     legend = torch.rand((N, N), device=audio.device)
@@ -67,6 +60,9 @@ def get_random_mixtures(audio, p=0.8):
     # Apply the mixture weights
     mixtures /= n_mix
 
+    # Restore the original dimensionality
+    mixtures = mixtures.view(dimensionality)
+
     return mixtures, legend
 
 
@@ -79,7 +75,6 @@ def compute_linearity_loss(activations, mixture_activations, legend):
                                        torch.round(activations).flatten(-3))
 
     # Ignore overlapping activations and restore dimensionality
-    # TODO - make sure this will work for combinations of the same pitch
     pseudo_ground_truth = torch.clip(pseudo_ground_truth, max=1).view(dimensionality)
 
     # Compute BCE loss to push activations of mixture toward linear combination of individual activations
@@ -91,30 +86,26 @@ def compute_linearity_loss(activations, mixture_activations, legend):
     return linearity_loss
 
 
-def compute_contrastive_loss(originals, augmentations, temperature=0.07):
-    # SimCLR
-
-    # TODO - more than one augmentation?
-
-    assert originals.shape == augmentations.shape
+def compute_contrastive_loss(original_embeddings, augment_embeddings, temperature=0.07):
+    # TODO - support for more than one augmentation?
 
     # Determine which device to use for processing
-    device = originals.device
+    device = original_embeddings.device
 
     # Keep track of original dimensionality
-    B, T, E = originals.shape
+    B, T, E = original_embeddings.shape
 
     # Concatenate both sets of embeddings along the batch dimension
-    embeddings = torch.cat((originals, augmentations), dim=0)
+    all_embeddings = torch.cat((original_embeddings, augment_embeddings), dim=0)
 
     # Normalize both sets of embeddings
-    embeddings = F.normalize(embeddings, dim=-1)
+    all_embeddings = F.normalize(all_embeddings, dim=-1)
 
     # Switch the batch and frame dimensions for the embeddings
-    embeddings = embeddings.transpose(0, 1)
+    all_embeddings = all_embeddings.transpose(0, 1)
 
     # Compute cosine similarity between every embedding across each frame
-    similarities = torch.bmm(embeddings, embeddings.transpose(-1, -2))
+    similarities = torch.bmm(all_embeddings, all_embeddings.transpose(-1, -2))
 
     # Construct a matrix indicating same-sample membership for each embedding
     labels = (torch.eye(2 * B) + torch.eye(2 * B).roll(B, dims=-1)).to(device)
@@ -152,18 +143,6 @@ def compute_contrastive_loss(originals, augmentations, temperature=0.07):
     return contrastive_loss
 
 
-def compute_timbre_invariance_loss(audio, model, transforms):
-    original_embeddings = model(audio)
-
-    transformed_audio = transforms(audio.unsqueeze(1), sample_rate=16000).squeeze(1)
-
-    transformed_embeddings = model(transformed_audio)
-
-    invariance_loss = compute_contrastive_loss(original_embeddings, transformed_embeddings)
-
-    return invariance_loss
-
-
-def compute_shift_invariance_loss():
+def compute_translation_loss():
     # TODO
     pass
