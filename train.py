@@ -128,6 +128,57 @@ for i in range(max_epochs):
         # Obtain spectral features for the audio
         features = hcqt(audio)
 
+        """
+        from librosa.display import specshow
+        import matplotlib.pyplot as plt
+        import librosa
+        import numpy as np
+
+        def cosine_similarity(a, b):
+            assert len(a.shape) == 2
+            assert a.shape == b.shape
+
+            # Compute the dot product of matrix a and b as if they were vectors
+            ab_dot = np.trace(np.dot(a.T, b))
+            # Compute the norms of each matrix
+            a_norm = np.linalg.norm(a)
+            b_norm = np.linalg.norm(b)
+
+            # Compute cosine similarity
+            cos_sim = ab_dot / (a_norm * b_norm)
+
+            return cos_sim
+
+        test_librosa = librosa.cqt(audio[:, 0].cpu().detach().numpy(),
+                                   sr=hcqt.tfs.lvqt2.fs,
+                                   hop_length=hcqt.tfs.lvqt2.hop_length,
+                                   fmin=hcqt.tfs.lvqt2.fmin,
+                                   n_bins=hcqt.tfs.lvqt2.n_bins,
+                                   bins_per_octave=hcqt.tfs.lvqt2.bins_per_octave)
+        test_librosa = 1 + librosa.amplitude_to_db(test_librosa, ref=np.max) / 80
+
+        fig, ((ax1, ax2)) = plt.subplots(2, 1)
+        plt.sca(ax1)
+        specshow(test_librosa[0],
+                 sr=hcqt.tfs.lvqt2.fs,
+                 hop_length=hcqt.tfs.lvqt2.hop_length,
+                 fmin=hcqt.tfs.lvqt2.fmin,
+                 bins_per_octave=hcqt.tfs.lvqt2.bins_per_octave,
+                 x_axis='time',
+                 y_axis='cqt_hz')
+        ax1.set_title('Librosa HCQT')
+        plt.sca(ax2)
+        specshow(features[0, 1].cpu().detach().numpy(),
+                 sr=hcqt.tfs.lvqt2.fs,
+                 hop_length=hcqt.tfs.lvqt2.hop_length,
+                 fmin=hcqt.tfs.lvqt2.fmin,
+                 bins_per_octave=hcqt.tfs.lvqt2.bins_per_octave,
+                 x_axis='time',
+                 y_axis='cqt_hz')
+        ax2.set_title(f'LHCQT')
+        plt.show(block=True)
+        """
+
         # Obtain an implicit salience map for the audio
         salience = model(features)
 
