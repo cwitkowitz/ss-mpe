@@ -146,10 +146,22 @@ def compute_contrastive_loss(original_embeddings, augment_embeddings, temperatur
 
 
 def batch_translate(batch, shifts, dim=-1):
-    # Roll each sample in the batch independently and reconstruct the tensor
-    rolled_batch = torch.cat([x.unsqueeze(0).roll(shifts[i].item(), dim) for i, x in enumerate(batch)])
+    # Determine the dimensionality of the batch
+    dimensionality = batch.size()
 
-    return rolled_batch
+    # Create a tensor of zeros to help with translation
+    zeros = torch.zeros(dimensionality, device=batch.device)
+
+    # Combine the original tensor with the zeros
+    rolled_batch = torch.cat([batch, zeros], dim=dim)
+
+    # Roll each sample in the batch independently and reconstruct the tensor
+    rolled_batch = torch.cat([x.unsqueeze(0).roll(i, dim) for x, i in zip(rolled_batch, shifts)])
+
+    # Trim the rolled tensor to its original dimensionality
+    translated_batch = rolled_batch.narrow(dim, 0, dimensionality[dim])
+
+    return translated_batch
 
 
 def compute_translation_loss(model, original_features, original_activations, max_freq_shift=12, max_time_shift=10, seed=None):
@@ -159,8 +171,8 @@ def compute_translation_loss(model, original_features, original_activations, max
     # TODO - random seed
 
     # Sample a random frequency and time shift for each sample in the batch
-    freq_shifts = torch.randint(low=-max_freq_shift, high=max_freq_shift + 1, size=(B,))
-    time_shifts = torch.randint(low=-max_time_shift, high=max_time_shift + 1, size=(B,))
+    freq_shifts = torch.randint(low=-max_freq_shift, high=max_freq_shift + 1, size=(B,)).tolist()
+    time_shifts = torch.randint(low=-max_time_shift, high=max_time_shift + 1, size=(B,)).tolist()
 
     with torch.no_grad():
         # Translate the features by the sampled number of bins
