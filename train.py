@@ -129,7 +129,6 @@ for i in range(max_epochs):
             # Feed the audio through the augmentation pipeline
             augmentations = transforms(audio, sample_rate=sample_rate)
             # Create random mixtures of the audio and keep track of mixing
-            # TODO should original audio or augmentations be mixed?
             mixtures, legend = get_random_mixtures(audio)
 
         # Obtain spectral features
@@ -146,6 +145,8 @@ for i in range(max_epochs):
         original_activations = torch.sigmoid(original_salience)
         augment_activations = torch.sigmoid(augment_salience)
         mixture_activations = torch.sigmoid(mixture_salience)
+
+        # TODO - some of the following losses can be applied to more than one (originals|augmentations|mixtures)
 
         # Compute the reconstruction loss with respect to the first harmonic for this batch
         reconstruction_loss = compute_reconstruction_loss(original_features[:, 1], original_activations[:, 0])
@@ -166,13 +167,19 @@ for i in range(max_epochs):
         writer.add_scalar('train/loss/linearity', linearity_loss, batch_count)
 
         # Compute the invariance loss for this batch
-        invariance_loss = compute_contrastive_loss(original_salience, augment_salience)
+        invariance_loss = compute_contrastive_loss(original_salience.squeeze(), augment_salience.squeeze())
 
         # Log the invariance loss for this batch
         writer.add_scalar('train/loss/invariance', invariance_loss, batch_count)
 
+        # Compute the translation loss for this batch
+        translation_loss = compute_translation_loss(model, original_features, original_activations)
+
+        # Log the translation loss for this batch
+        writer.add_scalar('train/loss/translation', translation_loss, batch_count)
+
         # Compute the total loss for this batch
-        loss = 1 * reconstruction_loss + 1 * content_loss + 1 * linearity_loss + 1 * invariance_loss
+        loss = 1 * reconstruction_loss + 1 * content_loss + 1 * linearity_loss + 1 * invariance_loss + 1 * translation
 
         # Log the total loss for this batch
         writer.add_scalar('train/loss/total', loss, batch_count)

@@ -31,7 +31,7 @@ def compute_content_loss(features, activations):
     return content_loss
 
 
-def get_random_mixtures(audio, p=0.8):
+def get_random_mixtures(audio, p=0.8, seed=None):
     # Keep track of the original dimensionality of the audio
     dimensionality = audio.size()
 
@@ -40,6 +40,8 @@ def get_random_mixtures(audio, p=0.8):
 
     # Determine the amount of tracks in the batch
     N = dimensionality[0]
+
+    # TODO - random seed
 
     # Randomly sample a matrix for mixing
     legend = torch.rand((N, N), device=audio.device)
@@ -143,6 +145,39 @@ def compute_contrastive_loss(original_embeddings, augment_embeddings, temperatur
     return contrastive_loss
 
 
-def compute_translation_loss():
-    # TODO
-    pass
+def batch_translate(batch, shifts, dim=-1):
+    # Roll each sample in the batch independently and reconstruct the tensor
+    rolled_batch = torch.cat([x.unsqueeze(0).roll(shifts[i].item(), dim) for i, x in enumerate(batch)])
+
+    return rolled_batch
+
+
+def compute_translation_loss(model, original_features, original_activations, max_freq_shift=12, max_time_shift=10, seed=None):
+    # Determine the number of samples in the batch
+    B = original_features.size(0)
+
+    # TODO - random seed
+
+    # Sample a random frequency and time shift for each sample in the batch
+    freq_shifts = torch.randint(low=-max_freq_shift, high=max_freq_shift + 1, size=(B,))
+    time_shifts = torch.randint(low=-max_time_shift, high=max_time_shift + 1, size=(B,))
+
+    with torch.no_grad():
+        # Translate the features by the sampled number of bins
+        shifted_features = batch_translate(original_features, freq_shifts, -2)
+        shifted_features = batch_translate(shifted_features, time_shifts)
+
+        # Translate the activations by the sampled number of bins
+        shifted_activations = batch_translate(original_activations, freq_shifts, -2)
+        shifted_activations = batch_translate(shifted_activations, time_shifts, -1)
+
+    # Process the shifted features with the model
+    activations = torch.sigmoid(model(shifted_features))
+
+    # Compute BCE loss to push computed activations toward shifted activations
+    translation_loss = F.binary_cross_entropy(activations, shifted_activations, reduction='none')
+
+    # Sum across frequency bins and average across time and batch
+    translation_loss = translation_loss.sum(-2).mean(-1).mean()
+
+    return translation_loss
