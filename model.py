@@ -109,7 +109,6 @@ class SAUNet(nn.Module):
         """
 
         # Normalize harmonic channels and frequency bins of HCQTs
-        # TODO - is this causing problems?
         hcqt = self.layernorm(hcqt.transpose(-1, -2).transpose(-2, -3)
                               ).transpose(-2, -3).transpose(-1, -2)
 

@@ -135,12 +135,12 @@ for i in range(max_epochs):
         # Obtain spectral features
         original_features = decibels_to_linear(hcqt(audio))
         #augment_features = decibels_to_linear(hcqt(augmentations))
-        #mixture_features = decibels_to_linear(hcqt(mixtures))
+        mixture_features = decibels_to_linear(hcqt(mixtures))
 
         # Compute pitch salience embeddings
-        original_embeddings = model(original_features)
-        #augment_embeddings = model(augment_features)
-        #mixture_embeddings = model(mixture_features)
+        original_embeddings = model(original_features).squeeze()
+        #augment_embeddings = model(augment_features).squeeze()
+        mixture_embeddings = model(mixture_features).squeeze()
 
         # Convert logits to activations (implicit pitch salience)
         original_salience = torch.sigmoid(original_embeddings)
@@ -150,12 +150,11 @@ for i in range(max_epochs):
         # TODO - some of the following losses can be applied to more than one (originals|augmentations|mixtures)
 
         # Compute the reconstruction loss with respect to the first harmonic for this batch
-        reconstruction_loss = compute_reconstruction_loss(original_embeddings[:, 0], original_features[:, 1])
+        reconstruction_loss = compute_reconstruction_loss(original_embeddings, original_features[:, 1])
 
         # Log the reconstruction loss for this batch
         writer.add_scalar('train/loss/reconstruction', reconstruction_loss, batch_count)
 
-        """
         # Compute the content loss for this batch
         content_loss = compute_content_loss(original_features, original_salience)
 
@@ -163,13 +162,14 @@ for i in range(max_epochs):
         writer.add_scalar('train/loss/content', content_loss, batch_count)
 
         # Compute the linearity loss for this batch
-        linearity_loss = compute_linearity_loss(original_salience, mixture_salience, legend)
+        linearity_loss = compute_linearity_loss(mixture_embeddings, original_salience, legend)
 
         # Log the linearity loss for this batch
         writer.add_scalar('train/loss/linearity', linearity_loss, batch_count)
 
+        """
         # Compute the invariance loss for this batch
-        invariance_loss = compute_contrastive_loss(original_embeddings.squeeze(), augment_embeddings.squeeze())
+        invariance_loss = compute_contrastive_loss(original_embeddings, augment_embeddings)
 
         # Log the invariance loss for this batch
         writer.add_scalar('train/loss/invariance', invariance_loss, batch_count)
@@ -182,7 +182,7 @@ for i in range(max_epochs):
         """
 
         # Compute the total loss for this batch
-        loss = 1 * reconstruction_loss# + 0 * content_loss + 0 * linearity_loss + 0 * invariance_loss + 0 * translation_loss
+        loss = 0 * reconstruction_loss + 1 * content_loss + 1 * linearity_loss #+ 0 * invariance_loss + 0 * translation_loss
 
         # Log the total loss for this batch
         writer.add_scalar('train/loss/total', loss, batch_count)
@@ -200,7 +200,7 @@ for i in range(max_epochs):
         if batch_count % checkpoint_interval == 0:
             # Log the input features and output salience for this batch
             writer.add_image('train/vis/cqt', original_features[0, 1 : 2].flip(-2), batch_count)
-            writer.add_image('train/vis/salience', original_salience[0, 0:].flip(-2), batch_count)
+            writer.add_image('train/vis/salience', original_salience[0].unsqueeze(0).flip(-2), batch_count)
 
     # Save the model checkpoint after each epoch is complete
     torch.save(model, os.path.join(log_dir, f'model-{i + 1}.pt'))

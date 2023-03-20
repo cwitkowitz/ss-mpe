@@ -5,9 +5,6 @@ import torch.nn.functional as F
 import torch
 
 
-# TODO - should I be using BCE_w_logits?
-
-
 def compute_reconstruction_loss(embeddings, features):
     # Compute the reconstruction loss as BCE of activations with respect to features
     reconstruction_loss = F.binary_cross_entropy_with_logits(embeddings, features, reduction='none')
@@ -18,12 +15,11 @@ def compute_reconstruction_loss(embeddings, features):
     return reconstruction_loss
 
 
+# TODO - can likely intelligently combine content/reconstruction loss
 def compute_content_loss(features, activations):
-    # TODO - can likely intelligently combine content/reconstruction loss
-
     # Compute the total energy (averaged across channels) in each frame
     energy_features = torch.sum(torch.mean(features, dim=-3), dim=-2)
-    energy_activations = torch.sum(torch.mean(activations, dim=-3), dim=-2)
+    energy_activations = torch.sum(activations, dim=-2)
 
     # Compute magnitude difference between total energy of features and activations
     content_loss = torch.abs(energy_features - energy_activations)
@@ -71,29 +67,27 @@ def get_random_mixtures(audio, p=0.8, seed=None):
     return mixtures, legend
 
 
-def compute_linearity_loss(activations, mixture_activations, legend):
+def compute_linearity_loss(mixture_embeddings, activations, legend):
     # Keep track of original dimensionality
     dimensionality = activations.size()
 
     # Superimpose thresholded activations for mixture targets
-    pseudo_ground_truth = torch.matmul(torch.ceil(legend),
-                                       torch.round(activations).flatten(-3))
+    pseudo_ground_truth = torch.matmul(torch.ceil(legend), activations.flatten(-2))
 
     # Ignore overlapping activations and restore dimensionality
     pseudo_ground_truth = torch.clip(pseudo_ground_truth, max=1).view(dimensionality)
 
     # Compute BCE loss to push activations of mixture toward linear combination of individual activations
-    linearity_loss = F.binary_cross_entropy(mixture_activations, pseudo_ground_truth, reduction='none')
+    linearity_loss = F.binary_cross_entropy_with_logits(mixture_embeddings, pseudo_ground_truth, reduction='none')
 
     # Sum across frequency bins and average across time and batch
-    linearity_loss = linearity_loss.sum(-2).mean(-1).mean()
+    linearity_loss = linearity_loss.sum(-2).mean(-1).mean(-1)
 
     return linearity_loss
 
 
+# TODO - support for more than one augmentation?
 def compute_contrastive_loss(original_embeddings, augment_embeddings, temperature=0.07):
-    # TODO - support for more than one augmentation?
-
     # Determine which device to use for processing
     device = original_embeddings.device
 
