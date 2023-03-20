@@ -136,8 +136,8 @@ def compute_contrastive_loss(original_embeddings, augment_embeddings, temperatur
     # Restore the original dimensions to the computed losses
     contrastive_loss = contrastive_loss.view(T, 2 * B).t()
 
-    # Average the loss across frames and then across the batch
-    contrastive_loss = contrastive_loss.mean(-1).mean(-1)
+    # Sum the loss across embeddings and then average across frames
+    contrastive_loss = contrastive_loss.sum(0).mean(-1)
 
     return contrastive_loss
 

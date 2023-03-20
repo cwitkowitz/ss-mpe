@@ -24,7 +24,6 @@ EX_NAME = '_'.join(['Sandbox'])
 ex = Experiment('Train a model to learn representations for MPE.')
 
 # TODO - leverage amt-tools or keep as standalone?
-# TODO - try using apex for faster training?
 
 
 #@ex.config
@@ -131,15 +130,16 @@ for i in range(max_epochs):
             # Create random mixtures of the audio and keep track of mixing
             mixtures, legend = get_random_mixtures(audio)
 
+        # TODO - mixed precision (amp/apex) for speedup?
         #with torch.autocast(device_type=f'cuda'):
         # Obtain spectral features
         original_features = decibels_to_linear(hcqt(audio))
-        #augment_features = decibels_to_linear(hcqt(augmentations))
+        augment_features = decibels_to_linear(hcqt(augmentations))
         mixture_features = decibels_to_linear(hcqt(mixtures))
 
         # Compute pitch salience embeddings
         original_embeddings = model(original_features).squeeze()
-        #augment_embeddings = model(augment_features).squeeze()
+        augment_embeddings = model(augment_features).squeeze()
         mixture_embeddings = model(mixture_features).squeeze()
 
         # Convert logits to activations (implicit pitch salience)
@@ -167,13 +167,13 @@ for i in range(max_epochs):
         # Log the linearity loss for this batch
         writer.add_scalar('train/loss/linearity', linearity_loss, batch_count)
 
-        """
         # Compute the invariance loss for this batch
-        invariance_loss = compute_contrastive_loss(original_embeddings, augment_embeddings)
+        invariance_loss = compute_contrastive_loss(original_embeddings.transpose(-1, -2), augment_embeddings.transpose(-1, -2))
 
         # Log the invariance loss for this batch
         writer.add_scalar('train/loss/invariance', invariance_loss, batch_count)
 
+        """
         # Compute the translation loss for this batch
         translation_loss = compute_translation_loss(model, original_features, original_salience)
 
@@ -182,7 +182,7 @@ for i in range(max_epochs):
         """
 
         # Compute the total loss for this batch
-        loss = 0 * reconstruction_loss + 1 * content_loss + 1 * linearity_loss #+ 0 * invariance_loss + 0 * translation_loss
+        loss = 0 * reconstruction_loss + 1 * content_loss + 1 * linearity_loss + 1 * invariance_loss #+ 0 * translation_loss
 
         # Log the total loss for this batch
         writer.add_scalar('train/loss/total', loss, batch_count)
