@@ -16,10 +16,10 @@ def compute_reconstruction_loss(embeddings, features):
 
 
 # TODO - can likely intelligently combine content/reconstruction loss
-def compute_content_loss(features, activations):
+def compute_content_loss(activations, features):
     # Compute the total energy (averaged across channels) in each frame
-    energy_features = torch.sum(torch.mean(features, dim=-3), dim=-2)
     energy_activations = torch.sum(activations, dim=-2)
+    energy_features = torch.sum(torch.mean(features, dim=-3), dim=-2)
 
     # Compute magnitude difference between total energy of features and activations
     content_loss = torch.abs(energy_features - energy_activations)
@@ -142,15 +142,13 @@ def compute_contrastive_loss(original_embeddings, augment_embeddings, temperatur
     return contrastive_loss
 
 
+# TODO - can this function be sped up?
 def translate_batch(batch, shifts, dim=-1):
     # Determine the dimensionality of the batch
     dimensionality = batch.size()
 
-    # Create a tensor of zeros to help with translation
-    zeros = torch.zeros(dimensionality, device=batch.device)
-
-    # Combine the original tensor with the zeros
-    rolled_batch = torch.cat([batch, zeros], dim=dim)
+    # Combine the original tensor with tensor filled with zeros such that no wrapping will occur
+    rolled_batch = torch.cat([batch, torch.zeros(dimensionality, device=batch.device)], dim=dim)
 
     # Roll each sample in the batch independently and reconstruct the tensor
     rolled_batch = torch.cat([x.unsqueeze(0).roll(i, dim) for x, i in zip(rolled_batch, shifts)])
@@ -161,32 +159,32 @@ def translate_batch(batch, shifts, dim=-1):
     return translated_batch
 
 
-def compute_translation_loss(model, original_features, original_activations, max_freq_shift=12, max_time_shift=10, seed=None):
+def compute_translation_loss(model, features, activations, max_fs=12, max_ts=10, seed=None):
     # Determine the number of samples in the batch
-    B = original_features.size(0)
+    B = features.size(0)
 
     # TODO - random seed
 
     # Sample a random frequency and time shift for each sample in the batch
-    freq_shifts = torch.randint(low=-max_freq_shift, high=max_freq_shift + 1, size=(B,)).tolist()
-    time_shifts = torch.randint(low=-max_time_shift, high=max_time_shift + 1, size=(B,)).tolist()
+    freq_shifts = torch.randint(low=-max_fs, high=max_fs + 1, size=(B,)).tolist()
+    time_shifts = torch.randint(low=-max_ts, high=max_ts + 1, size=(B,)).tolist()
 
     with torch.no_grad():
         # Translate the features by the sampled number of bins
-        shifted_features = translate_batch(original_features, freq_shifts, -2)
+        shifted_features = translate_batch(features, freq_shifts, -2)
         shifted_features = translate_batch(shifted_features, time_shifts)
 
         # Translate the activations by the sampled number of bins
-        shifted_activations = translate_batch(original_activations, freq_shifts, -2)
+        shifted_activations = translate_batch(activations, freq_shifts, -2)
         shifted_activations = translate_batch(shifted_activations, time_shifts, -1)
 
     # Process the shifted features with the model
-    activations = torch.sigmoid(model(shifted_features))
+    embeddings = model(shifted_features).squeeze()
 
     # Compute BCE loss to push computed activations toward shifted activations
-    translation_loss = F.binary_cross_entropy(activations, shifted_activations, reduction='none')
+    translation_loss = F.binary_cross_entropy_with_logits(embeddings, shifted_activations, reduction='none')
 
     # Sum across frequency bins and average across time and batch
-    translation_loss = translation_loss.sum(-2).mean(-1).mean()
+    translation_loss = translation_loss.sum(-2).mean(-1).mean(-1)
 
     return translation_loss

@@ -156,7 +156,7 @@ for i in range(max_epochs):
         writer.add_scalar('train/loss/reconstruction', reconstruction_loss, batch_count)
 
         # Compute the content loss for this batch
-        content_loss = compute_content_loss(original_features, original_salience)
+        content_loss = compute_content_loss(original_salience, original_features)
 
         # Log the content loss for this batch
         writer.add_scalar('train/loss/content', content_loss, batch_count)
@@ -173,16 +173,14 @@ for i in range(max_epochs):
         # Log the invariance loss for this batch
         writer.add_scalar('train/loss/invariance', invariance_loss, batch_count)
 
-        """
         # Compute the translation loss for this batch
         translation_loss = compute_translation_loss(model, original_features, original_salience)
 
         # Log the translation loss for this batch
         writer.add_scalar('train/loss/translation', translation_loss, batch_count)
-        """
 
         # Compute the total loss for this batch
-        loss = 0 * reconstruction_loss + 1 * content_loss + 1 * linearity_loss + 1 * invariance_loss #+ 0 * translation_loss
+        loss = 1 * content_loss + 1 * linearity_loss + 1 * invariance_loss + 1 * translation_loss + 0 * reconstruction_loss
 
         # Log the total loss for this batch
         writer.add_scalar('train/loss/total', loss, batch_count)
