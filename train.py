@@ -2,10 +2,12 @@
 
 # My imports
 from NSynth import NSynth
+from Bach10 import Bach10
 from model import SAUNet
 from lhvqt import LHVQT
 from objectives import *
 from utils import *
+from evaluate import evaluate
 
 # Regular imports
 from torch.utils.tensorboard import SummaryWriter
@@ -19,7 +21,7 @@ import torch
 import os
 
 
-EX_NAME = '_'.join(['Sandbox'])
+EX_NAME = '_'.join(['TestEval'])
 
 ex = Experiment('Train a model to learn representations for MPE.')
 
@@ -60,11 +62,17 @@ ex.observers.append(FileStorageObserver(root_dir))
 seed_everything(seed)
 
 # Construct the path pointing to the NSynth dataset
-dataset_base_dir = os.path.join(os.path.expanduser('~'), 'Desktop', 'Datasets', 'NSynth')
+nsynth_base_dir = os.path.join(os.path.expanduser('~'), 'Desktop', 'Datasets', 'NSynth')
 
 # Instantiate a view on the NSynth data
-nsynth = NSynth(base_dir=dataset_base_dir,
+nsynth = NSynth(base_dir=nsynth_base_dir,
                 seed=seed)
+
+# Construct the path pointing to the Bach10 dataset
+bach10_base_dir = os.path.join(os.path.expanduser('~'), 'Desktop', 'Datasets', 'Bach10')
+
+# Instantiate a view on the Bach10 data
+bach10 = Bach10(base_dir=bach10_base_dir)
 
 # Initialize a PyTorch dataloader for the data
 loader = DataLoader(dataset=nsynth,
@@ -88,6 +96,7 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
 # Initialize the HCQT feature extraction module
 # TODO - need to make sure features for silence or near-silence are very tiny
+#        should be fine if features are computed at the signal level
 hcqt = LHVQT(fs=sample_rate,
              hop_length=512,
              n_bins=n_bins,
@@ -196,6 +205,7 @@ for i in range(max_epochs):
         batch_count += 1
 
         if batch_count % checkpoint_interval == 0:
+            evaluate(model, hcqt, bach10, writer)
             # Log the input features and output salience for this batch
             writer.add_image('train/vis/cqt', original_features[0, 1 : 2].flip(-2), batch_count)
             writer.add_image('train/vis/salience', original_salience[0].unsqueeze(0).flip(-2), batch_count)
