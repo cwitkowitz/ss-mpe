@@ -5,9 +5,12 @@ import torch.nn.functional as F
 import torch
 
 
-def compute_reconstruction_loss(features, activations):
+# TODO - should I be using BCE_w_logits?
+
+
+def compute_reconstruction_loss(embeddings, features):
     # Compute the reconstruction loss as BCE of activations with respect to features
-    reconstruction_loss = F.binary_cross_entropy(activations, features, reduction='none')
+    reconstruction_loss = F.binary_cross_entropy_with_logits(embeddings, features, reduction='none')
 
     # Sum across frequency bins and average across time and batch
     reconstruction_loss = reconstruction_loss.sum(-2).mean(-1).mean(-1)

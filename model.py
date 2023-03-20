@@ -100,7 +100,8 @@ class SAUNet(nn.Module):
                                     mid_channels=n_ch_1,
                                     out_channels=1,
                                     kernel_size=15,
-                                    padding=7)
+                                    padding=7,
+                                    final_layer=True)
 
     def forward(self, hcqt):
         """
@@ -147,7 +148,7 @@ class DoubleConv(nn.Module):
     TODO
     """
 
-    def __init__(self, in_channels, out_channels, mid_channels=None, kernel_size=3, padding=1):
+    def __init__(self, in_channels, out_channels, mid_channels=None, kernel_size=3, padding=1, final_layer=False):
         """
         TODO
         """
@@ -161,10 +162,12 @@ class DoubleConv(nn.Module):
             nn.Conv2d(in_channels, mid_channels, kernel_size=kernel_size, padding=padding),
             nn.BatchNorm2d(mid_channels),
             nn.ReLU(inplace=True),
-            nn.Conv2d(mid_channels, out_channels, kernel_size=kernel_size, padding=padding),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True)
+            nn.Conv2d(mid_channels, out_channels, kernel_size=kernel_size, padding=padding)
         )
+
+        if not final_layer:
+            self.conv_block.append(nn.BatchNorm2d(out_channels))
+            self.conv_block.append(nn.ReLU(inplace=True))
 
     def forward(self, features):
         """

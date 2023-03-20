@@ -82,7 +82,7 @@ harmonics = [0.5, 1, 2, 3, 4, 5]
 # Initialize MPE representation learning model
 model = SAUNet(n_ch_in=len(harmonics),
                n_bins_in=n_bins,
-               model_complexity=2).to(gpu_id)
+               model_complexity=1).to(gpu_id)
 
 # Initialize an optimizer for the model parameters
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
@@ -131,55 +131,58 @@ for i in range(max_epochs):
             # Create random mixtures of the audio and keep track of mixing
             mixtures, legend = get_random_mixtures(audio)
 
+        #with torch.autocast(device_type=f'cuda'):
         # Obtain spectral features
         original_features = decibels_to_linear(hcqt(audio))
-        augment_features = decibels_to_linear(hcqt(augmentations))
-        mixture_features = decibels_to_linear(hcqt(mixtures))
+        #augment_features = decibels_to_linear(hcqt(augmentations))
+        #mixture_features = decibels_to_linear(hcqt(mixtures))
 
-        # Compute implicit pitch salience
-        original_salience = model(original_features)
-        augment_salience = model(augment_features)
-        mixture_salience = model(mixture_features)
+        # Compute pitch salience embeddings
+        original_embeddings = model(original_features)
+        #augment_embeddings = model(augment_features)
+        #mixture_embeddings = model(mixture_features)
 
-        # Convert logits to activations
-        original_activations = torch.sigmoid(original_salience)
-        augment_activations = torch.sigmoid(augment_salience)
-        mixture_activations = torch.sigmoid(mixture_salience)
+        # Convert logits to activations (implicit pitch salience)
+        original_salience = torch.sigmoid(original_embeddings)
+        #augment_salience = torch.sigmoid(augment_embeddings)
+        #mixture_salience = torch.sigmoid(mixture_embeddings)
 
         # TODO - some of the following losses can be applied to more than one (originals|augmentations|mixtures)
 
         # Compute the reconstruction loss with respect to the first harmonic for this batch
-        reconstruction_loss = compute_reconstruction_loss(original_features[:, 1], original_activations[:, 0])
+        reconstruction_loss = compute_reconstruction_loss(original_embeddings[:, 0], original_features[:, 1])
 
         # Log the reconstruction loss for this batch
         writer.add_scalar('train/loss/reconstruction', reconstruction_loss, batch_count)
 
+        """
         # Compute the content loss for this batch
-        content_loss = compute_content_loss(original_features, original_activations)
+        content_loss = compute_content_loss(original_features, original_salience)
 
         # Log the content loss for this batch
         writer.add_scalar('train/loss/content', content_loss, batch_count)
 
         # Compute the linearity loss for this batch
-        linearity_loss = compute_linearity_loss(original_activations, mixture_activations, legend)
+        linearity_loss = compute_linearity_loss(original_salience, mixture_salience, legend)
 
         # Log the linearity loss for this batch
         writer.add_scalar('train/loss/linearity', linearity_loss, batch_count)
 
         # Compute the invariance loss for this batch
-        invariance_loss = compute_contrastive_loss(original_salience.squeeze(), augment_salience.squeeze())
+        invariance_loss = compute_contrastive_loss(original_embeddings.squeeze(), augment_embeddings.squeeze())
 
         # Log the invariance loss for this batch
         writer.add_scalar('train/loss/invariance', invariance_loss, batch_count)
 
         # Compute the translation loss for this batch
-        translation_loss = compute_translation_loss(model, original_features, original_activations)
+        translation_loss = compute_translation_loss(model, original_features, original_salience)
 
         # Log the translation loss for this batch
         writer.add_scalar('train/loss/translation', translation_loss, batch_count)
+        """
 
         # Compute the total loss for this batch
-        loss = 1 * reconstruction_loss + 1 * content_loss + 1 * linearity_loss + 1 * invariance_loss + 1 * translation
+        loss = 1 * reconstruction_loss# + 0 * content_loss + 0 * linearity_loss + 0 * invariance_loss + 0 * translation_loss
 
         # Log the total loss for this batch
         writer.add_scalar('train/loss/total', loss, batch_count)
