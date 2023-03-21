@@ -32,12 +32,16 @@ class TrainSet(Dataset):
           TODO
         splits : TODO
           TODO
+        sample_rate : TODO
+          TODO
         seed : TODO
+          TODO
+        device : TODO
           TODO
         """
 
         if base_dir is None:
-            base_dir = os.path.join(DEFAULT_LOCATION, self.__class__.__name__)
+            base_dir = os.path.join(DEFAULT_LOCATION, self.get_name())
 
         self.base_dir = base_dir
         self.sample_rate = sample_rate
@@ -62,6 +66,16 @@ class TrainSet(Dataset):
             self.tracks += self.get_tracks(split)
 
         self.device = device
+
+    @classmethod
+    def get_name(cls):
+        """
+        Simple helper function to get the class name.
+        """
+
+        name = cls.__name__
+
+        return name
 
     @staticmethod
     @abstractmethod
@@ -193,6 +207,38 @@ class EvalSet(TrainSet):
     Implements a wrapper for an MPE dataset intended for evaluation.
     """
 
+    def __init__(self, hop_length, n_bins, bins_per_octave, fmin=None, **kwargs):
+        """
+        TODO.
+
+        Parameters
+        ----------
+        hop_length : TODO
+          TODO
+        n_bins : TODO
+          TODO
+        bins_per_octave : TODO
+          TODO
+        fmin : TODO
+          TODO
+        kwargs : TODO
+          TODO
+        """
+
+        super().__init__(**kwargs)
+
+        self.hop_length = hop_length
+
+        if fmin is None:
+            # Default minimum frequency to note C1
+            fmin = librosa.note_to_midi('C1')
+
+        # Determine the MIDI frequency of the highest bin
+        fmax = fmin + (n_bins - 1) / (bins_per_octave / 12)
+
+        # Compute the center frequencies for all bins
+        self.center_freqs = np.linspace(fmin, fmax, n_bins)
+
     @abstractmethod
     def get_ground_truth_path(self, track):
         """
@@ -207,12 +253,27 @@ class EvalSet(TrainSet):
         return NotImplementedError
 
     @abstractmethod
-    def get_ground_truth(self, track):
+    def get_ground_truth(self, track, times):
         """
-        TODO
+        Get the ground-truth for a track.
+
+        Parameters
+        ----------
+        track : string (unused)
+          Track name
+        times : TODO (unused)
+          TODO
+
+        Returns
+        ----------
+        ground_truth : TODO
+          TODO
         """
 
-        return NotImplementedError
+        # Construct an empty array of relevant size by default
+        ground_truth = np.zeros((len(self.center_freqs), len(times)))
+
+        return ground_truth
 
     @abstractmethod
     def __getitem__(self, index):
@@ -233,7 +294,16 @@ class EvalSet(TrainSet):
         # TODO
         audio = super().__getitem__(index)
 
-        # TODO - get ground_truth
-        ground_truth = None
+        # Compute the number of frames as the number of hops
+        num_frames = 1 + audio.size(-1) // self.hop_length
+
+        # Determine the time associated with each frame (center)
+        times = (self.hop_length / self.sample_rate) * np.arange(num_frames)
+
+        # TODO
+        ground_truth = self.get_ground_truth(self.tracks[index], times)
+
+        # Convert ground-truth to tensor format and add to appropriate device
+        ground_truth = torch.from_numpy(ground_truth).to(self.device).float()
 
         return audio, ground_truth

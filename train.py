@@ -65,11 +65,8 @@ seed_everything(seed)
 device = torch.device(f'cuda:{gpu_id}'
                       if torch.cuda.is_available() else 'cpu')
 
-# Instantiate a view on the NSynth data
+# Instantiate NSynth dataset for training
 nsynth = NSynth(seed=seed, device=device)
-
-# Instantiate a view on the Bach10 data
-bach10 = Bach10(seed=seed, device=device)
 
 # Initialize a PyTorch dataloader for the data
 loader = DataLoader(dataset=nsynth,
@@ -78,9 +75,11 @@ loader = DataLoader(dataset=nsynth,
                     num_workers=0,
                     drop_last=True)
 
-# Define some input parameters
-n_bins = 216
+# Define input parameters
 sample_rate = 16000
+hop_length = 512
+n_bins = 216
+bins_per_octave = 36
 harmonics = [0.5, 1, 2, 3, 4, 5]
 
 # Initialize MPE representation learning model
@@ -95,9 +94,9 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 # TODO - need to make sure features for silence or near-silence are very tiny
 #        should be fine if features are computed at the signal level
 hcqt = LHVQT(fs=sample_rate,
-             hop_length=512,
+             hop_length=hop_length,
              n_bins=n_bins,
-             bins_per_octave=36,
+             bins_per_octave=bins_per_octave,
              harmonics=harmonics,
              db_to_prob=False,
              update=False,
@@ -110,6 +109,14 @@ transforms = Compose(
         PolarityInversion(p=0.5)
     ]
 )
+
+# Instantiate Bach10 dataset for validation
+bach10 = Bach10(sample_rate=sample_rate,
+                hop_length=hop_length,
+                n_bins=n_bins,
+                bins_per_octave=bins_per_octave,
+                seed=seed,
+                device=device)
 
 # Construct the path to the directory for saving models
 log_dir = os.path.join(root_dir, 'models')
@@ -196,10 +203,11 @@ for i in range(max_epochs):
         batch_count += 1
 
         if batch_count % checkpoint_interval == 0:
-            evaluate(model, hcqt, bach10, writer)
             # Log the input features and output salience for this batch
             writer.add_image('train/vis/cqt', original_features[0, 1 : 2].flip(-2), batch_count)
             writer.add_image('train/vis/salience', original_salience[0].unsqueeze(0).flip(-2), batch_count)
+            # Validate the model with Bach10
+            evaluate(model, hcqt, bach10, writer)
 
     # Save the model checkpoint after each epoch is complete
     torch.save(model, os.path.join(log_dir, f'model-{i + 1}.pt'))

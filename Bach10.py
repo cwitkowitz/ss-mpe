@@ -74,7 +74,7 @@ class Bach10(EvalSet):
 
         return txt_path
 
-    def get_ground_truth(self, track, times, bins):
+    def get_ground_truth(self, track, times):
         """
         Get the path for a track's ground_truth.
 
@@ -90,7 +90,7 @@ class Bach10(EvalSet):
         """
 
         # Obtain the path of the track's ground_truth
-        txt_path = self.get_txt_path(track)
+        txt_path = self.get_ground_truth_path(track)
 
         # Open the txt file in reading mode
         with open(txt_path) as txt_file:
@@ -103,6 +103,9 @@ class Bach10(EvalSet):
         # Convert onsets and offsets to seconds
         onsets, offsets = 0.001 * onsets, 0.001 * offsets
 
-        ground_truth = None
+        # Obtain an empty array for inserting ground-truth
+        ground_truth = super().get_ground_truth(track, times)
+
+        # TODO - insert notes into ground-truth
 
         return ground_truth
