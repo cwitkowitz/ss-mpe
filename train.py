@@ -61,11 +61,15 @@ ex.observers.append(FileStorageObserver(root_dir))
 # Seed everything with the same seed
 seed_everything(seed)
 
+# Initialize a device pointer
+device = torch.device(f'cuda:{gpu_id}'
+                      if torch.cuda.is_available() else 'cpu')
+
 # Instantiate a view on the NSynth data
-nsynth = NSynth(seed=seed)
+nsynth = NSynth(seed=seed, device=device)
 
 # Instantiate a view on the Bach10 data
-bach10 = Bach10(seed=seed)
+bach10 = Bach10(seed=seed, device=device)
 
 # Initialize a PyTorch dataloader for the data
 loader = DataLoader(dataset=nsynth,
@@ -82,7 +86,7 @@ harmonics = [0.5, 1, 2, 3, 4, 5]
 # Initialize MPE representation learning model
 model = SAUNet(n_ch_in=len(harmonics),
                n_bins_in=n_bins,
-               model_complexity=1).to(gpu_id)
+               model_complexity=1).to(device)
 
 # Initialize an optimizer for the model parameters
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
@@ -97,7 +101,7 @@ hcqt = LHVQT(fs=sample_rate,
              harmonics=harmonics,
              db_to_prob=False,
              update=False,
-             batch_norm=False).to(gpu_id)
+             batch_norm=False).to(device)
 
 # Define the collection of augmentations to use for timbre invariance
 transforms = Compose(
@@ -120,12 +124,6 @@ batch_count = 0
 for i in range(max_epochs):
     # Loop through batches
     for audio in tqdm(loader, desc=f'Epoch {i}'):
-        # Add the audio to the appropriate GPU
-        audio = audio.to(gpu_id).float()
-
-        # Add a channel dimension to the audio
-        audio = audio.unsqueeze(-2)
-
         with torch.no_grad():
             # Feed the audio through the augmentation pipeline
             augmentations = transforms(audio, sample_rate=sample_rate)

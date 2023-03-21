@@ -10,6 +10,7 @@ from abc import abstractmethod
 import numpy as np
 import warnings
 import librosa
+import torch
 import os
 
 
@@ -21,7 +22,7 @@ class TrainSet(Dataset):
     Implements a wrapper for an MPE dataset intended for training.
     """
 
-    def __init__(self, base_dir=None, splits=None, sample_rate=16000, seed=0):
+    def __init__(self, base_dir=None, splits=None, sample_rate=16000, seed=0, device='cpu'):
         """
         TODO.
 
@@ -59,6 +60,8 @@ class TrainSet(Dataset):
         # Aggregate all the track names from the selected splits
         for split in splits:
             self.tracks += self.get_tracks(split)
+
+        self.device = device
 
     @staticmethod
     @abstractmethod
@@ -162,6 +165,12 @@ class TrainSet(Dataset):
         # TODO
         audio = self.get_audio(self.tracks[index])
 
+        # Add the audio to the appropriate GPU
+        audio = torch.from_numpy(audio).to(self.device).float()
+
+        # Add a channel dimension to the audio
+        audio = audio.unsqueeze(-2)
+
         return audio
 
     @classmethod
@@ -222,8 +231,9 @@ class EvalSet(TrainSet):
         """
 
         # TODO
-        audio = self.get_audio(self.tracks[index])
+        audio = super().__getitem__(index)
 
         # TODO - get ground_truth
+        ground_truth = None
 
         return audio, ground_truth

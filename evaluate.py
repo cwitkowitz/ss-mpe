@@ -4,6 +4,8 @@
 from utils import *
 
 # Regular imports
+from torch.utils.data import DataLoader
+
 import numpy as np
 import librosa
 
@@ -29,25 +31,27 @@ def evaluate(model, hcqt, eval_set, writer=None):
     # Compute center frequencies of each bin
     center_freqs = np.linspace(fmin, fmax, cqt.n_bins)
 
-    # Loop through each track name
-    for track in eval_set:
-        # Obtain the audio for the track
-        # TODO - resample
-        audio = torch.Tensor(eval_set.get_audio(track))
-        # Add a batch and channel dimension to the audio
-        # TODO - parameterize device
-        audio = audio.unsqueeze(0).unsqueeze(0).to(0)
-        # Obtain features for the audio
-        features = decibels_to_linear(hcqt(audio))
-        # Determine the time associated with each frame (center)
-        times = (hop_length / sample_rate) * np.arange(features.shape[-1])
-        # Extract the ground-truth pitch salience for the track
-        eval_set.get_ground_truth(track, times, bins=center_freqs)
+    # Initialize a PyTorch dataloader for the data
+    loader = DataLoader(dataset=eval_set,
+                        batch_size=1,
+                        shuffle=False,
+                        num_workers=0,
+                        drop_last=False)
 
-        # Compute the pitch salience of the features
-        # TODO - need to train with longer sizes
-        salience = torch.sigmoid(model(features).squeeze())
+    with torch.no_grad():
+        # Loop through each testing track
+        for audio, ground_truth in loader:
+            # Obtain features for the audio
+            features = decibels_to_linear(hcqt(audio))
+            # Determine the time associated with each frame (center)
+            times = (hop_length / sample_rate) * np.arange(features.shape[-1])
+            # Extract the ground-truth pitch salience for the track
+            eval_set.get_ground_truth(track, times, bins=center_freqs)
 
-        # TODO - evaluate pitch salience (https://github.com/cwitkowitz/amt-tools/blob/b41ead77a348157caaeec57243f30be8f5536330/amt_tools/evaluate.py#L794)
+            # Compute the pitch salience of the features
+            # TODO - need to train with longer sizes
+            salience = torch.sigmoid(model(features).squeeze())
 
-        # TODO - log results to writer
+            # TODO - evaluate pitch salience (https://github.com/cwitkowitz/amt-tools/blob/b41ead77a348157caaeec57243f30be8f5536330/amt_tools/evaluate.py#L794)
+
+            # TODO - log results to writer
