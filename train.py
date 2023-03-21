@@ -61,18 +61,11 @@ ex.observers.append(FileStorageObserver(root_dir))
 # Seed everything with the same seed
 seed_everything(seed)
 
-# Construct the path pointing to the NSynth dataset
-nsynth_base_dir = os.path.join(os.path.expanduser('~'), 'Desktop', 'Datasets', 'NSynth')
-
 # Instantiate a view on the NSynth data
-nsynth = NSynth(base_dir=nsynth_base_dir,
-                seed=seed)
-
-# Construct the path pointing to the Bach10 dataset
-bach10_base_dir = os.path.join(os.path.expanduser('~'), 'Desktop', 'Datasets', 'Bach10')
+nsynth = NSynth(seed=seed)
 
 # Instantiate a view on the Bach10 data
-bach10 = Bach10(base_dir=bach10_base_dir)
+bach10 = Bach10(seed=seed)
 
 # Initialize a PyTorch dataloader for the data
 loader = DataLoader(dataset=nsynth,

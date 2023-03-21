@@ -1,8 +1,8 @@
 torch
 numpy
-soundfile
 requests
 tqdm
 sacred
 lhvqt
 tensorboard
+librosa

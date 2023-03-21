@@ -5,14 +5,7 @@ from utils import *
 
 # Regular imports
 import numpy as np
-import os
-
-
-def hz_to_midi(freqs):
-    # Convert frequencies provided in Hz to MIDI
-    midi = 12 * (np.log2(freqs) - np.log2(440.0)) + 69
-
-    return midi
+import librosa
 
 
 def evaluate(model, hcqt, eval_set, writer=None):
@@ -26,7 +19,7 @@ def evaluate(model, hcqt, eval_set, writer=None):
     bins_per_semitone = (cqt.bins_per_octave / 12)
 
     # Determine the frequency of the lowest and highest bin
-    fmin = hz_to_midi(cqt.fmin)
+    fmin = librosa.hz_to_midi(cqt.fmin)
     fmax = fmin + (cqt.n_bins - 1) / bins_per_semitone
 
     # center_freqs = fmin * (2.0 ** (np.arange(n_bins) / bins_per_octave))
