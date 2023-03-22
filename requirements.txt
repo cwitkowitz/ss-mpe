@@ -6,3 +6,4 @@ sacred
 lhvqt
 tensorboard
 librosa
+scipy

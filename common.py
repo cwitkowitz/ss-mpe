@@ -10,6 +10,7 @@ from abc import abstractmethod
 import numpy as np
 import warnings
 import librosa
+import scipy
 import torch
 import os
 
@@ -239,6 +240,13 @@ class EvalSet(TrainSet):
         # Compute the center frequencies for all bins
         self.center_freqs = np.linspace(fmin, fmax, n_bins)
 
+        # Obtain a function to resample annotation frequencies
+        self.res_func_freq = scipy.interpolate.interp1d(x=self.center_freqs,
+                                                        y=np.arange(n_bins),
+                                                        kind='nearest',
+                                                        bounds_error=False,
+                                                        assume_sorted=True)
+
     @abstractmethod
     def get_ground_truth_path(self, track):
         """
@@ -298,7 +306,9 @@ class EvalSet(TrainSet):
         num_frames = 1 + audio.size(-1) // self.hop_length
 
         # Determine the time associated with each frame (center)
-        times = (self.hop_length / self.sample_rate) * np.arange(num_frames)
+        times = librosa.frames_to_time(np.arange(num_frames),
+                                       sr=self.sample_rate,
+                                       hop_length=self.hop_length)
 
         # TODO
         ground_truth = self.get_ground_truth(self.tracks[index], times)

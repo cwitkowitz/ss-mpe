@@ -5,6 +5,7 @@ from common import EvalSet
 
 # Regular imports
 import numpy as np
+import scipy
 import os
 
 
@@ -69,10 +70,10 @@ class Bach10(EvalSet):
           TODO
         """
 
-        # Get the path to the ground-truth text annotations
-        txt_path = os.path.join(self.base_dir, track, f'{track}.txt')
+        # Get the path to the ground-truth multi-pitch annotations
+        mat_path = os.path.join(self.base_dir, track, f'{track}-GTF0s.mat')
 
-        return txt_path
+        return mat_path
 
     def get_ground_truth(self, track, times):
         """
@@ -90,22 +91,50 @@ class Bach10(EvalSet):
         """
 
         # Obtain the path of the track's ground_truth
-        txt_path = self.get_ground_truth_path(track)
+        mat_path = self.get_ground_truth_path(track)
 
-        # Open the txt file in reading mode
-        with open(txt_path) as txt_file:
-            # Read all notes into an array
-            notes = np.array([n.split() for n in txt_file.readlines()], dtype='uint')
+        # Extract the frame-level multi-pitch annotations
+        multi_pitch = scipy.io.loadmat(mat_path)['GTF0s']
 
-        # Split apart the note attributes
-        onsets, offsets, pitches, _ = notes.transpose()
+        # Determine how many frames were provided
+        num_frames = multi_pitch.shape[-1]
 
-        # Convert onsets and offsets to seconds
-        onsets, offsets = 0.001 * onsets, 0.001 * offsets
+        # Create array of frame indices
+        original_idcs = np.arange(num_frames)
+
+        # Compute the original times for each frame
+        original_times = 0.023 + 0.010 * original_idcs
+
+        # Clamp resampled indices within the valid range
+        fill_values = (original_idcs[0], original_idcs[-1])
+
+        # Obtain a function to resample annotation times
+        res_func_time = scipy.interpolate.interp1d(x=original_times,
+                                                   y=original_idcs,
+                                                   kind='nearest',
+                                                   bounds_error=False,
+                                                   fill_value=fill_values,
+                                                   assume_sorted=True)
+
+        # Resample the multi-pitch annotations using above function
+        multi_pitch = multi_pitch[..., res_func_time(times).astype('uint')]
+
+        #onsets = librosa.time_to_frames(onsets, sr=self.sample_rate, hop_length=self.hop_length)
+        #offsets = librosa.time_to_frames(offsets, sr=self.sample_rate, hop_length=self.hop_length)
+        #durations = 1 + offsets - onsets
+        #time_idcs = np.concatenate([np.arange(i, j + 1) for i, j in zip(onsets, offsets)])
+        #pitch_idcs = np.concatenate([[p] * d for p, d in zip(pitches, durations)])
 
         # Obtain an empty array for inserting ground-truth
         ground_truth = super().get_ground_truth(track, times)
 
-        # TODO - insert notes into ground-truth
+        # Determine the frames corresponding to pitch observations
+        _, frame_idcs = multi_pitch.nonzero()
+
+        # Determine the closest frequency bin for each pitch observation
+        multi_pitch_idcs = self.res_func_freq(multi_pitch[multi_pitch != 0.])
+
+        # Insert pitch activity into the ground-truth
+        ground_truth[multi_pitch_idcs.astype('uint'), frame_idcs] = 1
 
         return ground_truth
