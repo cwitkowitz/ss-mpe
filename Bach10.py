@@ -119,12 +119,6 @@ class Bach10(EvalSet):
         # Resample the multi-pitch annotations using above function
         multi_pitch = multi_pitch[..., res_func_time(times).astype('uint')]
 
-        #onsets = librosa.time_to_frames(onsets, sr=self.sample_rate, hop_length=self.hop_length)
-        #offsets = librosa.time_to_frames(offsets, sr=self.sample_rate, hop_length=self.hop_length)
-        #durations = 1 + offsets - onsets
-        #time_idcs = np.concatenate([np.arange(i, j + 1) for i, j in zip(onsets, offsets)])
-        #pitch_idcs = np.concatenate([[p] * d for p, d in zip(pitches, durations)])
-
         # Obtain an empty array for inserting ground-truth
         ground_truth = super().get_ground_truth(track, times)
 

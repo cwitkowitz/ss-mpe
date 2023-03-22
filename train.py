@@ -85,7 +85,7 @@ harmonics = [0.5, 1, 2, 3, 4, 5]
 # Initialize MPE representation learning model
 model = SAUNet(n_ch_in=len(harmonics),
                n_bins_in=n_bins,
-               model_complexity=1).to(device)
+               model_complexity=2).to(device)
 
 # Initialize an optimizer for the model parameters
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
@@ -203,11 +203,9 @@ for i in range(max_epochs):
         batch_count += 1
 
         if batch_count % checkpoint_interval == 0:
-            # Log the input features and output salience for this batch
-            writer.add_image('train/vis/cqt', original_features[0, 1 : 2].flip(-2), batch_count)
-            writer.add_image('train/vis/salience', original_salience[0].unsqueeze(0).flip(-2), batch_count)
             # Validate the model with Bach10
-            evaluate(model, hcqt, bach10, writer)
+            # TODO - more evaluation datasets
+            evaluate(model, hcqt, bach10, writer, batch_count)
 
-    # Save the model checkpoint after each epoch is complete
-    torch.save(model, os.path.join(log_dir, f'model-{i + 1}.pt'))
+            # Save the model checkpoint after each epoch is complete
+            torch.save(model, os.path.join(log_dir, f'model-{batch_count + 1}.pt'))

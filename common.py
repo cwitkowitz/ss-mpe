@@ -42,7 +42,7 @@ class TrainSet(Dataset):
         """
 
         if base_dir is None:
-            base_dir = os.path.join(DEFAULT_LOCATION, self.get_name())
+            base_dir = os.path.join(DEFAULT_LOCATION, self.name())
 
         self.base_dir = base_dir
         self.sample_rate = sample_rate
@@ -69,7 +69,7 @@ class TrainSet(Dataset):
         self.device = device
 
     @classmethod
-    def get_name(cls):
+    def name(cls):
         """
         Simple helper function to get the class name.
         """
