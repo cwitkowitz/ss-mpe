@@ -5,6 +5,7 @@ from tqdm import tqdm
 import numpy as np
 import requests
 import tarfile
+import zipfile
 import random
 import torch
 import os
@@ -42,31 +43,39 @@ def stream_url_resource(url, save_path, chunk_size=1024):
                 file.write(chunk)
 
 
-def untar_and_remove(tar_path, target=None):
+def unzip_and_remove(zip_path, target=None, tar=False):
     """
-    Untar a tar file and remove it.
+    Unzip a zip file and remove it.
 
     Parameters
     ----------
-    tar_path : string
-      Path to the tar file
+    zip_path : string
+      Path to the zip file
     target : string or None
-      Directory to extract the tar file contents into
+      Directory to extract the zip file contents into
+    tar : bool
+      Whether the compressed file is in TAR format
     """
 
-    print(f'Untarring {os.path.basename(tar_path)}')
+    print(f'Unzipping {os.path.basename(zip_path)}')
 
-    # Default the save location as the same directory as the tar file
+    # Default the save location as the same directory as the zip file
     if target is None:
-        target = os.path.dirname(tar_path)
+        target = os.path.dirname(zip_path)
 
-    # Open the tar file in read mode
-    with tarfile.open(tar_path, 'r') as tar_ref:
-        # Extract the contents of the tar file into the target directory
-        tar_ref.extractall(target)
+    if tar:
+        # Open the zip file in read mode
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            # Extract the contents into the target directory
+            zip_ref.extractall(target)
+    else:
+        # Open the tar file in read mode
+        with tarfile.open(zip_path, 'r') as tar_ref:
+            # Extract the contents into the target directory
+            tar_ref.extractall(target)
 
-    # Delete the tar file
-    os.remove(tar_path)
+    # Delete the zip file
+    os.remove(zip_path)
 
 
 def seed_everything(seed):

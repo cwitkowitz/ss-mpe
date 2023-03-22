@@ -1,6 +1,7 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
+from MagnaTagATune import MagnaTagATune
 from NSynth import NSynth
 from Bach10 import Bach10
 from model import SAUNet
@@ -67,6 +68,9 @@ device = torch.device(f'cuda:{gpu_id}'
 
 # Instantiate NSynth dataset for training
 nsynth = NSynth(seed=seed, device=device)
+
+# Instantiate NSynth dataset for training
+magnatagatune = MagnaTagATune(seed=seed, device=device)
 
 # Initialize a PyTorch dataloader for the data
 loader = DataLoader(dataset=nsynth,
@@ -208,4 +212,4 @@ for i in range(max_epochs):
             evaluate(model, hcqt, bach10, writer, batch_count)
 
             # Save the model checkpoint after each epoch is complete
-            torch.save(model, os.path.join(log_dir, f'model-{batch_count + 1}.pt'))
+            torch.save(model, os.path.join(log_dir, f'model-{batch_count}.pt'))

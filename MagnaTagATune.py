@@ -6,13 +6,12 @@ from common import TrainSet
 
 # Regular imports
 import shutil
-import json
 import os
 
 
-class NSynth(TrainSet):
+class MagnaTagATune(TrainSet):
     """
-    Implements a wrapper for the NSynth dataset (https://magenta.tensorflow.org/datasets/nsynth).
+    Implements a wrapper for the MagnaTagATune dataset (https://mirg.city.ac.uk/codeapps/the-magnatagatune-dataset).
     """
 
     @staticmethod
@@ -23,10 +22,11 @@ class NSynth(TrainSet):
         Returns
         ----------
         splits : list of strings
-          Partitions of dataset for different stages of pipeline
+          TODO
         """
 
-        splits = ['train', 'valid', 'test']
+        # TODO
+        splits = None
 
         return splits
 
@@ -45,18 +45,8 @@ class NSynth(TrainSet):
           TODO
         """
 
-        # Construct a path to the JSON annotations for the partition
-        json_path = os.path.join(self.base_dir, f'nsynth-{split}', 'examples.json')
-
-        with open(json_path) as f:
-            # Read JSON data
-            tracks = json.load(f)
-
-        # Retain the names of the tracks
-        tracks = sorted(list(tracks.keys()))
-
-        # Append the split name to all tracks
-        tracks = [os.path.join(f'nsynth-{split}', t) for t in tracks]
+        # TODO
+        tracks = None
 
         return tracks
 
@@ -67,7 +57,7 @@ class NSynth(TrainSet):
         Parameters
         ----------
         track : string
-          NSynth track name
+          MagnaTagATune track name
 
         Returns
         ----------
@@ -75,23 +65,20 @@ class NSynth(TrainSet):
           Path to the specified track's audio
         """
 
-        # Break apart partition and track name
-        split, name = os.path.split(track)
-
-        # Get the path to the audio
-        wav_path = os.path.join(self.base_dir, split, 'audio', name + '.wav')
+        # TODO
+        wav_path = None
 
         return wav_path
 
     @classmethod
     def download(cls, save_dir):
         """
-        Download the NSynth dataset to a specified location.
+        Download the MagnaTagATune dataset to a specified location.
 
         Parameters
         ----------
         save_dir : string
-          Directory in which to save the contents of NSynth
+          Directory in which to save the contents of MagnaTagATune
         """
 
         # If the directory already exists, remove it
@@ -102,15 +89,24 @@ class NSynth(TrainSet):
 
         print(f'Downloading {cls.__name__}')
 
-        for split in cls.available_splits():
-            # URL pointing to the zip file for the split
-            url = f'http://download.magenta.tensorflow.org/datasets/nsynth/nsynth-{split}.jsonwav.tar.gz'
+        for part in [1, 2, 3]:
+            # URL pointing to the zip partition file
+            url = f'https://mirg.city.ac.uk/datasets/magnatagatune/mp3.zip.00{part}'
 
             # Construct a path for saving the file
-            save_path = os.path.join(save_dir, os.path.basename(url))
+            zip_path = os.path.join(save_dir, os.path.basename(url))
 
             # Download the zip file
-            stream_url_resource(url, save_path, 1000 * 1024)
+            stream_url_resource(url, zip_path, 1000 * 1024)
 
-            # Unzip the downloaded file and remove it
-            unzip_and_remove(save_path, tar=True)
+        # Construct a path to the top-level zip file
+        save_path = os.path.join(save_dir, 'mp3.zip')
+
+        # Combine zip file partitions
+        os.system(f'cat {save_path}* > {save_path}')
+
+        # Unzip the downloaded file and remove it
+        unzip_and_remove(save_path)
+
+        # Remove remaining zip file partitions
+        os.system(f'rm {save_path}*')
