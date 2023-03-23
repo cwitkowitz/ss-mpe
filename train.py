@@ -22,7 +22,7 @@ import torch
 import os
 
 
-EX_NAME = '_'.join(['TestEval'])
+EX_NAME = '_'.join(['TrainMagna'])
 
 ex = Experiment('Train a model to learn representations for MPE.')
 
@@ -38,7 +38,7 @@ max_epochs = 1000
 checkpoint_interval = 50
 
 # Number of samples to gather for a batch
-batch_size = 32
+batch_size = 4
 
 # Fixed learning rate
 learning_rate = 1e-3
@@ -67,13 +67,13 @@ device = torch.device(f'cuda:{gpu_id}'
                       if torch.cuda.is_available() else 'cpu')
 
 # Instantiate NSynth dataset for training
-nsynth = NSynth(seed=seed, device=device)
+#nsynth = NSynth(seed=seed, device=device)
 
 # Instantiate NSynth dataset for training
 magnatagatune = MagnaTagATune(seed=seed, device=device)
 
 # Initialize a PyTorch dataloader for the data
-loader = DataLoader(dataset=nsynth,
+loader = DataLoader(dataset=magnatagatune,
                     batch_size=batch_size,
                     shuffle=True,
                     num_workers=0,

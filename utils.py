@@ -64,15 +64,15 @@ def unzip_and_remove(zip_path, target=None, tar=False):
         target = os.path.dirname(zip_path)
 
     if tar:
-        # Open the zip file in read mode
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            # Extract the contents into the target directory
-            zip_ref.extractall(target)
-    else:
         # Open the tar file in read mode
         with tarfile.open(zip_path, 'r') as tar_ref:
             # Extract the contents into the target directory
             tar_ref.extractall(target)
+    else:
+        # Open the zip file in read mode
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            # Extract the contents into the target directory
+            zip_ref.extractall(target)
 
     # Delete the zip file
     os.remove(zip_path)

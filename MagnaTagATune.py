@@ -22,11 +22,12 @@ class MagnaTagATune(TrainSet):
         Returns
         ----------
         splits : list of strings
-          TODO
+          Top-level directories
         """
 
-        # TODO
-        splits = None
+        splits = ['0', '1', '2', '3', '4', '5',
+                  '6', '7', '8', '9', 'a', 'b',
+                  'c', 'd', 'e', 'f']
 
         return splits
 
@@ -45,8 +46,12 @@ class MagnaTagATune(TrainSet):
           TODO
         """
 
-        # TODO
-        tracks = None
+        # Construct a path to the dataset split
+        split_path = os.path.join(self.base_dir, split)
+
+        # Combine the parent directory of the split with each file
+        tracks = sorted([os.path.join(split, os.path.splitext(f)[0])
+                         for f in os.listdir(split_path)])
 
         return tracks
 
@@ -65,8 +70,11 @@ class MagnaTagATune(TrainSet):
           Path to the specified track's audio
         """
 
-        # TODO
-        wav_path = None
+        # Break apart partition and track name
+        split, name = os.path.split(track)
+
+        # Get the path to the audio
+        wav_path = os.path.join(self.base_dir, split, f'{name}.mp3')
 
         return wav_path
 
