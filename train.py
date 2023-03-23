@@ -26,8 +26,6 @@ EX_NAME = '_'.join(['TrainMagna'])
 
 ex = Experiment('Train a model to learn representations for MPE.')
 
-# TODO - leverage amt-tools or keep as standalone?
-
 
 #@ex.config
 #def config():
@@ -160,11 +158,11 @@ for i in range(max_epochs):
 
         # TODO - some of the following losses can be applied to more than one (originals|augmentations|mixtures)
 
-        # Compute the reconstruction loss with respect to the first harmonic for this batch
-        reconstruction_loss = compute_reconstruction_loss(original_embeddings, original_features[:, 1])
+        # Compute the support loss with respect to the first harmonic for this batch
+        support_loss = compute_support_loss(original_embeddings, original_features[:, 1])
 
-        # Log the reconstruction loss for this batch
-        writer.add_scalar('train/loss/reconstruction', reconstruction_loss, batch_count)
+        # Log the support loss for this batch
+        writer.add_scalar('train/loss/support', support_loss, batch_count)
 
         # Compute the content loss for this batch
         content_loss = compute_content_loss(original_salience, original_features)
@@ -191,7 +189,7 @@ for i in range(max_epochs):
         writer.add_scalar('train/loss/translation', translation_loss, batch_count)
 
         # Compute the total loss for this batch
-        loss = 1 * content_loss + 1 * linearity_loss + 1 * invariance_loss + 1 * translation_loss + 0 * reconstruction_loss
+        loss = 1 * content_loss + 1 * linearity_loss + 1 * invariance_loss + 1 * translation_loss + 0 * support_loss
 
         # Log the total loss for this batch
         writer.add_scalar('train/loss/total', loss, batch_count)

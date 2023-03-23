@@ -5,17 +5,17 @@ import torch.nn.functional as F
 import torch
 
 
-def compute_reconstruction_loss(embeddings, features):
-    # Compute the reconstruction loss as BCE of activations with respect to features
-    reconstruction_loss = F.binary_cross_entropy_with_logits(embeddings, features, reduction='none')
+def compute_support_loss(embeddings, features):
+    # Compute the support loss as BCE of activations with respect to features
+    support_loss = F.binary_cross_entropy_with_logits(embeddings, features, reduction='none')
 
     # Sum across frequency bins and average across time and batch
-    reconstruction_loss = reconstruction_loss.sum(-2).mean(-1).mean(-1)
+    support_loss = support_loss.sum(-2).mean(-1).mean(-1)
 
-    return reconstruction_loss
+    return support_loss
 
 
-# TODO - can likely intelligently combine content/reconstruction loss
+# TODO - can likely intelligently combine content/support loss
 def compute_content_loss(activations, features):
     # Compute the total energy (averaged across channels) in each frame
     energy_activations = torch.sum(activations, dim=-2)
