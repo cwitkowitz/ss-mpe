@@ -153,8 +153,11 @@ class TrainSet(Dataset):
         # Obtain the path of the track's audio
         audio_path = self.get_audio_path(track)
 
-        # TODO
-        audio, _ = librosa.load(audio_path, sr=self.sample_rate)
+        try:
+            # TODO
+            audio, _ = librosa.load(audio_path, sr=self.sample_rate)
+        except:
+            print(f'Could not load track \'{track}\'...')
 
         # Normalize the audio between the range [-1, 1]
         audio = normalize(audio)

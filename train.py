@@ -1,6 +1,7 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
+from FreeMusicArchive import FreeMusicArchive
 from MagnaTagATune import MagnaTagATune
 from NSynth import NSynth
 from Bach10 import Bach10
@@ -22,192 +23,196 @@ import torch
 import os
 
 
-EX_NAME = '_'.join(['TrainMagna'])
+EX_NAME = '_'.join(['FindBadFile'])
 
-ex = Experiment('Train a model to learn representations for MPE.')
-
-
-#@ex.config
-#def config():
-# Maximum number of training iterations to conduct
-max_epochs = 1000
-
-# Number of iterations between checkpoints
-checkpoint_interval = 50
-
-# Number of samples to gather for a batch
-batch_size = 4
-
-# Fixed learning rate
-learning_rate = 1e-3
-
-# ID of the gpu to use, if available
-gpu_id = 0
-
-# Random seed for this experiment
-seed = 0
-
-# Create the root directory for the experiment files
-root_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'generated', 'experiments', EX_NAME)
-os.makedirs(root_dir, exist_ok=True)
-
-# Add a file storage observer for the log directory
-ex.observers.append(FileStorageObserver(root_dir))
+ex = Experiment('Train a model to learn representations for MPE')
 
 
-#@ex.automain
-#def learn_representations(max_epochs, batch_size, learning_rate, gpu_id, seed, root_dir):
-# Seed everything with the same seed
-seed_everything(seed)
+@ex.config
+def config():
+    # Maximum number of training iterations to conduct
+    max_epochs = 1000
 
-# Initialize a device pointer
-device = torch.device(f'cuda:{gpu_id}'
-                      if torch.cuda.is_available() else 'cpu')
+    # Number of iterations between checkpoints
+    checkpoint_interval = 50
 
-# Instantiate NSynth dataset for training
-#nsynth = NSynth(seed=seed, device=device)
+    # Number of samples to gather for a batch
+    batch_size = 4
 
-# Instantiate NSynth dataset for training
-magnatagatune = MagnaTagATune(seed=seed, device=device)
+    # Fixed learning rate
+    learning_rate = 1e-3
 
-# Initialize a PyTorch dataloader for the data
-loader = DataLoader(dataset=magnatagatune,
-                    batch_size=batch_size,
-                    shuffle=True,
-                    num_workers=0,
-                    drop_last=True)
+    # ID of the gpu to use, if available
+    gpu_id = 0
 
-# Define input parameters
-sample_rate = 16000
-hop_length = 512
-n_bins = 216
-bins_per_octave = 36
-harmonics = [0.5, 1, 2, 3, 4, 5]
+    # Random seed for this experiment
+    seed = 0
 
-# Initialize MPE representation learning model
-model = SAUNet(n_ch_in=len(harmonics),
-               n_bins_in=n_bins,
-               model_complexity=2).to(device)
+    # Create the root directory for the experiment files
+    root_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'generated', 'experiments', EX_NAME)
+    os.makedirs(root_dir, exist_ok=True)
 
-# Initialize an optimizer for the model parameters
-optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    # Add a file storage observer for the log directory
+    ex.observers.append(FileStorageObserver(root_dir))
 
-# Initialize the HCQT feature extraction module
-# TODO - need to make sure features for silence or near-silence are very tiny
-#        should be fine if features are computed at the signal level
-hcqt = LHVQT(fs=sample_rate,
-             hop_length=hop_length,
-             n_bins=n_bins,
-             bins_per_octave=bins_per_octave,
-             harmonics=harmonics,
-             db_to_prob=False,
-             update=False,
-             batch_norm=False).to(device)
 
-# Define the collection of augmentations to use for timbre invariance
-transforms = Compose(
-    transforms=[
-        # TODO - add more augmentations
-        PolarityInversion(p=0.5)
-    ]
-)
+@ex.automain
+def train_model(max_epochs, checkpoint_interval, batch_size, learning_rate, gpu_id, seed, root_dir):
+    # Seed everything with the same seed
+    seed_everything(seed)
 
-# Instantiate Bach10 dataset for validation
-bach10 = Bach10(sample_rate=sample_rate,
-                hop_length=hop_length,
-                n_bins=n_bins,
-                bins_per_octave=bins_per_octave,
-                seed=seed,
-                device=device)
+    # Initialize a device pointer
+    device = torch.device(f'cuda:{gpu_id}'
+                          if torch.cuda.is_available() else 'cpu')
 
-# Construct the path to the directory for saving models
-log_dir = os.path.join(root_dir, 'models')
+    # Instantiate NSynth dataset for training
+    #nsynth = NSynth(seed=seed, device=device)
 
-# Initialize a writer to log results
-writer = SummaryWriter(log_dir)
+    # Instantiate MagnaTagATune dataset for training
+    magnatagatune = MagnaTagATune(seed=seed, device=device)
 
-# Number of batches that have been processed
-batch_count = 0
+    # Instantiate FreeMusicArchive dataset for training
+    #freemusicarchive = FreeMusicArchive(seed=seed, device=device)
 
-# Loop through epochs
-for i in range(max_epochs):
-    # Loop through batches
-    for audio in tqdm(loader, desc=f'Epoch {i}'):
-        with torch.no_grad():
-            # Feed the audio through the augmentation pipeline
-            augmentations = transforms(audio, sample_rate=sample_rate)
-            # Create random mixtures of the audio and keep track of mixing
-            mixtures, legend = get_random_mixtures(audio)
+    # Initialize a PyTorch dataloader for the data
+    loader = DataLoader(dataset=magnatagatune,
+                        batch_size=batch_size,
+                        shuffle=True,
+                        num_workers=0,
+                        drop_last=True)
 
-        # TODO - mixed precision (amp/apex) for speedup?
-        #with torch.autocast(device_type=f'cuda'):
-        # Obtain spectral features
-        original_features = decibels_to_linear(hcqt(audio))
-        augment_features = decibels_to_linear(hcqt(augmentations))
-        mixture_features = decibels_to_linear(hcqt(mixtures))
+    # Define input parameters
+    sample_rate = 16000
+    hop_length = 512
+    n_bins = 216
+    bins_per_octave = 36
+    harmonics = [0.5, 1, 2, 3, 4, 5]
+    fmin = None # TODO
 
-        # Compute pitch salience embeddings
-        original_embeddings = model(original_features).squeeze()
-        augment_embeddings = model(augment_features).squeeze()
-        mixture_embeddings = model(mixture_features).squeeze()
+    # Initialize MPE representation learning model
+    model = SAUNet(n_ch_in=len(harmonics),
+                   n_bins_in=n_bins,
+                   model_complexity=2).to(device)
 
-        # Convert logits to activations (implicit pitch salience)
-        original_salience = torch.sigmoid(original_embeddings)
-        #augment_salience = torch.sigmoid(augment_embeddings)
-        #mixture_salience = torch.sigmoid(mixture_embeddings)
+    # Initialize an optimizer for the model parameters
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
-        # TODO - some of the following losses can be applied to more than one (originals|augmentations|mixtures)
+    # Initialize the HCQT feature extraction module
+    # TODO - need to make sure features for silence or near-silence are very tiny
+    #        should be fine if features are computed at the signal level
+    hcqt = LHVQT(fs=sample_rate,
+                 hop_length=hop_length,
+                 n_bins=n_bins,
+                 bins_per_octave=bins_per_octave,
+                 harmonics=harmonics,
+                 db_to_prob=False,
+                 update=False,
+                 batch_norm=False).to(device)
 
-        # Compute the support loss with respect to the first harmonic for this batch
-        support_loss = compute_support_loss(original_embeddings, original_features[:, 1])
+    # Define the collection of augmentations to use for timbre invariance
+    transforms = Compose(
+        transforms=[
+            # TODO - add more augmentations
+            PolarityInversion(p=0.5)
+        ]
+    )
 
-        # Log the support loss for this batch
-        writer.add_scalar('train/loss/support', support_loss, batch_count)
+    # Instantiate Bach10 dataset for validation
+    bach10 = Bach10(sample_rate=sample_rate,
+                    hop_length=hop_length,
+                    n_bins=n_bins,
+                    bins_per_octave=bins_per_octave,
+                    seed=seed,
+                    device=device)
 
-        # Compute the content loss for this batch
-        content_loss = compute_content_loss(original_salience, original_features)
+    # Construct the path to the directory for saving models
+    log_dir = os.path.join(root_dir, 'models')
 
-        # Log the content loss for this batch
-        writer.add_scalar('train/loss/content', content_loss, batch_count)
+    # Initialize a writer to log results
+    writer = SummaryWriter(log_dir)
 
-        # Compute the linearity loss for this batch
-        linearity_loss = compute_linearity_loss(mixture_embeddings, original_salience, legend)
+    # Number of batches that have been processed
+    batch_count = 0
 
-        # Log the linearity loss for this batch
-        writer.add_scalar('train/loss/linearity', linearity_loss, batch_count)
+    # Loop through epochs
+    for i in range(max_epochs):
+        # Loop through batches
+        for audio in tqdm(loader, desc=f'Epoch {i}'):
+            with torch.no_grad():
+                # Feed the audio through the augmentation pipeline
+                augmentations = transforms(audio, sample_rate=sample_rate)
+                # Create random mixtures of the audio and keep track of mixing
+                mixtures, legend = get_random_mixtures(audio)
 
-        # Compute the invariance loss for this batch
-        invariance_loss = compute_contrastive_loss(original_embeddings.transpose(-1, -2), augment_embeddings.transpose(-1, -2))
+            # TODO - mixed precision (amp/apex) for speedup?
+            #with torch.autocast(device_type=f'cuda'):
+            # Obtain spectral features
+            original_features = decibels_to_linear(hcqt(audio))
+            augment_features = decibels_to_linear(hcqt(augmentations))
+            mixture_features = decibels_to_linear(hcqt(mixtures))
 
-        # Log the invariance loss for this batch
-        writer.add_scalar('train/loss/invariance', invariance_loss, batch_count)
+            # Compute pitch salience embeddings
+            original_embeddings = model(original_features).squeeze()
+            augment_embeddings = model(augment_features).squeeze()
+            mixture_embeddings = model(mixture_features).squeeze()
 
-        # Compute the translation loss for this batch
-        translation_loss = compute_translation_loss(model, original_features, original_salience)
+            # Convert logits to activations (implicit pitch salience)
+            original_salience = torch.sigmoid(original_embeddings)
+            #augment_salience = torch.sigmoid(augment_embeddings)
+            #mixture_salience = torch.sigmoid(mixture_embeddings)
 
-        # Log the translation loss for this batch
-        writer.add_scalar('train/loss/translation', translation_loss, batch_count)
+            # TODO - some of the following losses can be applied to more than one (originals|augmentations|mixtures)
 
-        # Compute the total loss for this batch
-        loss = 1 * content_loss + 1 * linearity_loss + 1 * invariance_loss + 1 * translation_loss + 0 * support_loss
+            # Compute the support loss with respect to the first harmonic for this batch
+            support_loss = compute_support_loss(original_embeddings, original_features[:, 1])
 
-        # Log the total loss for this batch
-        writer.add_scalar('train/loss/total', loss, batch_count)
+            # Log the support loss for this batch
+            writer.add_scalar('train/loss/support', support_loss, batch_count)
 
-        # Zero the accumulated gradients
-        optimizer.zero_grad()
-        # Compute gradients based on total loss
-        loss.backward()
-        # Perform an optimization step
-        optimizer.step()
+            # Compute the content loss for this batch
+            content_loss = compute_content_loss(original_salience, original_features)
 
-        # Increment the batch counter
-        batch_count += 1
+            # Log the content loss for this batch
+            writer.add_scalar('train/loss/content', content_loss, batch_count)
 
-        if batch_count % checkpoint_interval == 0:
-            # Validate the model with Bach10
-            # TODO - more evaluation datasets
-            evaluate(model, hcqt, bach10, writer, batch_count)
+            # Compute the linearity loss for this batch
+            linearity_loss = compute_linearity_loss(mixture_embeddings, original_salience, legend)
 
-            # Save the model checkpoint after each epoch is complete
-            torch.save(model, os.path.join(log_dir, f'model-{batch_count}.pt'))
+            # Log the linearity loss for this batch
+            writer.add_scalar('train/loss/linearity', linearity_loss, batch_count)
+
+            # Compute the invariance loss for this batch
+            invariance_loss = compute_contrastive_loss(original_embeddings.transpose(-1, -2), augment_embeddings.transpose(-1, -2))
+
+            # Log the invariance loss for this batch
+            writer.add_scalar('train/loss/invariance', invariance_loss, batch_count)
+
+            # Compute the translation loss for this batch
+            translation_loss = compute_translation_loss(model, original_features, original_salience)
+
+            # Log the translation loss for this batch
+            writer.add_scalar('train/loss/translation', translation_loss, batch_count)
+
+            # Compute the total loss for this batch
+            loss = 1 * content_loss + 1 * linearity_loss + 1 * invariance_loss + 1 * translation_loss + 0 * support_loss
+
+            # Log the total loss for this batch
+            writer.add_scalar('train/loss/total', loss, batch_count)
+
+            # Zero the accumulated gradients
+            optimizer.zero_grad()
+            # Compute gradients based on total loss
+            loss.backward()
+            # Perform an optimization step
+            optimizer.step()
+
+            # Increment the batch counter
+            batch_count += 1
+
+            if batch_count % checkpoint_interval == 0:
+                # Validate the model with Bach10
+                # TODO - more evaluation datasets
+                evaluate(model, hcqt, bach10, writer, batch_count)
+
+                # Save the model checkpoint after each epoch is complete
+                torch.save(model, os.path.join(log_dir, f'model-{batch_count}.pt'))
