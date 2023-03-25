@@ -24,7 +24,7 @@ class TrainSet(Dataset):
     Implements a wrapper for an MPE dataset intended for training.
     """
 
-    def __init__(self, base_dir=None, splits=None, sample_rate=16000, n_secs=None, seed=0, device='cpu'):
+    def __init__(self, base_dir=None, splits=None, sample_rate=16000, n_secs=None, seed=0):
         """
         TODO.
 
@@ -36,9 +36,9 @@ class TrainSet(Dataset):
           TODO
         sample_rate : TODO
           TODO
-        seed : TODO
+        n_secs : TODO
           TODO
-        device : TODO
+        seed : TODO
           TODO
         """
 
@@ -46,7 +46,6 @@ class TrainSet(Dataset):
             base_dir = os.path.join(DEFAULT_LOCATION, self.name())
 
         self.base_dir = base_dir
-        self.sample_rate = sample_rate
 
         # Check if the dataset exists in memory
         if not os.path.isdir(self.base_dir):
@@ -64,8 +63,8 @@ class TrainSet(Dataset):
         for split in splits:
             self.tracks += self.get_tracks(split)
 
+        self.sample_rate = sample_rate
         self.n_secs = n_secs
-        self.device = device
 
         # Initialize a random number generator for the dataset
         self.rng = np.random.RandomState(seed)
@@ -210,8 +209,8 @@ class TrainSet(Dataset):
                 # Pad the audio with zeros
                 audio = np.pad(audio, (pad_left, pad_total - pad_left))
 
-        # Add the audio to the appropriate GPU
-        audio = torch.from_numpy(audio).to(self.device).float()
+        # Convert audio to tensor with float type
+        audio = torch.from_numpy(audio).float()
 
         # Add a channel dimension to the audio
         audio = audio.unsqueeze(-2)
@@ -339,8 +338,8 @@ class EvalSet(TrainSet):
         # TODO
         ground_truth = self.get_ground_truth(self.tracks[index], times)
 
-        # Convert ground-truth to tensor format and add to appropriate device
-        ground_truth = torch.from_numpy(ground_truth).to(self.device).float()
+        # Convert ground-truth to tensor with float type
+        ground_truth = torch.from_numpy(ground_truth).float()
 
         return audio, ground_truth
 

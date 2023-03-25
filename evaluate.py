@@ -122,7 +122,7 @@ class MultipitchEvaluator(object):
         return results
 
 
-def evaluate(model, hcqt, eval_set, writer=None, i=0):
+def evaluate(model, hcqt, eval_set, writer=None, i=0, device='cpu'):
     # Initialize a new evaluator for the dataset
     evaluator = MultipitchEvaluator()
 
@@ -133,11 +133,14 @@ def evaluate(model, hcqt, eval_set, writer=None, i=0):
                         num_workers=0,
                         drop_last=False)
 
+    # Place model in evaluation mode
+    model.eval()
+
     with torch.no_grad():
         # Loop through each testing track
         for audio, ground_truth in loader:
             # Obtain features for the audio
-            features = decibels_to_linear(hcqt(audio))
+            features = decibels_to_linear(hcqt(audio.to(device)))
             # Compute the pitch salience of the features
             # TODO - need to train with longer sizes
             salience = torch.sigmoid(model(features).squeeze())

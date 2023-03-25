@@ -122,20 +122,17 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     # Instantiate MagnaTagATune dataset for training
     magnatagatune = MagnaTagATune(sample_rate=sample_rate,
                                   n_secs=n_secs,
-                                  seed=seed,
-                                  device=device)
+                                  seed=seed)
 
     # Instantiate FreeMusicArchive dataset for training
     freemusicarchive = FreeMusicArchive(sample_rate=sample_rate,
                                         n_secs=n_secs,
-                                        seed=seed,
-                                        device=device)
+                                        seed=seed)
 
     # Instantiate NSynth dataset for training
     nsynth = NSynth(sample_rate=sample_rate,
                     n_secs=n_secs,
-                    seed=seed,
-                    device=device)
+                    seed=seed)
 
     # Combine all training datasets into one
     training_data = ComboSet([magnatagatune, freemusicarchive, nsynth])
@@ -180,8 +177,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                     fmin=fmin,
                     n_bins=n_bins,
                     bins_per_octave=bins_per_octave,
-                    seed=seed,
-                    device=device)
+                    seed=seed)
 
     # Initialize a list to hold all validation datasets
     validation_sets = [bach10]
@@ -199,6 +195,9 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     for i in range(max_epochs):
         # Loop through batches
         for audio in tqdm(loader, desc=f'Epoch {i}'):
+            # Add audio to the appropriate device
+            audio = audio.to(device)
+
             with torch.no_grad():
                 # Feed the audio through the augmentation pipeline
                 augmentations = transforms(audio, sample_rate=sample_rate)
@@ -278,7 +277,15 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
             if batch_count % checkpoint_interval == 0:
                 for set in validation_sets:
                     # Validate the model with each validation dataset
-                    evaluate(model, hcqt, set, writer, batch_count)
+                    evaluate(model=model,
+                             hcqt=hcqt,
+                             eval_set=set,
+                             writer=writer,
+                             i=batch_count,
+                             device=device)
+
+                # Place model back in training mode
+                model.train()
 
                 # Save the model checkpoint after each epoch is complete
                 torch.save(model, os.path.join(log_dir, f'model-{batch_count}.pt'))
