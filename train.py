@@ -25,7 +25,7 @@ import torch
 import os
 
 
-EX_NAME = '_'.join(['Hustlin'])
+EX_NAME = '_'.join(['Remote'])
 
 ex = Experiment('Train a model to learn representations for MPE')
 
@@ -90,13 +90,17 @@ def config():
     # OTHERS
 
     # Switch for managing multiple path layouts (0 - local | 1 - lab)
-    path_layout = 0  # TODO
+    path_layout = 0
 
     # Number of threads to use for data loading
     n_workers = 0
 
+    if path_layout:
+        root_dir = os.path.join('/', 'storage', 'frank', 'self-supervised-pitch', EX_NAME)
+    else:
+        root_dir = os.path.join('.', 'generated', 'experiments', EX_NAME)
+
     # Create the root directory for the experiment files
-    root_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'generated', 'experiments', EX_NAME)
     os.makedirs(root_dir, exist_ok=True)
 
     # Add a file storage observer for the log directory
@@ -119,18 +123,31 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     device = torch.device(f'cuda:{gpu_id}'
                           if torch.cuda.is_available() else 'cpu')
 
+    if path_layout:
+        # Point to the storage drives containing each dataset
+        mtat_base_dir = os.path.join('/', 'storageNVME', 'frank', 'MagnaTagATune')
+        fma_base_dir = os.path.join('/', 'storageNVME', 'frank', 'FreeMusicArchive')
+        nsynth_base_dir = os.path.join('/', 'storageNVME', 'frank', 'NSynth')
+        bach10_base_dir = os.path.join('/', 'storage', 'frank', 'Bach10')
+    else:
+        # Use the default base directory paths
+        mtat_base_dir, fma_base_dir, nsynth_base_dir, bach10_base_dir, = None, None, None, None
+
     # Instantiate MagnaTagATune dataset for training
-    magnatagatune = MagnaTagATune(sample_rate=sample_rate,
+    magnatagatune = MagnaTagATune(base_dir=mtat_base_dir,
+                                  sample_rate=sample_rate,
                                   n_secs=n_secs,
                                   seed=seed)
 
     # Instantiate FreeMusicArchive dataset for training
-    freemusicarchive = FreeMusicArchive(sample_rate=sample_rate,
+    freemusicarchive = FreeMusicArchive(base_dir=fma_base_dir,
+                                        sample_rate=sample_rate,
                                         n_secs=n_secs,
                                         seed=seed)
 
     # Instantiate NSynth dataset for training
-    nsynth = NSynth(sample_rate=sample_rate,
+    nsynth = NSynth(base_dir=nsynth_base_dir,
+                    sample_rate=sample_rate,
                     n_secs=n_secs,
                     seed=seed)
 
@@ -172,7 +189,8 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     )
 
     # Instantiate Bach10 dataset for validation
-    bach10 = Bach10(sample_rate=sample_rate,
+    bach10 = Bach10(base_dir=bach10_base_dir,
+                    sample_rate=sample_rate,
                     hop_length=hop_length,
                     fmin=fmin,
                     n_bins=n_bins,

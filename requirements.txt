@@ -7,3 +7,4 @@ lhvqt
 tensorboard
 librosa
 scipy
+torch-audiomentations
