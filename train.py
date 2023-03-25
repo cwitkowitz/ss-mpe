@@ -59,8 +59,8 @@ def config():
         'translation' : 1
     }
 
-    # ID of the gpu to use, if available
-    gpu_id = 0
+    # IDs of the GPUs to use, if available
+    gpu_ids = [0]
 
     # Random seed for this experiment
     seed = 0
@@ -109,7 +109,7 @@ def config():
 
 @ex.automain
 def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
-                learning_rate, multipliers, gpu_id, seed, sample_rate,
+                learning_rate, multipliers, gpu_ids, seed, sample_rate,
                 hop_length, n_bins, bins_per_octave, harmonics, fmin,
                 path_layout, n_workers, root_dir):
     # Discard read-only types
@@ -119,8 +119,8 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     # Seed everything with the same seed
     seed_everything(seed)
 
-    # Initialize a device pointer
-    device = torch.device(f'cuda:{gpu_id}'
+    # Initialize the primary PyTorch device
+    device = torch.device(f'cuda:{gpu_ids[0]}'
                           if torch.cuda.is_available() else 'cpu')
 
     if path_layout:
@@ -161,14 +161,6 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                         num_workers=n_workers,
                         drop_last=True)
 
-    # Initialize MPE representation learning model
-    model = SAUNet(n_ch_in=len(harmonics),
-                   n_bins_in=n_bins,
-                   model_complexity=2).to(device)
-
-    # Initialize an optimizer for the model parameters
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-
     # Initialize the HCQT feature extraction module
     hcqt = LHVQT(fs=sample_rate,
                  hop_length=hop_length,
@@ -178,7 +170,23 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                  harmonics=harmonics,
                  update=False,
                  db_to_prob=False,
-                 batch_norm=False).to(device)
+                 batch_norm=False)
+
+    # Initialize MPE representation learning model
+    model = SAUNet(n_ch_in=len(harmonics),
+                   n_bins_in=n_bins,
+                   model_complexity=2)
+
+    if len(gpu_ids) > 1:
+        # Wrap feature extraction and model for multi-GPU usage
+        hcqt = torch.nn.DataParallel(hcqt, device_ids=gpu_ids)
+        model = torch.nn.DataParallel(model, device_ids=gpu_ids)
+
+    # Add model and feature extraction to primary device
+    hcqt, model = hcqt.to(device), model.to(device)
+
+    # Initialize an optimizer for the model parameters
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
     # Define the collection of augmentations to use for timbre invariance
     transforms = Compose(
@@ -293,11 +301,11 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
             batch_count += 1
 
             if batch_count % checkpoint_interval == 0:
-                for set in validation_sets:
+                for val_set in validation_sets:
                     # Validate the model with each validation dataset
                     evaluate(model=model,
                              hcqt=hcqt,
-                             eval_set=set,
+                             eval_set=val_set,
                              writer=writer,
                              i=batch_count,
                              device=device)
@@ -305,5 +313,12 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 # Place model back in training mode
                 model.train()
 
-                # Save the model checkpoint after each epoch is complete
-                torch.save(model, os.path.join(log_dir, f'model-{batch_count}.pt'))
+                # Construct a path to save the model checkpoint
+                model_path = os.path.join(log_dir, f'model-{batch_count}.pt')
+
+                if isinstance(model, torch.nn.DataParallel):
+                    # Unwrap and save the model
+                    torch.save(model.module, model_path)
+                else:
+                    # Save the model as is
+                    torch.save(model, model_path)
