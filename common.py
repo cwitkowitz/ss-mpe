@@ -8,6 +8,7 @@ from torch.utils.data import Dataset
 from abc import abstractmethod
 
 import numpy as np
+import traceback
 import warnings
 import librosa
 import scipy
@@ -23,7 +24,7 @@ class TrainSet(Dataset):
     Implements a wrapper for an MPE dataset intended for training.
     """
 
-    def __init__(self, base_dir=None, splits=None, sample_rate=16000, seed=0, device='cpu'):
+    def __init__(self, base_dir=None, splits=None, sample_rate=16000, n_secs=None, seed=0, device='cpu'):
         """
         TODO.
 
@@ -58,15 +59,16 @@ class TrainSet(Dataset):
             # Choose all available dataset splits
             splits = self.available_splits()
 
-        # Initialize a random number generator for the dataset
-        self.rng = np.random.RandomState(seed)
-
         self.tracks = []
         # Aggregate all the track names from the selected splits
         for split in splits:
             self.tracks += self.get_tracks(split)
 
+        self.n_secs = n_secs
         self.device = device
+
+        # Initialize a random number generator for the dataset
+        self.rng = np.random.RandomState(seed)
 
     @classmethod
     def name(cls):
@@ -153,12 +155,8 @@ class TrainSet(Dataset):
         # Obtain the path of the track's audio
         audio_path = self.get_audio_path(track)
 
-        try:
-            # TODO
-            audio, _ = librosa.load(audio_path, sr=self.sample_rate)
-        except:
-            print(f'Could not load track \'{track}\'...')
-
+        # TODO
+        audio, _ = librosa.load(audio_path, sr=self.sample_rate)
         # Normalize the audio between the range [-1, 1]
         audio = normalize(audio)
 
@@ -180,8 +178,37 @@ class TrainSet(Dataset):
           TODO
         """
 
-        # TODO
-        audio = self.get_audio(self.tracks[index])
+        # Determine corresponding track
+        track = self.tracks[index]
+
+        try:
+            # Attempt to read the track
+            audio = self.get_audio(track)
+        except Exception as e:
+            # Print the exception trace
+            traceback.print_exception(e)
+            # Print offending track to console
+            print(f'Error loading track \'{track}\'...')
+
+            # Default audio to silence
+            audio = np.empty(0)
+
+        if self.n_secs is not None:
+            # Determine the required sequence length
+            n_samples = int(self.n_secs * self.sample_rate)
+
+            if len(audio) >= n_samples:
+                # Sample a random starting index for the trim
+                start = self.rng.randint(0, len(audio) - n_samples)
+                # Trim audio to the sequence length
+                audio = audio[start : start + n_samples]
+            else:
+                # Determine how much padding is required
+                pad_total = n_samples - len(audio)
+                # Randomly distributed between both sides
+                pad_left = self.rng.randint(0, pad_total)
+                # Pad the audio with zeros
+                audio = np.pad(audio, (pad_left, pad_total - pad_left))
 
         # Add the audio to the appropriate GPU
         audio = torch.from_numpy(audio).to(self.device).float()
@@ -306,10 +333,10 @@ class EvalSet(TrainSet):
         audio = super().__getitem__(index)
 
         # Compute the number of frames as the number of hops
-        num_frames = 1 + audio.size(-1) // self.hop_length
+        n_frames = 1 + audio.size(-1) // self.hop_length
 
         # Determine the time associated with each frame (center)
-        times = librosa.frames_to_time(np.arange(num_frames),
+        times = librosa.frames_to_time(np.arange(n_frames),
                                        sr=self.sample_rate,
                                        hop_length=self.hop_length)
 

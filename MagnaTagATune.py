@@ -51,7 +51,8 @@ class MagnaTagATune(TrainSet):
 
         # Combine the parent directory of the split with each file
         tracks = sorted([os.path.join(split, os.path.splitext(f)[0])
-                         for f in os.listdir(split_path)])
+                         for f in os.listdir(split_path)
+                         if os.path.getsize(os.path.join(split_path, f)) > 0])
 
         return tracks
 
@@ -73,10 +74,10 @@ class MagnaTagATune(TrainSet):
         # Break apart partition and track name
         split, name = os.path.split(track)
 
-        # Get the path to the audio
-        wav_path = os.path.join(self.base_dir, split, f'{name}.mp3')
+        # Get the path to the MP3 file
+        mp3_path = os.path.join(self.base_dir, split, f'{name}.mp3')
 
-        return wav_path
+        return mp3_path
 
     @classmethod
     def download(cls, save_dir):

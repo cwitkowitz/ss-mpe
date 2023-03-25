@@ -5,6 +5,7 @@ from utils import stream_url_resource, unzip_and_remove
 from common import TrainSet
 
 # Regular imports
+import numpy as np
 import shutil
 import os
 
@@ -22,11 +23,11 @@ class FreeMusicArchive(TrainSet):
         Returns
         ----------
         splits : list of strings
-          TODO
+          Top-level directories
         """
 
-        # TODO
-        splits = []
+        # All numbered directories with leading zeros
+        splits = [str(i).zfill(3) for i in np.arange(156)]
 
         return splits
 
@@ -45,8 +46,11 @@ class FreeMusicArchive(TrainSet):
           TODO
         """
 
-        # TODO
-        tracks = sorted([])
+        # Construct a path to the dataset split
+        split_path = os.path.join(self.base_dir, split)
+
+        # Obtain a sorted list of all files in the split's directory
+        tracks = sorted([os.path.splitext(f)[0] for f in os.listdir(split_path)])
 
         return tracks
 
@@ -65,10 +69,10 @@ class FreeMusicArchive(TrainSet):
           Path to the specified track's audio
         """
 
-        # TODO
-        wav_path = None
+        # Get the path to the MP3 file
+        mp3_path = os.path.join(self.base_dir, track[:3], f'{track}.mp3')
 
-        return wav_path
+        return mp3_path
 
     @classmethod
     def download(cls, save_dir):
