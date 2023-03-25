@@ -1,6 +1,7 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
+from common import ComboSet
 from FreeMusicArchive import FreeMusicArchive
 from MagnaTagATune import MagnaTagATune
 from NSynth import NSynth
@@ -23,7 +24,7 @@ import torch
 import os
 
 
-EX_NAME = '_'.join(['FindBadFile'])
+EX_NAME = '_'.join(['Hustlin'])
 
 ex = Experiment('Train a model to learn representations for MPE')
 
@@ -65,17 +66,20 @@ def train_model(max_epochs, checkpoint_interval, batch_size, learning_rate, gpu_
     device = torch.device(f'cuda:{gpu_id}'
                           if torch.cuda.is_available() else 'cpu')
 
-    # Instantiate NSynth dataset for training
-    #nsynth = NSynth(seed=seed, device=device)
-
     # Instantiate MagnaTagATune dataset for training
-    magnatagatune = MagnaTagATune(seed=seed, device=device)
+    magnatagatune = MagnaTagATune(n_secs=30, seed=seed, device=device)
 
     # Instantiate FreeMusicArchive dataset for training
-    #freemusicarchive = FreeMusicArchive(seed=seed, device=device)
+    freemusicarchive = FreeMusicArchive(n_secs=30, seed=seed, device=device)
+
+    # Instantiate NSynth dataset for training
+    nsynth = NSynth(n_secs=30, seed=seed, device=device)
+
+    # Combine all training datasets into one
+    training_data = ComboSet([magnatagatune, freemusicarchive, nsynth])
 
     # Initialize a PyTorch dataloader for the data
-    loader = DataLoader(dataset=magnatagatune,
+    loader = DataLoader(dataset=training_data,
                         batch_size=batch_size,
                         shuffle=True,
                         num_workers=0,
@@ -87,7 +91,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, learning_rate, gpu_
     n_bins = 216
     bins_per_octave = 36
     harmonics = [0.5, 1, 2, 3, 4, 5]
-    fmin = None # TODO
+    fmin = None # TODO - add all these to config
 
     # Initialize MPE representation learning model
     model = SAUNet(n_ch_in=len(harmonics),
@@ -194,7 +198,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, learning_rate, gpu_
             writer.add_scalar('train/loss/translation', translation_loss, batch_count)
 
             # Compute the total loss for this batch
-            loss = 1 * content_loss + 1 * linearity_loss + 1 * invariance_loss + 1 * translation_loss + 0 * support_loss
+            loss = 2 * content_loss + 1 * linearity_loss + 1 * invariance_loss + 1 * translation_loss + 0 * support_loss
 
             # Log the total loss for this batch
             writer.add_scalar('train/loss/total', loss, batch_count)

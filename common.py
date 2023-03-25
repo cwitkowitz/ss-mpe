@@ -347,3 +347,64 @@ class EvalSet(TrainSet):
         ground_truth = torch.from_numpy(ground_truth).to(self.device).float()
 
         return audio, ground_truth
+
+
+class ComboSet(TrainSet):
+    """
+    Support for training with multiple datasets.
+    """
+
+    def __init__(self, datasets):
+        """
+        TODO.
+
+        Parameters
+        ----------
+        datasets : list of TrainSets
+          Pre-initialized datasets from which to sample
+        """
+
+        self.datasets = datasets
+
+    def __len__(self):
+        """
+        Number of samples across all datasets.
+
+        Returns
+        ----------
+        length : int
+          TODO
+        """
+
+        # Add together length of all constituent datasets
+        length = sum([d.__len__() for d in self.datasets])
+
+        return length
+
+    def __getitem__(self, index):
+        """
+        TODO.
+
+        Parameters
+        ----------
+        index : int
+          Index of sampled track
+
+        Returns
+        ----------
+        audio : TODO
+          TODO
+        """
+
+        local_idx, dataset_idx = index, 0
+
+        while local_idx >= self.datasets[dataset_idx].__len__():
+            # Remove the index offset from this dataset
+            local_idx -= self.datasets[dataset_idx].__len__()
+            # Check the next dataset
+            dataset_idx += 1
+
+        # Get the audio at the sampled dataset's local index
+        audio = self.datasets[dataset_idx].__getitem__(local_idx)
+
+        return audio
