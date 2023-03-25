@@ -238,7 +238,7 @@ class EvalSet(TrainSet):
     Implements a wrapper for an MPE dataset intended for evaluation.
     """
 
-    def __init__(self, hop_length, n_bins, bins_per_octave, fmin=None, **kwargs):
+    def __init__(self, hop_length, fmin, n_bins, bins_per_octave, **kwargs):
         """
         TODO.
 
@@ -246,11 +246,11 @@ class EvalSet(TrainSet):
         ----------
         hop_length : TODO
           TODO
+        fmin : TODO
+          TODO
         n_bins : TODO
           TODO
         bins_per_octave : TODO
-          TODO
-        fmin : TODO
           TODO
         kwargs : TODO
           TODO
@@ -259,10 +259,6 @@ class EvalSet(TrainSet):
         super().__init__(**kwargs)
 
         self.hop_length = hop_length
-
-        if fmin is None:
-            # Default minimum frequency to note C1
-            fmin = librosa.note_to_midi('C1')
 
         # Determine the MIDI frequency of the highest bin
         fmax = fmin + (n_bins - 1) / (bins_per_octave / 12)

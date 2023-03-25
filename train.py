@@ -20,6 +20,7 @@ from torch_audiomentations import *
 from sacred import Experiment
 from tqdm import tqdm
 
+import librosa
 import torch
 import os
 
@@ -31,6 +32,9 @@ ex = Experiment('Train a model to learn representations for MPE')
 
 @ex.config
 def config():
+    ##############################
+    # TRAINING HYPERPARAMETERS
+
     # Maximum number of training iterations to conduct
     max_epochs = 1000
 
@@ -40,14 +44,56 @@ def config():
     # Number of samples to gather for a batch
     batch_size = 4
 
+    # Number of seconds of audio per sample
+    n_secs = 30
+
     # Fixed learning rate
     learning_rate = 1e-3
+
+    # Scaling factors for each loss term
+    multipliers = {
+        'support' : 0,
+        'content' : 2,
+        'linearity' : 1,
+        'invariance' : 1,
+        'translation' : 1
+    }
 
     # ID of the gpu to use, if available
     gpu_id = 0
 
     # Random seed for this experiment
     seed = 0
+
+    ##############################
+    # FEATURE EXTRACTION
+
+    # Number of samples per second of audio
+    sample_rate = 22050
+
+    # Number of samples between frames
+    hop_length = 512
+
+    # Number of frequency bins per CQT
+    n_bins = 216
+
+    # Number of bins in a single octave
+    bins_per_octave = 36
+
+    # Harmonics to stack along channel dimension of HCQT
+    harmonics = [0.5, 1, 2, 3, 4, 5]
+
+    # First center frequency (MIDI) of geometric progression
+    fmin = librosa.note_to_midi('C1')
+
+    ##############################
+    # OTHERS
+
+    # Switch for managing multiple path layouts (0 - local | 1 - lab)
+    path_layout = 0  # TODO
+
+    # Number of threads to use for data loading
+    n_workers = 0
 
     # Create the root directory for the experiment files
     root_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'generated', 'experiments', EX_NAME)
@@ -58,7 +104,14 @@ def config():
 
 
 @ex.automain
-def train_model(max_epochs, checkpoint_interval, batch_size, learning_rate, gpu_id, seed, root_dir):
+def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
+                learning_rate, multipliers, gpu_id, seed, sample_rate,
+                hop_length, n_bins, bins_per_octave, harmonics, fmin,
+                path_layout, n_workers, root_dir):
+    # Discard read-only types
+    multipliers = dict(multipliers)
+    harmonics = list(harmonics)
+
     # Seed everything with the same seed
     seed_everything(seed)
 
@@ -67,13 +120,22 @@ def train_model(max_epochs, checkpoint_interval, batch_size, learning_rate, gpu_
                           if torch.cuda.is_available() else 'cpu')
 
     # Instantiate MagnaTagATune dataset for training
-    magnatagatune = MagnaTagATune(n_secs=30, seed=seed, device=device)
+    magnatagatune = MagnaTagATune(sample_rate=sample_rate,
+                                  n_secs=n_secs,
+                                  seed=seed,
+                                  device=device)
 
     # Instantiate FreeMusicArchive dataset for training
-    freemusicarchive = FreeMusicArchive(n_secs=30, seed=seed, device=device)
+    freemusicarchive = FreeMusicArchive(sample_rate=sample_rate,
+                                        n_secs=n_secs,
+                                        seed=seed,
+                                        device=device)
 
     # Instantiate NSynth dataset for training
-    nsynth = NSynth(n_secs=30, seed=seed, device=device)
+    nsynth = NSynth(sample_rate=sample_rate,
+                    n_secs=n_secs,
+                    seed=seed,
+                    device=device)
 
     # Combine all training datasets into one
     training_data = ComboSet([magnatagatune, freemusicarchive, nsynth])
@@ -82,16 +144,8 @@ def train_model(max_epochs, checkpoint_interval, batch_size, learning_rate, gpu_
     loader = DataLoader(dataset=training_data,
                         batch_size=batch_size,
                         shuffle=True,
-                        num_workers=0,
+                        num_workers=n_workers,
                         drop_last=True)
-
-    # Define input parameters
-    sample_rate = 16000
-    hop_length = 512
-    n_bins = 216
-    bins_per_octave = 36
-    harmonics = [0.5, 1, 2, 3, 4, 5]
-    fmin = None # TODO - add all these to config
 
     # Initialize MPE representation learning model
     model = SAUNet(n_ch_in=len(harmonics),
@@ -102,15 +156,14 @@ def train_model(max_epochs, checkpoint_interval, batch_size, learning_rate, gpu_
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
     # Initialize the HCQT feature extraction module
-    # TODO - need to make sure features for silence or near-silence are very tiny
-    #        should be fine if features are computed at the signal level
     hcqt = LHVQT(fs=sample_rate,
                  hop_length=hop_length,
+                 fmin=librosa.midi_to_hz(fmin),
                  n_bins=n_bins,
                  bins_per_octave=bins_per_octave,
                  harmonics=harmonics,
-                 db_to_prob=False,
                  update=False,
+                 db_to_prob=False,
                  batch_norm=False).to(device)
 
     # Define the collection of augmentations to use for timbre invariance
@@ -124,10 +177,14 @@ def train_model(max_epochs, checkpoint_interval, batch_size, learning_rate, gpu_
     # Instantiate Bach10 dataset for validation
     bach10 = Bach10(sample_rate=sample_rate,
                     hop_length=hop_length,
+                    fmin=fmin,
                     n_bins=n_bins,
                     bins_per_octave=bins_per_octave,
                     seed=seed,
                     device=device)
+
+    # Initialize a list to hold all validation datasets
+    validation_sets = [bach10]
 
     # Construct the path to the directory for saving models
     log_dir = os.path.join(root_dir, 'models')
@@ -186,7 +243,8 @@ def train_model(max_epochs, checkpoint_interval, batch_size, learning_rate, gpu_
             writer.add_scalar('train/loss/linearity', linearity_loss, batch_count)
 
             # Compute the invariance loss for this batch
-            invariance_loss = compute_contrastive_loss(original_embeddings.transpose(-1, -2), augment_embeddings.transpose(-1, -2))
+            invariance_loss = compute_contrastive_loss(original_embeddings.transpose(-1, -2),
+                                                       augment_embeddings.transpose(-1, -2))
 
             # Log the invariance loss for this batch
             writer.add_scalar('train/loss/invariance', invariance_loss, batch_count)
@@ -198,7 +256,11 @@ def train_model(max_epochs, checkpoint_interval, batch_size, learning_rate, gpu_
             writer.add_scalar('train/loss/translation', translation_loss, batch_count)
 
             # Compute the total loss for this batch
-            loss = 2 * content_loss + 1 * linearity_loss + 1 * invariance_loss + 1 * translation_loss + 0 * support_loss
+            loss = multipliers['support'] * support_loss + \
+                   multipliers['content'] * content_loss + \
+                   multipliers['linearity'] * linearity_loss + \
+                   multipliers['invariance'] * invariance_loss + \
+                   multipliers['translation'] * translation_loss
 
             # Log the total loss for this batch
             writer.add_scalar('train/loss/total', loss, batch_count)
@@ -214,9 +276,9 @@ def train_model(max_epochs, checkpoint_interval, batch_size, learning_rate, gpu_
             batch_count += 1
 
             if batch_count % checkpoint_interval == 0:
-                # Validate the model with Bach10
-                # TODO - more evaluation datasets
-                evaluate(model, hcqt, bach10, writer, batch_count)
+                for set in validation_sets:
+                    # Validate the model with each validation dataset
+                    evaluate(model, hcqt, set, writer, batch_count)
 
                 # Save the model checkpoint after each epoch is complete
                 torch.save(model, os.path.join(log_dir, f'model-{batch_count}.pt'))
