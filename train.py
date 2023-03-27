@@ -25,7 +25,7 @@ import torch
 import os
 
 
-EX_NAME = '_'.join(['Remote'])
+EX_NAME = '_'.join(['NewTransformations'])
 
 ex = Experiment('Train a model to learn representations for MPE')
 
@@ -52,8 +52,8 @@ def config():
 
     # Scaling factors for each loss term
     multipliers = {
-        'support' : 0,
-        'content' : 2,
+        'support' : 1,
+        'content' : 1,
         'linearity' : 1,
         'invariance' : 1,
         'translation' : 1
@@ -146,13 +146,14 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                                         seed=seed)
 
     # Instantiate NSynth dataset for training
-    nsynth = NSynth(base_dir=nsynth_base_dir,
-                    sample_rate=sample_rate,
-                    n_secs=n_secs,
-                    seed=seed)
+    # TODO - should NSynth be included for training?
+    #nsynth = NSynth(base_dir=nsynth_base_dir,
+    #                sample_rate=sample_rate,
+    #                n_secs=n_secs,
+    #                seed=seed)
 
     # Combine all training datasets into one
-    training_data = ComboSet([magnatagatune, freemusicarchive, nsynth])
+    training_data = ComboSet([magnatagatune, freemusicarchive])
 
     # Initialize a PyTorch dataloader for the data
     loader = DataLoader(dataset=training_data,
@@ -188,13 +189,45 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     # Initialize an optimizer for the model parameters
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
-    # Define the collection of augmentations to use for timbre invariance
-    transforms = Compose(
+    # Define a transformation pipeline to modify the timbre of audio
+    timbre_transforms = Compose(
         transforms=[
-            # TODO - add more augmentations
-            PolarityInversion(p=0.5)
+            # TODO - tune augmentations parameters
+            AddColoredNoise(),
+            #AddBackgroundNoise(),
+            #ApplyImpulseResponse(),
+            OneOf(
+                transforms=[
+                    BandPassFilter(),
+                    BandStopFilter(),
+                    HighPassFilter(),
+                    LowPassFilter()
+                ]#, p=0.5
+            )
         ]
     )
+
+    # Define a transformation pipeline to add variance to audio
+    variety_transforms = Compose(
+        transforms=[
+            # TODO - consider adding these augmentations
+            #PolarityInversion(),
+            #TimeInversion(),
+            #PitchShift(),
+            #Shift(),
+            OneOf(
+                transforms=[
+                    #PeakNormalization(),
+                    #Gain(),
+                    Identity()
+                ]#, p=0.5
+            )
+            #ShuffleChannels()
+        ]
+    )
+
+    # Connect the two types of transformations to obtain the full pipeline
+    transforms = Compose(transforms=[timbre_transforms, variety_transforms])
 
     # Instantiate Bach10 dataset for validation
     bach10 = Bach10(base_dir=bach10_base_dir,
@@ -228,6 +261,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 # Feed the audio through the augmentation pipeline
                 augmentations = transforms(audio, sample_rate=sample_rate)
                 # Create random mixtures of the audio and keep track of mixing
+                # TODO should augmented audio be mixed instead?
                 mixtures, legend = get_random_mixtures(audio)
 
             # TODO - mixed precision (amp/apex) for speedup?
@@ -268,6 +302,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
             writer.add_scalar('train/loss/linearity', linearity_loss, batch_count)
 
             # Compute the invariance loss for this batch
+            # TODO - should both sets of embeddings be augmentations?
             invariance_loss = compute_contrastive_loss(original_embeddings.transpose(-1, -2),
                                                        augment_embeddings.transpose(-1, -2))
 
