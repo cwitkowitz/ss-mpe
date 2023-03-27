@@ -42,7 +42,7 @@ def config():
     checkpoint_interval = 50
 
     # Number of samples to gather for a batch
-    batch_size = 4
+    batch_size = 12
 
     # Number of seconds of audio per sample
     n_secs = 30
@@ -60,7 +60,7 @@ def config():
     }
 
     # IDs of the GPUs to use, if available
-    gpu_ids = [0]
+    gpu_ids = [0, 1, 2]
 
     # Random seed for this experiment
     seed = 0
@@ -90,10 +90,10 @@ def config():
     # OTHERS
 
     # Switch for managing multiple path layouts (0 - local | 1 - lab)
-    path_layout = 0
+    path_layout = 1
 
     # Number of threads to use for data loading
-    n_workers = 0
+    n_workers = 8
 
     if path_layout:
         root_dir = os.path.join('/', 'storage', 'frank', 'self-supervised-pitch', EX_NAME)
@@ -189,20 +189,50 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     # Initialize an optimizer for the model parameters
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
+    # Choose cutoff frequencies to retain at least one octave
+    low_cutoff = librosa.note_to_hz('C2')
+    high_cutoff = librosa.note_to_hz('C6')
+
+    # Define boundaries for musically-relevant fundamental frequencies
+    low_bound = librosa.note_to_hz('A0')
+    high_bound = librosa.note_to_hz('C8')
+
+    def octave_fraction(n_octave):
+        """
+        Compute the fraction of an arbitrary frequency
+        in Hz which corresponds to n_octave octaves.
+        """
+
+        return 2 ** (n_octave / 2) - 2 ** (-n_octave / 2)
+
     # Define a transformation pipeline to modify the timbre of audio
     timbre_transforms = Compose(
         transforms=[
-            # TODO - tune augmentations parameters
             AddColoredNoise(),
             #AddBackgroundNoise(),
             #ApplyImpulseResponse(),
             OneOf(
                 transforms=[
-                    BandPassFilter(),
-                    BandStopFilter(),
-                    HighPassFilter(),
-                    LowPassFilter()
-                ]#, p=0.5
+                    LowPassFilter(
+                        min_cutoff_freq=low_cutoff,
+                        max_cutoff_freq=high_bound
+                    ),
+                    HighPassFilter(
+                        min_cutoff_freq=low_bound,
+                        max_cutoff_freq=high_cutoff
+                    ),
+                    BandPassFilter(
+                        min_center_frequency=low_cutoff,
+                        max_center_frequency=high_cutoff,
+                        min_bandwidth_fraction=octave_fraction(1),
+                        max_bandwidth_fraction=octave_fraction(2)
+                    ),
+                    BandStopFilter(
+                        min_center_frequency=low_cutoff,
+                        max_center_frequency=high_cutoff,
+                        min_bandwidth_fraction=octave_fraction(1),
+                        max_bandwidth_fraction=octave_fraction(2))
+                ]
             )
         ]
     )
@@ -220,7 +250,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                     #PeakNormalization(),
                     #Gain(),
                     Identity()
-                ]#, p=0.5
+                ]
             )
             #ShuffleChannels()
         ]
