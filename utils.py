@@ -6,6 +6,7 @@ import numpy as np
 import requests
 import tarfile
 import zipfile
+import shutil
 import random
 import torch
 import os
@@ -76,6 +77,31 @@ def unzip_and_remove(zip_path, target=None, tar=False):
 
     # Delete the zip file
     os.remove(zip_path)
+
+
+def change_base_dir(new_dir, old_dir):
+    """
+    Change the top-level directory from the path chain of each file.
+
+    Parameters
+    ----------
+    new_dir : string
+      New top-level directory
+    old_dir : string
+      Old top-level directory
+    """
+
+    # Loop through all contents of the old directory
+    for content in os.listdir(old_dir):
+        # Construct the old path to the contents
+        old_path = os.path.join(old_dir, content)
+        # Construct the new path to the contents
+        new_path = os.path.join(new_dir, content)
+        # Move all files and subdirectories recursively
+        shutil.move(old_path, new_path)
+
+    # Remove the (now empty) old top-level directory
+    os.rmdir(old_dir)
 
 
 def seed_everything(seed):

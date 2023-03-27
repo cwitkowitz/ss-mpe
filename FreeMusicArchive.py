@@ -1,7 +1,7 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from utils import stream_url_resource, unzip_and_remove
+from utils import stream_url_resource, unzip_and_remove, change_base_dir
 from common import TrainSet
 
 # Regular imports
@@ -104,3 +104,6 @@ class FreeMusicArchive(TrainSet):
 
         # Unzip the downloaded file and remove it
         unzip_and_remove(zip_path)
+
+        # Move contents of unzipped directory to the base directory
+        change_base_dir(save_dir, os.path.join(save_dir, 'fma_large'))
