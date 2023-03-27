@@ -198,7 +198,7 @@ class TrainSet(Dataset):
 
             if len(audio) >= n_samples:
                 # Sample a random starting index for the trim
-                start = self.rng.randint(0, len(audio) - n_samples)
+                start = self.rng.randint(0, len(audio) - n_samples + 1)
                 # Trim audio to the sequence length
                 audio = audio[start : start + n_samples]
             else:
