@@ -45,7 +45,7 @@ def config():
     batch_size = 12
 
     # Number of seconds of audio per sample
-    n_secs = 30
+    n_secs = 28
 
     # Fixed learning rate
     learning_rate = 1e-3
