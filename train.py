@@ -25,6 +25,7 @@ import torch
 import os
 
 
+CONFIG = 0 # (0 - desktop | 1 - lab)
 EX_NAME = '_'.join(['NewTransformations'])
 
 ex = Experiment('Train a model to learn representations for MPE')
@@ -42,7 +43,7 @@ def config():
     checkpoint_interval = 50
 
     # Number of samples to gather for a batch
-    batch_size = 12
+    batch_size = 12 if CONFIG else 4
 
     # Number of seconds of audio per sample
     n_secs = 28
@@ -53,14 +54,14 @@ def config():
     # Scaling factors for each loss term
     multipliers = {
         'support' : 1,
-        'content' : 1,
-        'linearity' : 1,
-        'invariance' : 1,
-        'translation' : 1
+        'content' : 0,
+        'linearity' : 0,
+        'invariance' : 0,
+        'translation' : 0
     }
 
     # IDs of the GPUs to use, if available
-    gpu_ids = [0, 1, 2]
+    gpu_ids = [0, 1, 2] if CONFIG else [0]
 
     # Random seed for this experiment
     seed = 0
@@ -90,10 +91,10 @@ def config():
     # OTHERS
 
     # Switch for managing multiple path layouts (0 - local | 1 - lab)
-    path_layout = 1
+    path_layout = 1 if CONFIG else 0
 
     # Number of threads to use for data loading
-    n_workers = 8
+    n_workers = 8 if CONFIG else 0
 
     if path_layout:
         root_dir = os.path.join('/', 'storage', 'frank', 'self-supervised-pitch', EX_NAME)
