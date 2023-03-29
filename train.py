@@ -16,7 +16,6 @@ from evaluate import evaluate
 from torch.utils.tensorboard import SummaryWriter
 from sacred.observers import FileStorageObserver
 from torch.utils.data import DataLoader
-#from audiomentations import *
 from torch_audiomentations import *
 from sacred import Experiment
 from tqdm import tqdm
@@ -27,7 +26,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['Numpy'])
+EX_NAME = '_'.join(['FineTuning', 'Support'])
 
 ex = Experiment('Train a model to learn representations for MPE')
 
@@ -38,13 +37,13 @@ def config():
     # TRAINING HYPERPARAMETERS
 
     # Maximum number of training iterations to conduct
-    max_epochs = 1000
+    max_epochs = 10
 
     # Number of iterations between checkpoints
     checkpoint_interval = 50
 
     # Number of samples to gather for a batch
-    batch_size = 12 if CONFIG else 4
+    batch_size = 24 if CONFIG else 8
 
     # Number of seconds of audio per sample
     n_secs = 28
@@ -95,7 +94,7 @@ def config():
     path_layout = 1 if CONFIG else 0
 
     # Number of threads to use for data loading
-    n_workers = 8 if CONFIG else 0
+    n_workers = 8 if CONFIG else 4
 
     if path_layout:
         root_dir = os.path.join('/', 'storage', 'frank', 'self-supervised-pitch', EX_NAME)
@@ -210,7 +209,6 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     # Define a transformation pipeline to modify the timbre of audio
     timbre_transforms = Compose(
         transforms=[
-            #AddGaussianNoise(),
             AddColoredNoise(),
             #AddBackgroundNoise(),
             #ApplyImpulseResponse(),
@@ -225,20 +223,17 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                         max_cutoff_freq=high_cutoff
                     ),
                     BandPassFilter(
-                        #min_center_freq=low_cutoff,
-                        #max_center_freq=high_cutoff,
                         min_center_frequency=low_cutoff,
                         max_center_frequency=high_cutoff,
                         min_bandwidth_fraction=octave_fraction(1),
                         max_bandwidth_fraction=octave_fraction(2)
                     ),
                     BandStopFilter(
-                        #min_center_freq=low_cutoff,
-                        #max_center_freq=high_cutoff,
                         min_center_frequency=low_cutoff,
                         max_center_frequency=high_cutoff,
                         min_bandwidth_fraction=octave_fraction(1),
-                        max_bandwidth_fraction=octave_fraction(2))
+                        max_bandwidth_fraction=octave_fraction(2)
+                    )
                 ]
             )
         ]
@@ -295,82 +290,85 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
             audio = audio.to(device)
 
             with torch.no_grad():
-                #temp_audio = audio[:, 0].cpu().detach().numpy()
-                #augmentations = timbre_transforms(temp_audio, sample_rate=sample_rate)
-                #augmentations = torch.from_numpy(augmentations).unsqueeze(-2).float().to(device)
-                # Feed the audio through the augmentation pipeline
-                augmentations = transforms(audio, sample_rate=sample_rate)
+                try:
+                    # Feed the audio through the augmentation pipeline
+                    augmentations = transforms(audio, sample_rate=sample_rate)
+                except Exception as e:
+                    # Print warning message
+                    print('Error augmenting batch...')
+                    # Skip augmentation pipeline
+                    augmentations = audio.clone()
+
                 # Create random mixtures of the audio and keep track of mixing
                 # TODO should augmented audio be mixed instead?
                 mixtures, legend = get_random_mixtures(audio)
 
-            # TODO - mixed precision (amp/apex) for speedup?
-            #with torch.autocast(device_type=f'cuda'):
-            # Obtain spectral features
-            original_features = decibels_to_linear(hcqt(audio))
-            augment_features = decibels_to_linear(hcqt(augmentations))
-            mixture_features = decibels_to_linear(hcqt(mixtures))
+            with torch.autocast(device_type=f'cuda'):
+                # Obtain spectral features
+                original_features = decibels_to_linear(hcqt(audio))
+                augment_features = decibels_to_linear(hcqt(augmentations))
+                mixture_features = decibels_to_linear(hcqt(mixtures))
 
-            # Compute pitch salience embeddings
-            original_embeddings = model(original_features).squeeze()
-            augment_embeddings = model(augment_features).squeeze()
-            mixture_embeddings = model(mixture_features).squeeze()
+                # Compute pitch salience embeddings
+                original_embeddings = model(original_features).squeeze()
+                augment_embeddings = model(augment_features).squeeze()
+                mixture_embeddings = model(mixture_features).squeeze()
 
-            # Convert logits to activations (implicit pitch salience)
-            original_salience = torch.sigmoid(original_embeddings)
-            #augment_salience = torch.sigmoid(augment_embeddings)
-            #mixture_salience = torch.sigmoid(mixture_embeddings)
+                # Convert logits to activations (implicit pitch salience)
+                original_salience = torch.sigmoid(original_embeddings)
+                #augment_salience = torch.sigmoid(augment_embeddings)
+                #mixture_salience = torch.sigmoid(mixture_embeddings)
 
-            # TODO - some of the following losses can be applied to more than one (originals|augmentations|mixtures)
+                # TODO - some of the following losses can be applied to more than one (originals|augmentations|mixtures)
 
-            # Compute the support loss with respect to the first harmonic for this batch
-            support_loss = compute_support_loss(original_embeddings, original_features[:, 1])
+                # Compute the support loss with respect to the first harmonic for this batch
+                support_loss = compute_support_loss(original_embeddings, original_features[:, 1])
 
-            # Log the support loss for this batch
-            writer.add_scalar('train/loss/support', support_loss, batch_count)
+                # Log the support loss for this batch
+                writer.add_scalar('train/loss/support', support_loss, batch_count)
 
-            # Compute the content loss for this batch
-            content_loss = compute_content_loss(original_salience, original_features)
+                # Compute the content loss for this batch
+                content_loss = compute_content_loss(original_salience, original_features)
 
-            # Log the content loss for this batch
-            writer.add_scalar('train/loss/content', content_loss, batch_count)
+                # Log the content loss for this batch
+                writer.add_scalar('train/loss/content', content_loss, batch_count)
 
-            # Compute the linearity loss for this batch
-            linearity_loss = compute_linearity_loss(mixture_embeddings, original_salience, legend)
+                # Compute the linearity loss for this batch
+                linearity_loss = compute_linearity_loss(mixture_embeddings, original_salience, legend)
 
-            # Log the linearity loss for this batch
-            writer.add_scalar('train/loss/linearity', linearity_loss, batch_count)
+                # Log the linearity loss for this batch
+                writer.add_scalar('train/loss/linearity', linearity_loss, batch_count)
 
-            # Compute the invariance loss for this batch
-            # TODO - should both sets of embeddings be augmentations?
-            invariance_loss = compute_contrastive_loss(original_embeddings.transpose(-1, -2),
-                                                       augment_embeddings.transpose(-1, -2))
+                # Compute the invariance loss for this batch
+                # TODO - should both sets of embeddings be augmentations?
+                invariance_loss = compute_contrastive_loss(original_embeddings.transpose(-1, -2),
+                                                           augment_embeddings.transpose(-1, -2))
 
-            # Log the invariance loss for this batch
-            writer.add_scalar('train/loss/invariance', invariance_loss, batch_count)
+                # Log the invariance loss for this batch
+                writer.add_scalar('train/loss/invariance', invariance_loss, batch_count)
 
-            # Compute the translation loss for this batch
-            translation_loss = compute_translation_loss(model, original_features, original_salience)
+                # Compute the translation loss for this batch
+                translation_loss = compute_translation_loss(model, original_features, original_salience)
 
-            # Log the translation loss for this batch
-            writer.add_scalar('train/loss/translation', translation_loss, batch_count)
+                # Log the translation loss for this batch
+                writer.add_scalar('train/loss/translation', translation_loss, batch_count)
 
-            # Compute the total loss for this batch
-            loss = multipliers['support'] * support_loss + \
-                   multipliers['content'] * content_loss + \
-                   multipliers['linearity'] * linearity_loss + \
-                   multipliers['invariance'] * invariance_loss + \
-                   multipliers['translation'] * translation_loss
+                # Compute the total loss for this batch
+                loss = multipliers['support'] * support_loss + \
+                       multipliers['content'] * content_loss + \
+                       multipliers['linearity'] * linearity_loss + \
+                       multipliers['invariance'] * invariance_loss + \
+                       multipliers['translation'] * translation_loss
 
-            # Log the total loss for this batch
-            writer.add_scalar('train/loss/total', loss, batch_count)
+                # Log the total loss for this batch
+                writer.add_scalar('train/loss/total', loss, batch_count)
 
-            # Zero the accumulated gradients
-            optimizer.zero_grad()
-            # Compute gradients based on total loss
-            loss.backward()
-            # Perform an optimization step
-            optimizer.step()
+                # Zero the accumulated gradients
+                optimizer.zero_grad()
+                # Compute gradients based on total loss
+                loss.backward()
+                # Perform an optimization step
+                optimizer.step()
 
             # Increment the batch counter
             batch_count += 1

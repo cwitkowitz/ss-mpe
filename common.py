@@ -8,7 +8,7 @@ from torch.utils.data import Dataset
 from abc import abstractmethod
 
 import numpy as np
-#import torchaudio # TODO - audio/ground-truth loading w/ torchaudio?
+import torchaudio
 import warnings
 import librosa
 import scipy
@@ -154,13 +154,12 @@ class TrainSet(Dataset):
         # Obtain the path of the track's audio
         audio_path = self.get_audio_path(track)
 
-        # TODO
-        audio, _ = librosa.load(audio_path, sr=self.sample_rate)
-        # Normalize the audio between the range [-1, 1]
-        audio = normalize(audio)
-        #audio, fs = torchaudio.load(audio_path)
-        #audio = torch.mean(audio, dim=0, keepdim=True)
-        #audio = torchaudio.functional.resample(audio, fs, self.sample_rate)
+        # Load and normalize the audio
+        audio, fs = torchaudio.load(audio_path)
+        # Average channels to obtain mono-channel
+        audio = torch.mean(audio, dim=0, keepdim=True)
+        # Resample audio to appropriate sampling rate
+        audio = torchaudio.functional.resample(audio, fs, self.sample_rate)
 
         return audio
 
@@ -191,36 +190,24 @@ class TrainSet(Dataset):
             print(f'Error loading track \'{track}\'...')
 
             # Default audio to silence
-            audio = np.empty(0)
-            #audio = torch.empty((1, 0))
+            audio = torch.empty((1, 0))
 
         if self.n_secs is not None:
             # Determine the required sequence length
             n_samples = int(self.n_secs * self.sample_rate)
 
-            if len(audio) >= n_samples:
-            #if audio.size(-1) >= n_samples:
+            if audio.size(-1) >= n_samples:
                 # Sample a random starting index for the trim
-                start = self.rng.randint(0, len(audio) - n_samples + 1)
-                #start = self.rng.randint(0, audio.size(-1) - n_samples + 1)
+                start = self.rng.randint(0, audio.size(-1) - n_samples + 1)
                 # Trim audio to the sequence length
-                audio = audio[start : start + n_samples]
-                #audio = audio[..., start : start + n_samples]
+                audio = audio[..., start : start + n_samples]
             else:
                 # Determine how much padding is required
-                pad_total = n_samples - len(audio)
-                #pad_total = n_samples - audio.size(-1)
+                pad_total = n_samples - audio.size(-1)
                 # Randomly distributed between both sides
                 pad_left = self.rng.randint(0, pad_total)
                 # Pad the audio with zeros
-                audio = np.pad(audio, (pad_left, pad_total - pad_left))
-                #audio = torch.nn.functional.pad(audio, (pad_left, pad_total - pad_left))
-
-        # Convert audio to tensor with float type
-        audio = torch.from_numpy(audio).float()
-
-        # Add a channel dimension to the audio
-        audio = audio.unsqueeze(-2)
+                audio = torch.nn.functional.pad(audio, (pad_left, pad_total - pad_left))
 
         return audio
 
@@ -311,6 +298,7 @@ class EvalSet(TrainSet):
         """
 
         # Construct an empty array of relevant size by default
+        # TODO - ground-truth loading w/ torch
         ground_truth = np.zeros((len(self.center_freqs), len(times)))
 
         return ground_truth
