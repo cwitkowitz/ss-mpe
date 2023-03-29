@@ -26,7 +26,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['FineTuning', 'Support'])
+EX_NAME = '_'.join(['FineTuning', 'Support', '1'])
 
 ex = Experiment('Train a model to learn representations for MPE')
 
@@ -286,18 +286,18 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     for i in range(max_epochs):
         # Loop through batches
         for audio in tqdm(loader, desc=f'Epoch {i}'):
-            # Add audio to the appropriate device
-            audio = audio.to(device)
-
             with torch.no_grad():
                 try:
                     # Feed the audio through the augmentation pipeline
                     augmentations = transforms(audio, sample_rate=sample_rate)
                 except Exception as e:
                     # Print warning message
-                    print('Error augmenting batch...')
+                    print(f'Error augmenting batch: {repr(e)}')
                     # Skip augmentation pipeline
                     augmentations = audio.clone()
+
+                # Add all data to the appropriate device
+                audio, augmentations = audio.to(device), augmentations.to(device)
 
                 # Create random mixtures of the audio and keep track of mixing
                 # TODO should augmented audio be mixed instead?
