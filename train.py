@@ -16,6 +16,7 @@ from evaluate import evaluate
 from torch.utils.tensorboard import SummaryWriter
 from sacred.observers import FileStorageObserver
 from torch.utils.data import DataLoader
+#from audiomentations import *
 from torch_audiomentations import *
 from sacred import Experiment
 from tqdm import tqdm
@@ -26,7 +27,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['NewTransformations'])
+EX_NAME = '_'.join(['Numpy'])
 
 ex = Experiment('Train a model to learn representations for MPE')
 
@@ -209,6 +210,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     # Define a transformation pipeline to modify the timbre of audio
     timbre_transforms = Compose(
         transforms=[
+            #AddGaussianNoise(),
             AddColoredNoise(),
             #AddBackgroundNoise(),
             #ApplyImpulseResponse(),
@@ -223,12 +225,16 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                         max_cutoff_freq=high_cutoff
                     ),
                     BandPassFilter(
+                        #min_center_freq=low_cutoff,
+                        #max_center_freq=high_cutoff,
                         min_center_frequency=low_cutoff,
                         max_center_frequency=high_cutoff,
                         min_bandwidth_fraction=octave_fraction(1),
                         max_bandwidth_fraction=octave_fraction(2)
                     ),
                     BandStopFilter(
+                        #min_center_freq=low_cutoff,
+                        #max_center_freq=high_cutoff,
                         min_center_frequency=low_cutoff,
                         max_center_frequency=high_cutoff,
                         min_bandwidth_fraction=octave_fraction(1),
@@ -289,6 +295,9 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
             audio = audio.to(device)
 
             with torch.no_grad():
+                #temp_audio = audio[:, 0].cpu().detach().numpy()
+                #augmentations = timbre_transforms(temp_audio, sample_rate=sample_rate)
+                #augmentations = torch.from_numpy(augmentations).unsqueeze(-2).float().to(device)
                 # Feed the audio through the augmentation pipeline
                 augmentations = transforms(audio, sample_rate=sample_rate)
                 # Create random mixtures of the audio and keep track of mixing
