@@ -91,7 +91,7 @@ class NSynth(TrainSet):
         Parameters
         ----------
         save_dir : string
-          Directory in which to save the contents of NSynth
+          Directory under which to save the contents of NSynth
         """
 
         # If the directory already exists, remove it

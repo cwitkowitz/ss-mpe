@@ -82,7 +82,7 @@ class FreeMusicArchive(TrainSet):
         Parameters
         ----------
         save_dir : string
-          Directory in which to save the contents of FreeMusicArchive
+          Directory under which to save the contents of FreeMusicArchive
         """
 
         # If the directory already exists, remove it

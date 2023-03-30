@@ -7,6 +7,7 @@ from MagnaTagATune import MagnaTagATune
 from NSynth import NSynth
 from Bach10 import Bach10
 from Su import Su
+from TRIOS import TRIOS
 from model import SAUNet
 from lhvqt import LHVQT
 from objectives import *
@@ -132,10 +133,11 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
         nsynth_base_dir = os.path.join('/', 'storageNVME', 'frank', 'NSynth')
         bach10_base_dir = os.path.join('/', 'storage', 'frank', 'Bach10')
         su_base_dir = os.path.join('/', 'storage', 'frank', 'Su')
+        trios_base_dir = os.path.join('/', 'storage', 'frank', 'TRIOS')
     else:
         # Use the default base directory paths
         mtat_base_dir, fma_base_dir, nsynth_base_dir = None, None, None
-        bach10_base_dir, su_base_dir = None, None
+        bach10_base_dir, su_base_dir, trios_base_dir = None, None, None
 
     # Instantiate MagnaTagATune dataset for training
     magnatagatune = MagnaTagATune(base_dir=mtat_base_dir,
@@ -280,8 +282,16 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
             n_bins=n_bins,
             bins_per_octave=bins_per_octave)
 
+    # Instantiate Su dataset for validation
+    trios = TRIOS(base_dir=trios_base_dir,
+                  sample_rate=sample_rate,
+                  hop_length=hop_length,
+                  fmin=fmin,
+                  n_bins=n_bins,
+                  bins_per_octave=bins_per_octave)
+
     # Initialize a list to hold all validation datasets
-    validation_sets = [bach10, su]
+    validation_sets = [bach10, su, trios]
 
     # Construct the path to the directory for saving models
     log_dir = os.path.join(root_dir, 'models')

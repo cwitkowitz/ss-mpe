@@ -87,7 +87,7 @@ class MagnaTagATune(TrainSet):
         Parameters
         ----------
         save_dir : string
-          Directory in which to save the contents of MagnaTagATune
+          Directory under which to save the contents of MagnaTagATune
         """
 
         # If the directory already exists, remove it

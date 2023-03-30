@@ -1,11 +1,11 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
-import librosa
 
 # My imports
 from common import EvalSet
 
 # Regular imports
 import numpy as np
+import librosa
 import scipy
 import os
 
