@@ -146,11 +146,11 @@ def evaluate(model, hcqt, eval_set, writer=None, i=0, device='cpu'):
             # Threshold the salience to obtain multi pitch predictions
             multi_pitch = np.round(salience.cpu().numpy())
             # Bring the ground-truth to the cpu
-            ground_truth = ground_truth.squeeze().cpu().numpy()
+            ground_truth = ground_truth.squeeze().cpu()
             # Compute results for this track
             # TODO - upper bound when raw CQT is fed in?
             #results = evaluator.evaluate(features[0, 1].cpu().detach().numpy(), ground_truth)
-            results = evaluator.evaluate(multi_pitch, ground_truth)
+            results = evaluator.evaluate(multi_pitch, ground_truth.numpy())
             # Track the computed results
             evaluator.append_results(results)
 
@@ -166,3 +166,4 @@ def evaluate(model, hcqt, eval_set, writer=None, i=0, device='cpu'):
             # Visualize predictions for the final sample of the evaluation dataset
             writer.add_image(f'val/{eval_set.name()}/CQT', features.squeeze()[1: 2].flip(-2), i)
             writer.add_image(f'val/{eval_set.name()}/salience', salience.unsqueeze(0).flip(-2), i)
+            writer.add_image(f'val/{eval_set.name()}/ground-truth', ground_truth.unsqueeze(0).flip(-2), i)

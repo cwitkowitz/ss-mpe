@@ -5,7 +5,6 @@ from utils import stream_url_resource, unzip_and_remove
 from common import TrainSet
 
 # Regular imports
-import shutil
 import os
 
 
@@ -90,13 +89,8 @@ class MagnaTagATune(TrainSet):
           Directory under which to save the contents of MagnaTagATune
         """
 
-        # If the directory already exists, remove it
-        if os.path.isdir(save_dir):
-            shutil.rmtree(save_dir)
-        # Create the base directory
-        os.makedirs(save_dir)
-
-        print(f'Downloading {cls.__name__}')
+        # Create top-level directory
+        super().download(save_dir)
 
         for part in [1, 2, 3]:
             # URL pointing to the zip partition file

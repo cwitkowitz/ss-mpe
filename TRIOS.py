@@ -8,7 +8,6 @@ from common import EvalSet
 import numpy as np
 import pretty_midi
 import librosa
-import shutil
 import os
 
 
@@ -141,16 +140,11 @@ class TRIOS(EvalSet):
           Directory under which to save the contents of TRIOS
         """
 
-        # If the directory already exists, remove it
-        if os.path.isdir(save_dir):
-            shutil.rmtree(save_dir)
-        # Create the base directory
-        os.makedirs(save_dir)
+        # Create top-level directory
+        super().download(save_dir)
 
-        print(f'Downloading {cls.__name__}')
-
-        # URL pointing to the zip file containing excerpts for all tracks
-        url = f'https://zenodo.org/record/6797837/files/TRIOS Dataset.zip'
+        # URL pointing to the zip file containing data for all tracks
+        url = 'https://zenodo.org/record/6797837/files/TRIOS Dataset.zip'
 
         # Construct a path for saving the file
         zip_path = os.path.join(save_dir, os.path.basename(url))

@@ -132,3 +132,11 @@ class Bach10(EvalSet):
         ground_truth[multi_pitch_idcs.astype('uint'), frame_idcs] = 1
 
         return ground_truth
+
+    @classmethod
+    def download(cls, save_dir):
+        """
+        TODO
+        """
+
+        return NotImplementedError

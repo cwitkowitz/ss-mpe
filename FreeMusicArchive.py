@@ -6,7 +6,6 @@ from common import TrainSet
 
 # Regular imports
 import numpy as np
-import shutil
 import os
 
 
@@ -85,16 +84,11 @@ class FreeMusicArchive(TrainSet):
           Directory under which to save the contents of FreeMusicArchive
         """
 
-        # If the directory already exists, remove it
-        if os.path.isdir(save_dir):
-            shutil.rmtree(save_dir)
-        # Create the base directory
-        os.makedirs(save_dir)
-
-        print(f'Downloading {cls.__name__}')
+        # Create top-level directory
+        super().download(save_dir)
 
         # URL pointing to the zip file containing excerpts for all tracks
-        url = f'https://os.unil.cloud.switch.ch/fma/fma_large.zip'
+        url = 'https://os.unil.cloud.switch.ch/fma/fma_large.zip'
 
         # Construct a path for saving the file
         zip_path = os.path.join(save_dir, os.path.basename(url))

@@ -7,6 +7,7 @@ import numpy as np
 import torchaudio
 import warnings
 import librosa
+import shutil
 import scipy
 import torch
 import os
@@ -211,15 +212,22 @@ class TrainSet(Dataset):
     @abstractmethod
     def download(cls, save_dir):
         """
-        Download the dataset to a specified location.
+        Create the top-level directory for a dataset.
 
         Parameters
         ----------
         save_dir : string
-          Directory under which to save the dataset
+          Directory under which to save dataset contents
         """
 
-        return NotImplementedError
+        if os.path.isdir(save_dir):
+            # Remove directory if it already exists
+            shutil.rmtree(save_dir)
+
+        # Create the base directory
+        os.makedirs(save_dir)
+
+        print(f'Downloading {cls.__name__}...')
 
 
 class EvalSet(TrainSet):

@@ -140,3 +140,11 @@ class Su(EvalSet):
         ground_truth[multi_pitch_idcs.astype('uint'), time_idcs.astype('uint')] = 1
 
         return ground_truth
+
+    @classmethod
+    def download(cls, save_dir):
+        """
+        TODO
+        """
+
+        return NotImplementedError
