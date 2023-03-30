@@ -1,4 +1,5 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
+import librosa
 
 # My imports
 from common import EvalSet
@@ -9,9 +10,9 @@ import scipy
 import os
 
 
-class Bach10(EvalSet):
+class Su(EvalSet):
     """
-    Implements a wrapper for the Bach10 dataset (https://labsites.rochester.edu/air/resource.html).
+    Implements a wrapper for the Su dataset (TODO).
     """
 
     def get_tracks(self, split):
@@ -29,9 +30,12 @@ class Bach10(EvalSet):
           TODO
         """
 
-        # Obtain all track names as the numbered directories
-        tracks = sorted([d for d in os.listdir(self.base_dir)
-                         if d.split('-')[0].isdigit()])
+        # Construct a path to the directory containing MIDI
+        midi_dir = os.path.join(self.base_dir, 'midi')
+
+        # Obtain all track names as the directories containing MIDI files
+        tracks = sorted([d for d in os.listdir(midi_dir)
+                         if os.path.isdir(os.path.join(midi_dir, d))])
 
         return tracks
 
@@ -42,7 +46,7 @@ class Bach10(EvalSet):
         Parameters
         ----------
         track : string
-          Bach10 track name
+          Su track name
 
         Returns
         ----------
@@ -51,7 +55,7 @@ class Bach10(EvalSet):
         """
 
         # Get the path to the audio
-        wav_path = os.path.join(self.base_dir, track, f'{track}.wav')
+        wav_path = os.path.join(self.base_dir, 'audio', f'{track}_audio.wav')
 
         return wav_path
 
@@ -62,18 +66,18 @@ class Bach10(EvalSet):
         Parameters
         ----------
         track : string
-          Bach10 track name
+          Su track name
 
         Returns
         ----------
-        mat_path : string
+        txt_path : string
           TODO
         """
 
         # Get the path to the ground-truth multi-pitch annotations
-        mat_path = os.path.join(self.base_dir, track, f'{track}-GTF0s.mat')
+        txt_path = os.path.join(self.base_dir, 'gt_F0', f'{track}_F0.txt')
 
-        return mat_path
+        return txt_path
 
     def get_ground_truth(self, track, times):
         """
@@ -82,7 +86,7 @@ class Bach10(EvalSet):
         Parameters
         ----------
         track : string
-          Bach10 track name
+          Su track name
 
         Returns
         ----------
@@ -91,22 +95,21 @@ class Bach10(EvalSet):
         """
 
         # Obtain the path to the track's ground_truth
-        mat_path = self.get_ground_truth_path(track)
+        txt_path = self.get_ground_truth_path(track)
 
-        # Extract the frame-level multi-pitch annotations
-        multi_pitch = scipy.io.loadmat(mat_path)['GTF0s']
-
-        # Determine how many frames were provided
-        num_frames = multi_pitch.shape[-1]
+        # Open annotations in reading mode
+        with open(txt_path) as txt_file:
+            # Read frame-level annotations into a list
+            frames = [f.split() for f in txt_file.readlines()]
 
         # Create array of frame indices
-        original_idcs = np.arange(num_frames)
+        original_idcs = np.arange(len(frames))
 
-        # Compute the original times for each frame
-        original_times = 0.023 + 0.010 * original_idcs
+        # Extract the original times for each frame
+        original_times = np.array([f.pop(0) for f in frames]).astype('float')
 
-        # Clamp resampled indices within the valid range
-        fill_values = (original_idcs[0], original_idcs[-1])
+        # Out-of-range times will be set to first time (always silent)
+        fill_values = (original_idcs[0], original_idcs[0])
 
         # Obtain a function to resample annotation times
         res_func_time = scipy.interpolate.interp1d(x=original_times,
@@ -117,18 +120,23 @@ class Bach10(EvalSet):
                                                    assume_sorted=True)
 
         # Resample the multi-pitch annotations using above function
-        multi_pitch = multi_pitch[..., res_func_time(times).astype('uint')]
+        multi_pitch = [np.array(frames[i]).astype('float')
+                       for i in res_func_time(times).astype('uint')]
 
         # Obtain an empty array for inserting ground-truth
         ground_truth = super().get_ground_truth(track, times)
 
         # Determine the frames corresponding to pitch observations
-        _, frame_idcs = multi_pitch.nonzero()
+        time_idcs = np.concatenate([[i] * len(multi_pitch[i])
+                                    for i in range(len(times))])
+
+        # Flatten multi pitch annotations and convert to MIDI
+        multi_pitch = librosa.hz_to_midi(np.concatenate(multi_pitch))
 
         # Determine the closest frequency bin for each pitch observation
-        multi_pitch_idcs = self.res_func_freq(multi_pitch[multi_pitch != 0.])
+        multi_pitch_idcs = self.res_func_freq(multi_pitch)
 
         # Insert pitch activity into the ground-truth
-        ground_truth[multi_pitch_idcs.astype('uint'), frame_idcs] = 1
+        ground_truth[multi_pitch_idcs.astype('uint'), time_idcs.astype('uint')] = 1
 
         return ground_truth

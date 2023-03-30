@@ -1,9 +1,5 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
-# My imports
-from utils import normalize
-
-# Regular imports
 from torch.utils.data import Dataset
 from abc import abstractmethod
 
@@ -298,7 +294,6 @@ class EvalSet(TrainSet):
         """
 
         # Construct an empty array of relevant size by default
-        # TODO - ground-truth loading w/ torch
         ground_truth = np.zeros((len(self.center_freqs), len(times)))
 
         return ground_truth
