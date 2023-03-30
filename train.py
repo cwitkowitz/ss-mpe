@@ -28,7 +28,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['FineTuning', 'Support', '1'])
+EX_NAME = '_'.join(['FineTuning'])
 
 ex = Experiment('Train a model to learn representations for MPE')
 
@@ -152,14 +152,14 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                                         seed=seed)
 
     # Instantiate NSynth dataset for training
-    # TODO - should NSynth be included for training?
-    #nsynth = NSynth(base_dir=nsynth_base_dir,
-    #                sample_rate=sample_rate,
-    #                n_secs=n_secs,
-    #                seed=seed)
+    nsynth = NSynth(base_dir=nsynth_base_dir,
+                    splits=['valid', 'test'],
+                    sample_rate=sample_rate,
+                    n_secs=n_secs,
+                    seed=seed)
 
     # Combine all training datasets into one
-    training_data = ComboSet([magnatagatune, freemusicarchive])
+    training_data = ComboSet([magnatagatune, freemusicarchive, nsynth])
 
     # Initialize a PyTorch dataloader for the data
     loader = DataLoader(dataset=training_data,
@@ -266,6 +266,10 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     # Connect the two types of transformations to obtain the full pipeline
     transforms = Compose(transforms=[timbre_transforms, variety_transforms])
 
+    # Define the maximum time and frequency shift for the translation loss
+    max_time_shift = int(0.25 * n_secs * sample_rate / hop_length)
+    max_freq_shift = 2 * bins_per_octave
+
     # Instantiate Bach10 dataset for validation
     bach10 = Bach10(base_dir=bach10_base_dir,
                     sample_rate=sample_rate,
@@ -368,7 +372,8 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 writer.add_scalar('train/loss/invariance', invariance_loss, batch_count)
 
                 # Compute the translation loss for this batch
-                translation_loss = compute_translation_loss(model, original_features, original_salience)
+                translation_loss = compute_translation_loss(model, original_features, original_salience,
+                                                            max_fs=max_freq_shift, max_ts=max_time_shift)
 
                 # Log the translation loss for this batch
                 writer.add_scalar('train/loss/translation', translation_loss, batch_count)
