@@ -161,9 +161,9 @@ def evaluate(model, hcqt, eval_set, writer=None, i=0, device='cpu'):
             # Loop through all computed scores
             for key in average_results.keys():
                 # Log the average score for this dataset
-                writer.add_scalar(f'val/{eval_set.name()}/{key}', average_results[key], i)
+                writer.add_scalar(f'val-{eval_set.name()}/{key}', average_results[key], i)
 
             # Visualize predictions for the final sample of the evaluation dataset
-            writer.add_image(f'val/{eval_set.name()}/CQT', features.squeeze()[1: 2].flip(-2), i)
-            writer.add_image(f'val/{eval_set.name()}/salience', salience.unsqueeze(0).flip(-2), i)
-            writer.add_image(f'val/{eval_set.name()}/ground-truth', ground_truth.unsqueeze(0).flip(-2), i)
+            writer.add_image(f'val-{eval_set.name()}/CQT', features.squeeze()[1: 2].flip(-2), i)
+            writer.add_image(f'val-{eval_set.name()}/salience', salience.unsqueeze(0).flip(-2), i)
+            writer.add_image(f'val-{eval_set.name()}/ground-truth', ground_truth.unsqueeze(0).flip(-2), i)

@@ -58,9 +58,9 @@ def config():
     multipliers = {
         'support' : 1,
         'content' : 0,
-        'linearity' : 0,
-        'invariance' : 0,
-        'translation' : 0
+        'linearity' : 1,
+        'invariance' : 1,
+        'translation' : 1
     }
 
     # IDs of the GPUs to use, if available
