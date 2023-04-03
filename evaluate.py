@@ -144,7 +144,7 @@ def evaluate(model, hcqt, eval_set, writer=None, i=0, device='cpu'):
         # Loop through each testing track
         for audio, ground_truth in loader:
             # Obtain features for the audio
-            features = decibels_to_linear(hcqt(audio.to(device)))
+            features = scale_decibels(hcqt(audio.to(device)))
             # Compute the pitch salience of the features
             salience = torch.sigmoid(model(features).squeeze())
             # Threshold the salience to obtain multi pitch predictions
@@ -152,8 +152,6 @@ def evaluate(model, hcqt, eval_set, writer=None, i=0, device='cpu'):
             # Bring the ground-truth to the cpu
             ground_truth = ground_truth.squeeze().cpu()
             # Compute results for this track
-            # TODO - upper bound when raw CQT is fed in?
-            #results = evaluator.evaluate(features[0, 1].cpu().detach().numpy(), ground_truth)
             results = evaluator.evaluate(multi_pitch, ground_truth.numpy())
             # Track the computed results
             evaluator.append_results(results)
