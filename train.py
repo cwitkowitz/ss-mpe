@@ -5,6 +5,7 @@ from common import ComboSet
 from FreeMusicArchive import FreeMusicArchive
 from MagnaTagATune import MagnaTagATune
 from NSynth import NSynth
+from ToyNSynth import ToyNSynthTrain, ToyNSynthEval
 from Bach10 import Bach10
 from Su import Su
 from TRIOS import TRIOS
@@ -29,7 +30,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['FineTuning'])
+EX_NAME = '_'.join(['Debugging'])
 
 ex = Experiment('Train a model to learn representations for MPE')
 
@@ -40,13 +41,16 @@ def config():
     # TRAINING HYPERPARAMETERS
 
     # Maximum number of training iterations to conduct
-    max_epochs = 10
+    #max_epochs = 10
+    max_epochs = 1000 if CONFIG else 10
 
     # Number of iterations between checkpoints
-    checkpoint_interval = 50
+    #checkpoint_interval = 50
+    checkpoint_interval = 5 if CONFIG else 50
 
     # Number of samples to gather for a batch
-    batch_size = 24 if CONFIG else 8
+    #batch_size = 24 if CONFIG else 8
+    batch_size = 24 if CONFIG else 2
 
     # Number of seconds of audio per sample
     n_secs = 28
@@ -97,7 +101,8 @@ def config():
     path_layout = 1 if CONFIG else 0
 
     # Number of threads to use for data loading
-    n_workers = 8 if CONFIG else 4
+    #n_workers = 8 if CONFIG else 4
+    n_workers = 8 if CONFIG else 0
 
     if path_layout:
         root_dir = os.path.join('/', 'storage', 'frank', 'self-supervised-pitch', EX_NAME)
@@ -161,8 +166,15 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                     n_secs=n_secs,
                     seed=seed)
 
+    # Instantiate NSynth dataset for debugging
+    toynsynthtrain = ToyNSynthTrain(base_dir=nsynth_base_dir,
+                                    sample_rate=sample_rate,
+                                    n_secs=n_secs,
+                                    seed=seed)
+
     # Combine all training datasets into one
-    training_data = ComboSet([magnatagatune, freemusicarchive, nsynth])
+    #training_data = ComboSet([magnatagatune, freemusicarchive, nsynth])
+    training_data = ComboSet([toynsynthtrain])
 
     # Initialize a PyTorch dataloader for the data
     loader = DataLoader(dataset=training_data,
@@ -189,7 +201,8 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     model = SAUNet(n_ch_in=len(harmonics),
                    n_bins_in=n_bins,
                    model_complexity=2,
-                   max_seq=4*n_frames)
+                   #max_seq=4*n_frames)
+                   )
 
     if len(gpu_ids) > 1:
         # Wrap feature extraction and model for multi-GPU usage
@@ -313,8 +326,17 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                         n_bins=n_bins,
                         bins_per_octave=bins_per_octave)
 
+    # Instantiate Su dataset for validation
+    toynsynthtest = ToyNSynthEval(base_dir=nsynth_base_dir,
+                                  sample_rate=sample_rate,
+                                  hop_length=hop_length,
+                                  fmin=fmin,
+                                  n_bins=n_bins,
+                                  bins_per_octave=bins_per_octave)
+
     # Initialize a list to hold all validation datasets
-    validation_sets = [bach10, su, trios]#, musicnet]
+    #validation_sets = [bach10, su, trios]#, musicnet]
+    validation_sets = [toynsynthtest]
 
     # Construct the path to the directory for saving models
     log_dir = os.path.join(root_dir, 'models')
