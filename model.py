@@ -12,7 +12,7 @@ class SAUNet(nn.Module):
     TODO - better description
     """
 
-    def __init__(self, n_ch_in=6, n_bins_in=216, n_heads=8, model_complexity=1):
+    def __init__(self, n_ch_in=6, n_bins_in=216, n_heads=8, model_complexity=1, max_seq=None):
         """
         TODO
         """
@@ -67,7 +67,7 @@ class SAUNet(nn.Module):
         )
 
         self.bottleneck = nn.Sequential(
-            SinusoidalEncodings(),
+            SinusoidalEncodings(max_seq=max_seq),
             nn.TransformerEncoderLayer(d_model=d_attention,
                                        nhead=n_heads,
                                        dim_feedforward=d_forward,
@@ -182,7 +182,7 @@ class SinusoidalEncodings(nn.Module):
     Module to add fixed (sinusoidal) positional encoding to embeddings.
     """
 
-    def __init__(self, upper_bound=10000, interleave=True):
+    def __init__(self, upper_bound=10000, interleave=True, max_seq=None):
         """
         Initialize the module.
 
@@ -190,12 +190,17 @@ class SinusoidalEncodings(nn.Module):
         ----------
         upper_bound : int or float
           Upper boundary for geometric progression of periods (in 2π radians)
+        interleave : bool
+          TODO
+        max_seq : TODO
+          TODO
         """
 
         nn.Module.__init__(self)
 
         self.upper_bound = upper_bound
         self.interleave = interleave
+        self.max_seq = max_seq
 
     def forward(self, features):
         """
@@ -207,8 +212,15 @@ class SinusoidalEncodings(nn.Module):
 
         # Determine the periods of the sinusoids
         periods = self.upper_bound ** (torch.arange(0, d_model, 2) / d_model)
+        # Construct a tensor of position indices for the features
+        positions = torch.arange(0, seq_length)
+
+        if self.training and self.max_seq is not None:
+            # Add a random offset to diversify positions (TODO - random seed?)
+            positions += torch.randint(high=(self.max_seq - seq_length + 1), size=(1,))
+
         # Multiply every position by every period
-        angles = torch.outer(torch.arange(0, seq_length), 1 / periods)
+        angles = torch.outer(positions, 1 / periods)
 
         # Compute the sine and cosine of the angles
         angles_sin = torch.sin(angles)

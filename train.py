@@ -182,10 +182,14 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                  db_to_prob=False,
                  batch_norm=False)
 
+    # Determine the sequence length of training samples
+    n_frames = int(n_secs * sample_rate / hop_length)
+
     # Initialize MPE representation learning model
     model = SAUNet(n_ch_in=len(harmonics),
                    n_bins_in=n_bins,
-                   model_complexity=2)
+                   model_complexity=2,
+                   max_seq=4*n_frames)
 
     if len(gpu_ids) > 1:
         # Wrap feature extraction and model for multi-GPU usage
@@ -224,23 +228,27 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 transforms=[
                     LowPassFilter(
                         min_cutoff_freq=low_cutoff,
-                        max_cutoff_freq=high_bound
+                        max_cutoff_freq=high_bound,
+                        p=1.0
                     ),
                     HighPassFilter(
                         min_cutoff_freq=low_bound,
-                        max_cutoff_freq=high_cutoff
+                        max_cutoff_freq=high_cutoff,
+                        p=1.0
                     ),
                     BandPassFilter(
                         min_center_frequency=low_cutoff,
                         max_center_frequency=high_cutoff,
                         min_bandwidth_fraction=octave_fraction(1),
-                        max_bandwidth_fraction=octave_fraction(2)
+                        max_bandwidth_fraction=octave_fraction(2),
+                        p=1.0
                     ),
                     BandStopFilter(
                         min_center_frequency=low_cutoff,
                         max_center_frequency=high_cutoff,
                         min_bandwidth_fraction=octave_fraction(1),
-                        max_bandwidth_fraction=octave_fraction(2)
+                        max_bandwidth_fraction=octave_fraction(2),
+                        p=1.0
                     )
                 ]
             )
@@ -270,7 +278,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     transforms = Compose(transforms=[timbre_transforms, variety_transforms])
 
     # Define the maximum time and frequency shift for the translation loss
-    max_time_shift = int(0.25 * n_secs * sample_rate / hop_length)
+    max_time_shift = n_frames // 4
     max_freq_shift = 2 * bins_per_octave
 
     # Instantiate Bach10 dataset for validation
