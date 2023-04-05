@@ -5,44 +5,37 @@ import torch.nn.functional as F
 import torch
 
 
-def compute_support_loss(embeddings, features):
-    # Compute the support loss as BCE of activations with respect to features
-    #support_loss = F.binary_cross_entropy_with_logits(embeddings, features[:, 1], reduction='none')
-    #support_loss = F.binary_cross_entropy_with_logits(embeddings, torch.mean(features, dim=-3), reduction='none')
-    #support_loss = F.binary_cross_entropy_with_logits(embeddings, torch.min(features, dim=-3)[0], reduction='none')
-    #support_loss = F.binary_cross_entropy_with_logits(embeddings, torch.max(features, dim=-3)[0], reduction='none')
-    #support_loss = F.binary_cross_entropy_with_logits(embeddings.unsqueeze(-3).repeat(1, features.shape[-3], 1, 1), features, reduction='none').sum(-3)
-    #support_loss = F.binary_cross_entropy_with_logits(embeddings.unsqueeze(-3).repeat(1, features.shape[-3], 1, 1), features, reduction='none').mean(-3)
-    #support_loss = torch.median(F.binary_cross_entropy_with_logits(embeddings.unsqueeze(-3).repeat(1, features.shape[-3], 1, 1), features, reduction='none'), dim=-3)[0]
-    #support_loss = F.binary_cross_entropy_with_logits(embeddings, torch.prod(features, dim=-3), reduction='none')
-    support_loss = F.binary_cross_entropy_with_logits(embeddings.unsqueeze(-3).repeat(1, features.shape[-3], 1, 1), features, reduction='none', pos_weight=torch.tensor(0)).sum(-3)
+def compute_support_loss(embeddings, features, pos_weight=0):
+    # Determine the number of channels in the input features
+    n_channels = features.shape[-3]
 
-    # Sum across frequency bins and average across time and batch
-    support_loss = support_loss.sum(-2).mean(-1).mean(-1)
+    # Copy the produced embeddings along the channel dimension
+    embeddings = embeddings.unsqueeze(-3).repeat(1, n_channels, 1, 1)
+
+    # Make sure the weight for positive activations is a tensor
+    pos_weight = torch.tensor(pos_weight)
+
+    # Compute the support loss as BCE of activations with respect to features for negative activations only
+    support_loss = F.binary_cross_entropy_with_logits(embeddings, features, reduction='none', pos_weight=pos_weight)
+
+    # Sum across channels and frequency bins and average across time and batch
+    support_loss = support_loss.sum(-3).sum(-2).mean(-1).mean(-1)
 
     return support_loss
 
 
 # TODO - can likely intelligently combine content/support loss
 def compute_content_loss(activations, features):
-    # Compute the total energy (averaged across channels) in each frame
-    #energy_activations = torch.sum(activations, dim=-2)
-    #energy_activations = torch.sum(torch.round(activations), dim=-2)
-    #energy_features = torch.sum(torch.mean(features, dim=-3), dim=-2)
-    #energy_features = torch.sum(torch.min(features, dim=-3)[0], dim=-2)
+    # Compute the average energy across channels for each frame
+    average_energy = torch.mean(features, dim=-3)
+    # Sum the average energy across all frequency bins
+    total_energy = torch.sum(average_energy, dim=-2)
 
-    # Compute magnitude difference between total energy of features and activations
-    #content_loss = torch.abs(energy_features - energy_activations)
-    #content_loss = (energy_features - energy_activations) ** 2
-    #content_loss = energy_activations
-    #content_loss = torch.exp(torch.distributions.normal.Normal(0.5, 1/8).log_prob(activations)).sum(-2)
-    #content_loss = -F.kl_div(activations, torch.mean(features, dim=-3), reduction='none', log_target=True).sum(-2)
+    # Sum the activations across all frequency bins
+    total_activations = torch.sum(activations, dim=-2)
 
-    #content_loss = torch.abs(torch.sum(torch.mean(features, dim=-3), dim=-2) - torch.sum(activations, dim=-2))
-    #content_loss = torch.abs(torch.sum(torch.round(torch.mean(features, dim=-3)), dim=-2) - torch.sum(activations, dim=-2))
-    #content_loss = (1 - activations).sum(-2)
-    content_loss = (torch.sum(torch.mean(features, dim=-3), dim=-2) - torch.sum(activations, dim=-2)) ** 2
-    #content_loss = (torch.log(1 + torch.sum(torch.mean(features, dim=-3), dim=-2)) - torch.sum(activations, dim=-2)) ** 2
+    # Compute squared difference between total energy and activations
+    content_loss = (total_energy - total_activations) ** 2
 
     # Average loss across time and batch
     content_loss = content_loss.mean(-1).mean(-1)

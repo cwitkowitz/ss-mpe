@@ -29,7 +29,7 @@ import torch
 import os
 
 
-CONFIG = 0 # (0 - desktop | 1 - lab)
+CONFIG = 1 # (0 - desktop | 1 - lab)
 EX_NAME = '_'.join(['StepByStep'])
 
 ex = Experiment('Train a model to learn representations for MPE')
@@ -41,19 +41,15 @@ def config():
     ## TRAINING HYPERPARAMETERS
 
     # Maximum number of training iterations to conduct
-    #max_epochs = 10
-    max_epochs = 10 if CONFIG else 10000
+    max_epochs = 10
 
     # Number of iterations between checkpoints
-    #checkpoint_interval = 50
-    checkpoint_interval = 5 if CONFIG else 5
+    checkpoint_interval = 50
 
     # Number of samples to gather for a batch
-    #batch_size = 24 if CONFIG else 8
     batch_size = 64 if CONFIG else 32
 
     # Number of seconds of audio per sample
-    #n_secs = 30
     n_secs = 4 if CONFIG else 4
 
     # Fixed learning rate
@@ -69,7 +65,8 @@ def config():
     }
 
     # IDs of the GPUs to use, if available
-    gpu_ids = [0, 1, 2] if CONFIG else [0]
+    #gpu_ids = [0, 1, 2] if CONFIG else [0]
+    gpu_ids = [0, 1] if CONFIG else [0]
 
     # Random seed for this experiment
     seed = 0
@@ -337,12 +334,12 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 augmentations = transforms(audio, sample_rate=sample_rate)
 
                 # Obtain another set of augmented embeddings for contrastive loss
-                #augmentations_ = transforms(audio, sample_rate=sample_rate)
+                augmentations_ = transforms(audio, sample_rate=sample_rate)
 
                 # Add all data to the appropriate device
                 audio = audio.to(device)
                 augmentations = augmentations.to(device)
-                #augmentations_ = augmentations_.to(device)
+                augmentations_ = augmentations_.to(device)
 
                 # Create random mixtures of the audio and keep track of mixing
                 #original_mixtures, original_legend = get_random_mixtures(audio)
@@ -354,26 +351,26 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 # Obtain spectral features
                 original_features = hcqt(audio)
                 augment_features = hcqt(augmentations)
-                #augment_features_ = hcqt(augmentations_)
+                augment_features_ = hcqt(augmentations_)
                 #mixture_o_features = hcqt(original_mixtures)
                 #mixture_a_features = hcqt(augment_mixtures)
 
-                original_features_l = decibels_to_amplitude(original_features)
-                augment_features_l = decibels_to_amplitude(augment_features)
+                #original_features_l = decibels_to_amplitude(original_features)
+                #augment_features_l = decibels_to_amplitude(augment_features)
                 #augment_features_l_ = decibels_to_amplitude(augment_features_)
                 #mixture_o_features_l = decibels_to_amplitude(mixture_o_features)
                 #mixture_a_features_l = decibels_to_amplitude(mixture_a_features)
 
                 original_features_s = rescale_decibels(original_features)
                 augment_features_s = rescale_decibels(augment_features)
-                #augment_features_s_ = rescale_decibels(augment_features_)
+                augment_features_s_ = rescale_decibels(augment_features_)
                 #mixture_o_features_s = rescale_decibels(mixture_o_features)
                 #mixture_a_features_s = rescale_decibels(mixture_a_features)
 
                 # Compute pitch salience embeddings
                 original_embeddings = model(original_features_s).squeeze()
                 augment_embeddings = model(augment_features_s).squeeze()
-                #augment_embeddings_ = model(augment_features_s_).squeeze()
+                augment_embeddings_ = model(augment_features_s_).squeeze()
                 #mixture_o_embeddings = model(mixture_o_features_s).squeeze()
                 #mixture_a_embeddings = model(mixture_a_features_s).squeeze()
 
@@ -424,10 +421,10 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 # Compute the invariance loss for this batch
                 invariance_loss = compute_contrastive_loss(original_embeddings.transpose(-1, -2),
                                                            augment_embeddings.transpose(-1, -2)) / batch_size
-                #invariance_loss += compute_contrastive_loss(original_embeddings.transpose(-1, -2),
-                #                                            augment_embeddings_.transpose(-1, -2)) / batch_size
-                #invariance_loss += compute_contrastive_loss(augment_embeddings.transpose(-1, -2),
-                #                                            augment_embeddings_.transpose(-1, -2)) / batch_size
+                invariance_loss += compute_contrastive_loss(original_embeddings.transpose(-1, -2),
+                                                            augment_embeddings_.transpose(-1, -2)) / batch_size
+                invariance_loss += compute_contrastive_loss(augment_embeddings.transpose(-1, -2),
+                                                            augment_embeddings_.transpose(-1, -2)) / batch_size
 
                 # Log the invariance loss for this batch
                 writer.add_scalar('train/loss/invariance', invariance_loss, batch_count)
@@ -447,7 +444,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 #loss = multipliers['support'] / 4 * support_loss + \
                        #multipliers['content'] / 4 * content_loss + \
                        #multipliers['translation'] / 4 * translation_loss + \
-                       #multipliers['invariance'] / 3 * invariance_loss + \
+                       #multipliers['invariance'] * invariance_loss + \
                        #multipliers['linearity'] / 2 * linearity_loss
 
                 # Log the total loss for this batch
