@@ -276,9 +276,12 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     # Connect the two types of transformations to obtain the full pipeline
     transforms = Compose(transforms=[timbre_transforms, variety_transforms])
 
-    # Define the maximum time and frequency shift for the translation loss
+    # Define maximum time and frequency shift for the translation loss
     max_time_shift = n_frames // 4
     max_freq_shift = 2 * bins_per_octave
+
+    # Define maximum time stretch for the distortion loss
+    max_time_stretch = 2
 
     # Instantiate Bach10 dataset for validation
     bach10 = Bach10(base_dir=bach10_base_dir,
@@ -415,8 +418,16 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 # Log the translation loss for this batch
                 writer.add_scalar('train/loss/translation', translation_loss, batch_count)
 
-                # TODO - distortion (time-stretching) loss
-                #        (https://pytorch.org/docs/stable/generated/torch.nn.functional.interpolate.html)
+                # Compute the distortion loss for this batch
+                # TODO - combine with translation loss
+                #distortion_loss = compute_distortion_loss(model, original_features_s, original_salience,
+                #                                          max_ts=max_time_stretch)
+                #distortion_loss += compute_distortion_loss(model, augment_features_s, augment_salience,
+                #                                           max_ts=max_time_stretch)
+                #distortion_loss += compute_distortion_loss(model, mixture_o_features_s, mixture_o_salience,
+                #                                           max_ts=max_time_stretch)
+                #distortion_loss += compute_distortion_loss(model, mixture_a_features_s, mixture_a_salience,
+                #                                           max_ts=max_time_stretch)
 
                 # Compute the invariance loss for this batch
                 invariance_loss = compute_contrastive_loss(original_embeddings.transpose(-1, -2),

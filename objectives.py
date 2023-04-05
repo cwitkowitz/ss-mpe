@@ -24,7 +24,6 @@ def compute_support_loss(embeddings, features, pos_weight=0):
     return support_loss
 
 
-# TODO - can likely intelligently combine content/support loss
 def compute_content_loss(activations, features):
     # Compute the average energy across channels for each frame
     average_energy = torch.mean(features, dim=-3)
@@ -201,3 +200,57 @@ def compute_translation_loss(model, features, activations, max_fs=12, max_ts=10,
     translation_loss = translation_loss.sum(-2).mean(-1).mean(-1)
 
     return translation_loss
+
+
+# TODO - can this function be sped up?
+def stretch_batch(batch, stretch_factors):
+    # Determine height and width of the batch
+    H, W = batch.size(-2), batch.size(-1)
+
+    # Inserted stretched values to a copy of the original tensor
+    stretched_batch = batch.clone()
+
+    # Loop through each sample and stretch factor in the batch
+    for i, (sample, factor) in enumerate(zip(batch, stretch_factors)):
+        # Reshape the sample to B x H x W
+        original = sample.reshape(-1, H, W)
+        # Stretch the sample by the specified amount
+        stretched_sample = F.interpolate(original, scale_factor=factor, mode='linear')
+
+        if factor < 1:
+            # Determine how much padding is necessary
+            pad_amount = W - stretched_sample.size(-1)
+            # Pad the stretched sample to fit original width
+            stretched_sample = F.pad(stretched_sample, (0, pad_amount))
+
+        # Insert the stretched sample back into the batch
+        stretched_batch[i] = stretched_sample[..., :W].view(sample.shape)
+
+    return stretched_batch
+
+
+def compute_distortion_loss(model, features, activations, max_ts=2, seed=None):
+    # Determine the dimensionality of the batch
+    B, C, F, T = features.size()
+
+    # TODO - random seed
+    # TODO - combine with translation loss
+
+    # Sample a random time stretch for each sample in the batch
+    stretch_factors = (max_ts * torch.rand(size=(B,))).tolist()
+
+    with torch.no_grad():
+        # Stretch the features and activations by the sampled stretch factors
+        stretched_features = stretch_batch(features, stretch_factors)
+        stretched_activations = stretch_batch(activations, stretch_factors)
+
+    # Process the stretched features with the model
+    embeddings = model(stretched_features).squeeze()
+
+    # Compute BCE loss to push computed activations toward stretched activations
+    distortion_loss = F.binary_cross_entropy_with_logits(embeddings, stretched_activations, reduction='none')
+
+    # Sum across frequency bins and average across time and batch
+    distortion_loss = distortion_loss.sum(-2).mean(-1).mean(-1)
+
+    return distortion_loss
