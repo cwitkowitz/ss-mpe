@@ -2,7 +2,7 @@
 
 # My imports
 from utils import stream_url_resource, unzip_and_remove
-from common import TrainSet
+from common import TrainSet, EvalSet
 
 # Regular imports
 import json
@@ -108,3 +108,53 @@ class NSynth(TrainSet):
 
             # Unzip the downloaded file and remove it
             unzip_and_remove(save_path, tar=True)
+
+
+class NSynthEval(EvalSet, NSynth):
+    """
+    TODO
+    """
+
+    @classmethod
+    def name(cls):
+        """
+        Simple helper function to get the class name.
+        """
+
+        name = NSynth.name()
+
+        return name
+
+    def get_ground_truth(self, track, times):
+        """
+        Get the path for a track's ground_truth.
+
+        Parameters
+        ----------
+        track : string
+          NSynth track name
+
+        Returns
+        ----------
+        ground_truth : TODO
+          TODO
+        """
+
+        # Obtain an empty array for inserting ground-truth
+        ground_truth = super().get_ground_truth(track, times)
+
+        try:
+            # Obtain the index of the pitch of the sample from the track name
+            pitch_idx = int(self.res_func_freq(track.split('-')[-2]).item())
+
+            # Obtain time indices corresponding to pitch activity
+            time_idcs = (times >= 0) & (times <= 3)
+
+            # Make the pitch active for the entire duration
+            ground_truth[pitch_idx, time_idcs] = 1
+
+        except ValueError as e:
+            # Print warning message
+            print(f'{repr(e)}')
+
+        return ground_truth
