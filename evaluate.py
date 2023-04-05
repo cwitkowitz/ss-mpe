@@ -144,9 +144,11 @@ def evaluate(model, hcqt, eval_set, writer=None, i=0, device='cpu'):
         # Loop through each testing track
         for audio, ground_truth in loader:
             # Obtain features for the audio
-            features = scale_decibels(hcqt(audio.to(device)))
+            features = hcqt(audio.to(device))
+            features_l = decibels_to_amplitude(features)
+            features_s = rescale_decibels(features)
             # Compute the pitch salience of the features
-            salience = torch.sigmoid(model(features).squeeze())
+            salience = torch.sigmoid(model(features_s).squeeze())
             # Threshold the salience to obtain multi pitch predictions
             multi_pitch = np.round(salience.cpu().numpy())
             # Bring the ground-truth to the cpu
@@ -166,6 +168,6 @@ def evaluate(model, hcqt, eval_set, writer=None, i=0, device='cpu'):
                 writer.add_scalar(f'val-{eval_set.name()}/{key}', average_results[key], i)
 
             # Visualize predictions for the final sample of the evaluation dataset
-            writer.add_image(f'val-{eval_set.name()}/CQT', features.squeeze()[1: 2].flip(-2), i)
+            writer.add_image(f'val-{eval_set.name()}/CQT', features_s.squeeze()[1: 2].flip(-2), i)
             writer.add_image(f'val-{eval_set.name()}/salience', salience.unsqueeze(0).flip(-2), i)
             writer.add_image(f'val-{eval_set.name()}/ground-truth', ground_truth.unsqueeze(0).flip(-2), i)

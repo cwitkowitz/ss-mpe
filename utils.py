@@ -149,9 +149,9 @@ def normalize(_arr):
     return arr
 
 
-def decibels_to_linear(decibels, negative_infinity_dB=-80):
+def decibels_to_amplitude(decibels, negative_infinity_dB=-80):
     """
-    Convert a tensor of decibel values to a linear scale.
+    Convert a tensor of decibel values to amplitudes between 0 and 1.
 
     Parameters
     ----------
@@ -163,7 +163,7 @@ def decibels_to_linear(decibels, negative_infinity_dB=-80):
     Returns
     ----------
     gain : np.ndarray or torch.tensor
-      Tensor of values scaled between 0 and 1
+      Tensor of values linearly scaled between 0 and 1
     """
 
     # Make sure provided lower boundary is negative
@@ -177,9 +177,9 @@ def decibels_to_linear(decibels, negative_infinity_dB=-80):
     return gain
 
 
-def scale_decibels(decibels, negative_infinity_dB=-80):
+def rescale_decibels(decibels, negative_infinity_dB=-80):
     """
-    Linearly scale a tensor of decibel values to be between 0 and 1.
+    Log-scale a tensor of decibel values between 0 and 1.
 
     Parameters
     ----------
@@ -191,7 +191,7 @@ def scale_decibels(decibels, negative_infinity_dB=-80):
     Returns
     ----------
     scaled : np.ndarray or torch.tensor
-      Tensor of values scaled between 0 and 1
+      Tensor of values log-scale scaled between 0 and 1
     """
 
     # Make sure provided lower boundary is positive
