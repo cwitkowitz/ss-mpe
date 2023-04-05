@@ -184,7 +184,7 @@ class TrainSet(Dataset):
             audio = self.get_audio(track)
         except Exception as e:
             # Print offending track to console
-            print(f'Error loading track \'{track}\'...')
+            print(f'Error loading track \'{track}\': {repr(e)}')
 
             # Default audio to silence
             audio = torch.empty((1, 0))
@@ -267,7 +267,7 @@ class EvalSet(TrainSet):
         self.res_func_freq = scipy.interpolate.interp1d(x=self.center_freqs,
                                                         y=np.arange(n_bins),
                                                         kind='nearest',
-                                                        bounds_error=False,
+                                                        bounds_error=True,
                                                         assume_sorted=True)
 
     @abstractmethod

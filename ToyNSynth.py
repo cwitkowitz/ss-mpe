@@ -87,7 +87,6 @@ class ToyNSynthTrain(TrainSet):
         return NotImplementedError
 
 
-
 class ToyNSynthEval(EvalSet, ToyNSynthTrain):
     """
     TODO
