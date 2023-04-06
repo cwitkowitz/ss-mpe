@@ -68,7 +68,7 @@ class MultipitchEvaluator(object):
         # Loop through all keys in the array
         for key in results.keys():
             # Average entries for the metric
-            results[key] = np.mean(results[key])
+            results[key] = round(np.mean(results[key]), 5)
 
         return results
 

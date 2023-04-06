@@ -121,13 +121,35 @@ musicnet = MusicNet(sample_rate=sample_rate,
 save_dir = os.path.join(experiment_dir, 'comparisons')
 
 # Make sure the results directory exists
-#os.makedirs(save_dir, exist_ok=True)
+os.makedirs(save_dir, exist_ok=True)
+
+# Construct a path to a file for saving results
+save_path = os.path.join(save_dir, f'checkpoint-{checkpoint}.txt')
+
+if os.path.exists(save_path):
+    # Reset the file if it already exists
+    os.remove(save_path)
 
 # Initialize a device pointer for loading the models
 device = torch.device(f'cuda:{gpu_id}' if torch.cuda.is_available() and gpu_id is not None else 'cpu')
 
 # Add feature extraction and model to the appropriate device
 hcqt, ss_mpe = hcqt.to(device), ss_mpe.to(device)
+
+
+def print_and_log(text, path=None):
+    """
+    TODO
+    """
+
+    # Print text to the console
+    print(text)
+
+    if path is not None:
+        with open(path, 'a') as f:
+            # Append the text to the file
+            print(text, file=f)
+
 
 # Loop through all evaluation datasets
 for test_set in [bach10, su, trios, musicnet]:
@@ -137,7 +159,7 @@ for test_set in [bach10, su, trios, musicnet]:
     ln_evaluator = MultipitchEvaluator()
     sc_evaluator = MultipitchEvaluator()
 
-    print(f'Evaluating {test_set.name()}...')
+    print_and_log(f'Results for {test_set.name()}:', save_path)
 
     # Loop through all tracks in the test set
     for i, track in enumerate(tqdm(test_set.tracks)):
@@ -182,11 +204,13 @@ for test_set in [bach10, su, trios, musicnet]:
         sc_results = sc_evaluator.evaluate(sc_salience.cpu().numpy(), ground_truth)
 
         if verbose:
-            print(f'\n\tResults for track \'{track}\' ({test_set.name()}):')
-            #print('\t- BasicPitch:', bp_results)
-            print('\t- Self-Supervised:', ss_results)
-            print('\t- Amplitude CQT', ln_results)
-            print('\t- Log-Scaled CQT', sc_results)
+            # Print results for the individual track
+            print_and_log(f'\tResults for track \'{track}\' ({test_set.name()}):', save_path)
+            #print_and_log(f'\t- BasicPitch: {bp_results}', save_path)
+            print_and_log(f'\t- Self-Supervised: {ss_results}', save_path)
+            print_and_log(f'\t- Amplitude CQT: {ln_results}', save_path)
+            print_and_log(f'\t- Log-Scaled CQT: {sc_results}', save_path)
+            print_and_log('', save_path)
 
         # Track results with the respective evaluator
         #bp_evaluator.append_results(bp_results)
@@ -195,8 +219,8 @@ for test_set in [bach10, su, trios, musicnet]:
         sc_evaluator.append_results(sc_results)
 
     # Print average results for each evaluator
-    #print('BasicPitch:', bp_evaluator.average_results())
-    print('Self-Supervised:', ss_evaluator.average_results())
-    print('Amplitude CQT', ln_evaluator.average_results())
-    print('Log-Scaled CQT', sc_evaluator.average_results())
-    print()
+    #print_and_log('BasicPitch: {bp_evaluator.average_results()}', save_path)
+    print_and_log(f'Self-Supervised: {ss_evaluator.average_results()}', save_path)
+    print_and_log(f'Amplitude CQT: {ln_evaluator.average_results()}', save_path)
+    print_and_log(f'Log-Scaled CQT {sc_evaluator.average_results()}', save_path)
+    print_and_log('', save_path)
