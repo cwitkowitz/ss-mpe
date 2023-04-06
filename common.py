@@ -270,6 +270,34 @@ class EvalSet(TrainSet):
                                                         bounds_error=True,
                                                         assume_sorted=True)
 
+    def get_times(self, audio):
+        """
+        TODO
+
+        TODO - does this really belong here?
+               seems more appropriate as function of HCQT module
+
+        Parameters
+        ----------
+        audio : TODO
+          TODO
+
+        Returns
+        ----------
+        times : TODO
+          TODO
+        """
+
+        # Determine number of frames as the number of hops
+        n_frames = 1 + audio.size(-1) // self.hop_length
+
+        # Compute time associated with center of each frame
+        times = librosa.frames_to_time(np.arange(n_frames),
+                                       sr=self.sample_rate,
+                                       hop_length=self.hop_length)
+
+        return times
+
     @abstractmethod
     def get_ground_truth_path(self, track):
         """
@@ -325,13 +353,8 @@ class EvalSet(TrainSet):
         # TODO
         audio = super().__getitem__(index)
 
-        # Compute the number of frames as the number of hops
-        n_frames = 1 + audio.size(-1) // self.hop_length
-
-        # Determine the time associated with each frame (center)
-        times = librosa.frames_to_time(np.arange(n_frames),
-                                       sr=self.sample_rate,
-                                       hop_length=self.hop_length)
+        # Obtain time associated with each frame
+        times = self.get_times(audio)
 
         # TODO
         ground_truth = self.get_ground_truth(self.tracks[index], times)
