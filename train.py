@@ -276,12 +276,13 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     # Connect the two types of transformations to obtain the full pipeline
     transforms = Compose(transforms=[timbre_transforms, variety_transforms])
 
-    # Define maximum time and frequency shift for the translation loss
-    max_time_shift = n_frames // 4
-    max_freq_shift = 2 * bins_per_octave
+    # Define maximum time and frequency shift
+    max_shift_time = n_frames // 4
+    max_shift_freq = 2 * bins_per_octave
 
-    # Define maximum time stretch for the distortion loss
-    max_time_stretch = 2
+    # Define time stretch boundaries
+    min_stretch_time = 0.5
+    max_stretch_time = 2
 
     # Instantiate Bach10 dataset for validation
     bach10 = Bach10(base_dir=bach10_base_dir,
@@ -383,10 +384,6 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 #mixture_o_salience = torch.sigmoid(mixture_o_embeddings)
                 #mixture_a_salience = torch.sigmoid(mixture_a_embeddings)
 
-                #sd.play(audio[0, 0].cpu().detach().numpy(), sample_rate)
-                #sd.play(augmentations[0, 0].cpu().detach().numpy(), sample_rate)
-                #sd.play(augmentations_[0, 0].cpu().detach().numpy(), sample_rate)
-
                 # Compute the support loss with respect to the first harmonic for this batch
                 support_loss = compute_support_loss(original_embeddings, original_features_s)
                 #support_loss += compute_support_loss(augment_embeddings, augment_features_s)
@@ -407,27 +404,20 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
 
                 # Compute the translation loss for this batch
                 translation_loss = compute_translation_loss(model, original_features_s, original_salience,
-                                                            max_fs=max_freq_shift, max_ts=max_time_shift)
+                                                            max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
+                                                            min_stretch=min_stretch_time, max_stretch=max_stretch_time)
                 #translation_loss += compute_translation_loss(model, augment_features_s, augment_salience,
-                #                                             max_fs=max_freq_shift, max_ts=max_time_shift)
+                #                                             max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
+                #                                             min_stretch=min_stretch_time, max_stretch=max_stretch_time)
                 #translation_loss += compute_translation_loss(model, mixture_o_features_s, mixture_o_salience,
-                #                                             max_fs=max_freq_shift, max_ts=max_time_shift)
+                #                                             max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
+                #                                             min_stretch=min_stretch_time, max_stretch=max_stretch_time)
                 #translation_loss += compute_translation_loss(model, mixture_a_features_s, mixture_a_salience,
-                #                                             max_fs=max_freq_shift, max_ts=max_time_shift)
+                #                                             max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
+                #                                             min_stretch=min_stretch_time, max_stretch=max_stretch_time)
 
                 # Log the translation loss for this batch
                 writer.add_scalar('train/loss/translation', translation_loss, batch_count)
-
-                # Compute the distortion loss for this batch
-                # TODO - combine with translation loss
-                #distortion_loss = compute_distortion_loss(model, original_features_s, original_salience,
-                #                                          max_ts=max_time_stretch)
-                #distortion_loss += compute_distortion_loss(model, augment_features_s, augment_salience,
-                #                                           max_ts=max_time_stretch)
-                #distortion_loss += compute_distortion_loss(model, mixture_o_features_s, mixture_o_salience,
-                #                                           max_ts=max_time_stretch)
-                #distortion_loss += compute_distortion_loss(model, mixture_a_features_s, mixture_a_salience,
-                #                                           max_ts=max_time_stretch)
 
                 # Compute the invariance loss for this batch
                 invariance_loss = compute_contrastive_loss(original_embeddings.transpose(-1, -2),

@@ -2,6 +2,7 @@
 
 from tqdm import tqdm
 
+import torch.nn.functional as F
 import numpy as np
 import requests
 import tarfile
@@ -201,3 +202,55 @@ def rescale_decibels(decibels, negative_infinity_dB=-80):
     scaled = 1 + (decibels / negative_infinity_dB)
 
     return scaled
+
+
+# TODO - can this function be sped up?
+def translate_batch(batch, shifts, dim=-1):
+    """
+    TODO
+    """
+
+    # Determine the dimensionality of the batch
+    dimensionality = batch.size()
+
+    # Combine the original tensor with tensor filled with zeros such that no wrapping will occur
+    rolled_batch = torch.cat([batch, torch.zeros(dimensionality, device=batch.device)], dim=dim)
+
+    # Roll each sample in the batch independently and reconstruct the tensor
+    rolled_batch = torch.cat([x.unsqueeze(0).roll(i, dim) for x, i in zip(rolled_batch, shifts)])
+
+    # Trim the rolled tensor to its original dimensionality
+    translated_batch = rolled_batch.narrow(dim, 0, dimensionality[dim])
+
+    return translated_batch
+
+
+# TODO - can this function be sped up?
+def stretch_batch(batch, stretch_factors):
+    """
+    TODO
+    """
+
+    # Determine height and width of the batch
+    H, W = batch.size(-2), batch.size(-1)
+
+    # Inserted stretched values to a copy of the original tensor
+    stretched_batch = batch.clone()
+
+    # Loop through each sample and stretch factor in the batch
+    for i, (sample, factor) in enumerate(zip(batch, stretch_factors)):
+        # Reshape the sample to B x H x W
+        original = sample.reshape(-1, H, W)
+        # Stretch the sample by the specified amount
+        stretched_sample = F.interpolate(original, scale_factor=factor, mode='linear')
+
+        if factor < 1:
+            # Determine how much padding is necessary
+            pad_amount = W - stretched_sample.size(-1)
+            # Pad the stretched sample to fit original width
+            stretched_sample = F.pad(stretched_sample, (0, pad_amount))
+
+        # Insert the stretched sample back into the batch
+        stretched_batch[i] = stretched_sample[..., :W].view(sample.shape)
+
+    return stretched_batch
