@@ -47,7 +47,7 @@ def config():
     checkpoint_interval = 50
 
     # Number of samples to gather for a batch
-    batch_size = 64 if CONFIG else 32
+    batch_size = 96 if CONFIG else 32
 
     # Number of seconds of audio per sample
     n_secs = 4 if CONFIG else 4
@@ -57,7 +57,7 @@ def config():
 
     # Scaling factors for each loss term
     multipliers = {
-        'support' : 1,
+        'support' : 0.1,
         'content' : 1,
         'translation' : 1,
         'invariance' : 1,
@@ -359,9 +359,9 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 #mixture_o_features = hcqt(original_mixtures)
                 #mixture_a_features = hcqt(augment_mixtures)
 
-                #original_features_l = decibels_to_amplitude(original_features)
-                #augment_features_l = decibels_to_amplitude(augment_features)
-                #augment_features_l_ = decibels_to_amplitude(augment_features_)
+                original_features_l = decibels_to_amplitude(original_features)
+                augment_features_l = decibels_to_amplitude(augment_features)
+                augment_features_l_ = decibels_to_amplitude(augment_features_)
                 #mixture_o_features_l = decibels_to_amplitude(mixture_o_features)
                 #mixture_a_features_l = decibels_to_amplitude(mixture_a_features)
 
@@ -385,17 +385,17 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 #mixture_a_salience = torch.sigmoid(mixture_a_embeddings)
 
                 # Compute the support loss with respect to the first harmonic for this batch
-                support_loss = compute_support_loss(original_embeddings, original_features_s)
-                #support_loss += compute_support_loss(augment_embeddings, augment_features_s)
-                #support_loss += compute_support_loss(mixture_o_embeddings, mixture_o_features_s)
-                #support_loss += compute_support_loss(mixture_a_embeddings, mixture_a_features_s)
+                support_loss = compute_support_loss(original_embeddings, original_features_l)
+                support_loss += compute_support_loss(augment_embeddings, original_features_l)
+                #support_loss += compute_support_loss(mixture_o_embeddings, original_features_s)
+                #support_loss += compute_support_loss(mixture_a_embeddings, original_features_s)
 
                 # Log the support loss for this batch
                 writer.add_scalar('train/loss/support', support_loss, batch_count)
 
                 # Compute the content loss for this batch
-                content_loss = compute_content_loss(original_salience, original_features_s)
-                #content_loss += compute_content_loss(augment_salience, original_features_s)
+                content_loss = compute_content_loss(original_salience, original_features_l)
+                content_loss += compute_content_loss(augment_salience, original_features_l)
                 #content_loss += compute_content_loss(mixture_o_salience, original_features_s)
                 #content_loss += compute_content_loss(mixture_a_salience, original_features_s)
 
@@ -406,9 +406,9 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 translation_loss = compute_translation_loss(model, original_features_s, original_salience,
                                                             max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
                                                             min_stretch=min_stretch_time, max_stretch=max_stretch_time)
-                #translation_loss += compute_translation_loss(model, augment_features_s, augment_salience,
-                #                                             max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
-                #                                             min_stretch=min_stretch_time, max_stretch=max_stretch_time)
+                translation_loss += compute_translation_loss(model, augment_features_s, augment_salience,
+                                                             max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
+                                                             min_stretch=min_stretch_time, max_stretch=max_stretch_time)
                 #translation_loss += compute_translation_loss(model, mixture_o_features_s, mixture_o_salience,
                 #                                             max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
                 #                                             min_stretch=min_stretch_time, max_stretch=max_stretch_time)
@@ -438,9 +438,9 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 #writer.add_scalar('train/loss/linearity', linearity_loss, batch_count)
 
                 # Compute the total loss for this batch
-                loss = multipliers['support'] * support_loss + \
-                       multipliers['content'] * content_loss + \
-                       multipliers['translation'] * translation_loss + \
+                loss = multipliers['support'] / 2 * support_loss + \
+                       multipliers['content'] / 2 * content_loss + \
+                       multipliers['translation'] / 2 * translation_loss + \
                        multipliers['invariance'] * invariance_loss
                 #loss = multipliers['support'] / 4 * support_loss + \
                        #multipliers['content'] / 4 * content_loss + \
