@@ -5,6 +5,7 @@ from utils import stream_url_resource, unzip_and_remove, change_base_dir
 from common import EvalSet
 
 # Regular imports
+import pandas as pd
 import numpy as np
 import librosa
 import scipy
@@ -118,7 +119,11 @@ class MusicNet(EvalSet):
         # Obtain the path to the track's ground_truth
         csv_path = self.get_ground_truth_path(track)
 
-        # TODO
+        # Load tabulated note data from the csv file
+        note_entries = pd.read_csv(csv_path).to_numpy()
+
+        # Unpack the relevant note attributes
+        onset_ticks, offset_ticks, pitches = note_entries[:, (0, 1, 3)].T
 
         # Obtain an empty array for inserting ground-truth
         ground_truth = super().get_ground_truth(track, times)

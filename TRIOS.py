@@ -102,7 +102,7 @@ class TRIOS(EvalSet):
         # Obtain an empty array for inserting ground-truth
         ground_truth = super().get_ground_truth(track, times)
 
-        # Loop through file
+        # Loop through files
         for m in midi_paths:
             # Extract the notes from the MIDI file
             notes = pretty_midi.PrettyMIDI(m).instruments[0].notes
