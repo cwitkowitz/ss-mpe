@@ -1,7 +1,7 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from utils import translate_batch, stretch_batch
+from utils import *
 
 # Regular imports
 import torch.nn.functional as F
@@ -130,7 +130,7 @@ def compute_timbre_loss(model, embeddings, features, n_bins, bins_per_octave, po
     return timbre_loss
 
 
-def get_random_mixtures(audio, p=0.8, seed=None):
+def get_random_mixtures(audio, mix_probability=0.5):
     # Keep track of the original dimensionality of the audio
     dimensionality = audio.size()
 
@@ -140,13 +140,11 @@ def get_random_mixtures(audio, p=0.8, seed=None):
     # Determine the amount of tracks in the batch
     N = dimensionality[0]
 
-    # TODO - random seed
-
     # Randomly sample a matrix for mixing
     legend = torch.rand((N, N), device=audio.device)
 
     # Threshold to determine which tracks should be mixed
-    legend = torch.threshold(legend, threshold=p, value=0)
+    legend = torch.threshold(legend, threshold=(1 - mix_probability), value=0)
     # Include the original track in each mix (diagonal)
     legend = torch.logical_or(torch.eye(N, device=legend.device), legend)
 
@@ -167,76 +165,28 @@ def get_random_mixtures(audio, p=0.8, seed=None):
     return mixtures, legend
 
 
-def compute_linearity_loss(mixture_embeddings, activations, legend):
-    # Keep track of original dimensionality
-    dimensionality = activations.size()
+def compute_superposition_loss(hcqt, model, audio, activations, mix_probability=0.5):
+    with torch.no_grad():
+        # Randomly mix the audio tracks in the batch
+        mixtures, legend = get_random_mixtures(audio, mix_probability)
 
-    # Superimpose thresholded activations for mixture targets
-    pseudo_ground_truth = torch.matmul(torch.ceil(legend), activations.flatten(-2))
+        # Superimpose thresholded activations for mixture targets
+        # TODO - log-softmax operator or something else instead?
+        mixed_activations = torch.matmul(torch.ceil(legend), activations.flatten(-2))
 
-    # Ignore overlapping activations and restore dimensionality
-    pseudo_ground_truth = torch.clip(pseudo_ground_truth, max=1).view(dimensionality)
+        # Clip summed activations at 1 and restore dimensionality
+        mixed_activations = torch.clip(mixed_activations, max=1).view(activations.size())
 
-    # Compute BCE loss to push activations of mixture toward linear combination of individual activations
-    linearity_loss = F.binary_cross_entropy_with_logits(mixture_embeddings, pseudo_ground_truth, reduction='none')
+    # Obtain log-scale features for the mixtures
+    mixture_features = rescale_decibels(hcqt(mixtures))
+
+    # Process the audio mixtures with the model
+    mixture_embeddings = model(mixture_features).squeeze()
+
+    # Compute superpositions loss as BCE of embeddings computed from mixtures with respect to mixed activations
+    superposition_loss = F.binary_cross_entropy_with_logits(mixture_embeddings, mixed_activations, reduction='none')
 
     # Sum across frequency bins and average across time and batch
-    linearity_loss = linearity_loss.sum(-2).mean(-1).mean(-1)
+    superposition_loss = superposition_loss.sum(-2).mean(-1).mean(-1)
 
-    return linearity_loss
-
-
-# TODO - support for more than one augmentation?
-def compute_contrastive_loss(original_embeddings, augment_embeddings, temperature=0.07):
-    # Determine which device to use for processing
-    device = original_embeddings.device
-
-    # Keep track of original dimensionality
-    B, T, E = original_embeddings.shape
-
-    # Concatenate both sets of embeddings along the batch dimension
-    all_embeddings = torch.cat((original_embeddings, augment_embeddings), dim=0)
-
-    # Normalize both sets of embeddings
-    all_embeddings = F.normalize(all_embeddings, dim=-1)
-
-    # Switch the batch and frame dimensions for the embeddings
-    all_embeddings = all_embeddings.transpose(0, 1)
-
-    # Compute cosine similarity between every embedding across each frame
-    similarities = torch.bmm(all_embeddings, all_embeddings.transpose(-1, -2))
-
-    # Construct a matrix indicating same-sample membership for each embedding
-    labels = (torch.eye(2 * B) + torch.eye(2 * B).roll(B, dims=-1)).to(device)
-
-    # Create mask to indicate which elements belong to diagonal
-    diagonal = torch.eye(2 * B, dtype=torch.bool).to(device)
-
-    # Discard labels indicating identity
-    labels = labels[~diagonal].view(2 * B, -1)
-    # Discard similarities for identical pairs across each frame
-    similarities = similarities[:, ~diagonal].view(T, 2 * B, -1)
-
-    # Obtain the similarity measures for positive pairs
-    positives = similarities[:, labels.bool()].view(T, 2 * B, -1)
-
-    # Obtain the similarity measures for negative pairs
-    negatives = similarities[:, ~labels.bool()].view(T, 2 * B, -1)
-
-    # Combine all similarities, ordering the positive pair similarities first
-    logits = torch.cat([positives, negatives], dim=-1) / temperature
-
-    # Construct labels indicating first index as pertaining to ground-truth class
-    targets = torch.zeros(logits.shape[:-1], dtype=torch.long).to(device)
-
-    # Compute loss based on similarity of embeddings originating from same sample
-    contrastive_loss = F.cross_entropy(logits.view(2 * B * T, -1),
-                                       targets.flatten(), reduction='none')
-
-    # Restore the original dimensions to the computed losses
-    contrastive_loss = contrastive_loss.view(T, 2 * B).t()
-
-    # Sum the loss across embeddings and then average across frames
-    contrastive_loss = contrastive_loss.sum(0).mean(-1)
-
-    return contrastive_loss
+    return superposition_loss

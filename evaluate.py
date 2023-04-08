@@ -143,7 +143,7 @@ def evaluate(model, hcqt, eval_set, writer=None, i=0, device='cpu'):
     with torch.no_grad():
         # Loop through each testing track
         for audio, ground_truth in loader:
-            # Obtain features for the audio
+            # Obtain log-scale features for the audio
             features_log = rescale_decibels(hcqt(audio.to(device)))
             # Compute the pitch salience of the features
             salience = torch.sigmoid(model(features_log).squeeze())
@@ -169,3 +169,5 @@ def evaluate(model, hcqt, eval_set, writer=None, i=0, device='cpu'):
             writer.add_image(f'val-{eval_set.name()}/CQT', features_log.squeeze()[1: 2].flip(-2), i)
             writer.add_image(f'val-{eval_set.name()}/salience', salience.unsqueeze(0).flip(-2), i)
             writer.add_image(f'val-{eval_set.name()}/ground-truth', ground_truth.unsqueeze(0).flip(-2), i)
+
+    return average_results

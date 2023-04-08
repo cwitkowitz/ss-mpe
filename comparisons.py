@@ -244,9 +244,8 @@ for test_set in [bach10, su, trios, musicnet, urmp, swd]:
 
         # Obtain salience as the first harmonic of the CQT features
         ln_salience = features_lin.squeeze()[h_idx]
-        #ln_salience = features_lin.squeeze().mean(0)
         sc_salience = features_log.squeeze()[h_idx]
-        #sc_salience = features_log.squeeze().mean(0)
+        #hm_salience = None # TODO - do weighted (normalized sum here)
 
         # Determine performance floor when using CQT features as predictions
         ln_results = ln_evaluator.evaluate(ln_salience.cpu().numpy(), ground_truth)

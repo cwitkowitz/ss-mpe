@@ -124,9 +124,27 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     # Seed everything with the same seed
     seed_everything(seed)
 
-    # Initialize the primary PyTorch device
-    device = torch.device(f'cuda:{gpu_ids[0]}'
-                          if torch.cuda.is_available() else 'cpu')
+    # Determine the sequence length of training samples
+    n_frames = int(n_secs * sample_rate / hop_length)
+
+    # Determine index of first harmonic (support/content loss)
+    h_idx = harmonics.index(1)
+
+    # Create weighting for harmonics (harmonic loss)
+    harmonic_weights = 1 / torch.Tensor(harmonics) ** 2
+    # Apply zero weight to sub-harmonics (harmonic loss)
+    harmonic_weights[harmonic_weights > 1] = 0
+
+    # Define maximum time and frequency shift (geometric loss)
+    max_shift_time = n_frames // 4
+    max_shift_freq = 2 * bins_per_octave
+
+    # Define time stretch boundaries (geometric loss)
+    min_stretch_time = 0.5
+    max_stretch_time = 2
+
+    # Define probability of mixing two tracks in a batch (superposition loss)
+    mix_probability = np.log2(batch_size) / batch_size
 
     if path_layout:
         # Point to the storage drives containing each dataset
@@ -160,60 +178,13 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     #training_data = ComboSet([freemusicarchive])
     training_data = ComboSet([nsynth])
 
-    # Initialize a PyTorch dataloader for the data
-    loader = DataLoader(dataset=training_data,
-                        batch_size=batch_size,
-                        shuffle=True,
-                        num_workers=n_workers,
-                        drop_last=True)
-
-    # Initialize the HCQT feature extraction module
-    hcqt = LHVQT(fs=sample_rate,
-                 hop_length=hop_length,
-                 fmin=librosa.midi_to_hz(fmin),
-                 n_bins=n_bins,
-                 bins_per_octave=bins_per_octave,
-                 harmonics=harmonics,
-                 update=False,
-                 db_to_prob=False,
-                 batch_norm=False)
-
-    # Determine index of first harmonic
-    h_idx = harmonics.index(1)
-
-    # Create weights for harmonic loss
-    harmonic_weights = 1 / torch.Tensor(harmonics) ** 2
-    # Apply zero weight to sub-harmonics
-    harmonic_weights[harmonic_weights > 1] = 0
-
-    # Determine the sequence length of training samples
-    n_frames = int(n_secs * sample_rate / hop_length)
-
-    # Initialize MPE representation learning model
-    model = SAUNet(n_ch_in=len(harmonics),
-                   n_bins_in=n_bins,
-                   model_complexity=2,
-                   #max_seq=4*n_frames)
-                   )
-
-    if len(gpu_ids) > 1:
-        # Wrap feature extraction and model for multi-GPU usage
-        hcqt = torch.nn.DataParallel(hcqt, device_ids=gpu_ids)
-        model = torch.nn.DataParallel(model, device_ids=gpu_ids)
-
-    # Add model and feature extraction to primary device
-    hcqt, model = hcqt.to(device), model.to(device)
-
-    # Initialize an optimizer for the model parameters
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-
-    # Define maximum time and frequency shift
-    max_shift_time = n_frames // 4
-    max_shift_freq = 2 * bins_per_octave
-
-    # Define time stretch boundaries
-    min_stretch_time = 0.5
-    max_stretch_time = 2
+    # Instantiate Su dataset for validation
+    toynsynthtest = ToyNSynthEval(base_dir=nsynth_base_dir,
+                                  sample_rate=sample_rate,
+                                  hop_length=hop_length,
+                                  fmin=fmin,
+                                  n_bins=n_bins,
+                                  bins_per_octave=bins_per_octave)
 
     # Instantiate Bach10 dataset for validation
     bach10 = Bach10(base_dir=bach10_base_dir,
@@ -239,17 +210,49 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                   n_bins=n_bins,
                   bins_per_octave=bins_per_octave)
 
-    # Instantiate Su dataset for validation
-    toynsynthtest = ToyNSynthEval(base_dir=nsynth_base_dir,
-                                  sample_rate=sample_rate,
-                                  hop_length=hop_length,
-                                  fmin=fmin,
-                                  n_bins=n_bins,
-                                  bins_per_octave=bins_per_octave)
-
     # Initialize a list to hold all validation datasets
-    #validation_sets = [bach10, su, trios]
-    validation_sets = [toynsynthtest]
+    validation_sets = [toynsynthtest, bach10, su, trios]
+
+    # Initialize a PyTorch dataloader for the data
+    loader = DataLoader(dataset=training_data,
+                        batch_size=batch_size,
+                        shuffle=True,
+                        num_workers=n_workers,
+                        drop_last=True)
+
+    # Initialize the HCQT feature extraction module
+    hcqt = LHVQT(fs=sample_rate,
+                 hop_length=hop_length,
+                 fmin=librosa.midi_to_hz(fmin),
+                 n_bins=n_bins,
+                 bins_per_octave=bins_per_octave,
+                 harmonics=harmonics,
+                 update=False,
+                 db_to_prob=False,
+                 batch_norm=False)
+
+    # Initialize MPE representation learning model
+    model = SAUNet(n_ch_in=len(harmonics),
+                   n_bins_in=n_bins,
+                   model_complexity=2,
+                   # TODO - uncomment the following when ready to test on longer sequences
+                   #max_seq=4*n_frames)
+                   )
+
+    # Initialize the primary PyTorch device
+    device = torch.device(f'cuda:{gpu_ids[0]}'
+                          if torch.cuda.is_available() else 'cpu')
+
+    if len(gpu_ids) > 1:
+        # Wrap feature extraction and model for multi-GPU usage
+        hcqt = torch.nn.DataParallel(hcqt, device_ids=gpu_ids)
+        model = torch.nn.DataParallel(model, device_ids=gpu_ids)
+
+    # Add model and feature extraction to primary device
+    hcqt, model = hcqt.to(device), model.to(device)
+
+    # Initialize an optimizer for the model parameters
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
     # Construct the path to the directory for saving models
     log_dir = os.path.join(root_dir, 'models')
@@ -264,56 +267,46 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     for i in range(max_epochs):
         # Loop through batches
         for audio in tqdm(loader, desc=f'Epoch {i}'):
-            # Add all data to the appropriate device
+            # Add audio to the appropriate device
             audio = audio.to(device)
-
-            with torch.no_grad():
-                # TODO - perform equalization-curve augmentation here
-
-                # Create random mixtures of the audio and keep track of mixing
-                #original_mixtures, original_legend = get_random_mixtures(audio)
-                #augment_mixtures, augment_legend = get_random_mixtures(augmentations)
-
-                # TODO - augment original mixtures for more examples per batch?
-                pass
 
             with torch.autocast(device_type=f'cuda'):
                 # Obtain spectral features in decibels
-                original_features_dec = hcqt(audio)
+                features_dec = hcqt(audio)
                 # Convert decibels to linear gain between 0 and 1
-                original_features_lin = decibels_to_amplitude(original_features_dec)
+                features_lin = decibels_to_amplitude(features_dec)
                 # Scale decibels to be between 0 and 1
-                original_features_log = rescale_decibels(original_features_dec)
+                features_log = rescale_decibels(features_dec)
 
                 # Compute pitch salience embeddings
-                original_embeddings = model(original_features_log).squeeze()
+                embeddings = model(features_log).squeeze()
 
                 # Convert logits to activations (implicit pitch salience)
-                original_salience = torch.sigmoid(original_embeddings)
+                salience = torch.sigmoid(embeddings)
 
                 # Obtain pseudo-ground-truth as features at first harmonic
-                pseudo_ground_truth = original_features_lin[:, h_idx]
+                pseudo_ground_truth = features_lin[:, h_idx]
 
                 # Compute the support loss with respect to the first harmonic for this batch
-                support_loss = compute_support_loss(original_embeddings, pseudo_ground_truth)
+                support_loss = compute_support_loss(embeddings, pseudo_ground_truth)
 
                 # Log the support loss for this batch
                 writer.add_scalar('train/loss/support', support_loss, batch_count)
 
                 # Compute the content loss for this batch
-                content_loss = compute_content_loss(original_salience, pseudo_ground_truth)
+                content_loss = compute_content_loss(salience, pseudo_ground_truth)
 
                 # Log the content loss for this batch
                 writer.add_scalar('train/loss/content', content_loss, batch_count)
 
                 # Compute the harmonic loss for this batch
-                harmonic_loss = compute_harmonic_loss(original_salience, original_features_lin, weights=harmonic_weights)
+                harmonic_loss = compute_harmonic_loss(salience, features_lin, weights=harmonic_weights)
 
                 # Log the harmonic loss for this batch
                 writer.add_scalar('train/loss/harmonic', content_loss, batch_count)
 
                 # Compute the geometric-invariance loss for this batch
-                geometric_loss = compute_geometric_loss(model, original_features_log, original_salience,
+                geometric_loss = compute_geometric_loss(model, features_log, salience,
                                                         max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
                                                         min_stretch=min_stretch_time, max_stretch=max_stretch_time)
 
@@ -321,25 +314,25 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 writer.add_scalar('train/loss/geometric', geometric_loss, batch_count)
 
                 # Compute the timbre-invariance loss for this batch
-                timbre_loss = compute_timbre_loss(model, original_embeddings, original_features_log, n_bins, bins_per_octave)
+                #timbre_loss = compute_timbre_loss(model, embeddings, features_log, n_bins, bins_per_octave)
+                timbre_loss = 0
 
                 # Log the timbre-invariance loss for this batch
                 writer.add_scalar('train/loss/timbre', timbre_loss, batch_count)
 
                 # Compute the superposition loss for this batch
-                #superposition_loss = compute_superposition_loss(mixture_o_embeddings, original_salience, original_legend)
-                #superposition_loss += compute_superposition_loss(mixture_a_embeddings, augment_salience, augment_legend)
+                superposition_loss = compute_superposition_loss(hcqt, model, audio, salience, mix_probability)
 
                 # Log the superposition loss for this batch
-                #writer.add_scalar('train/loss/superposition', superposition_loss, batch_count)
+                writer.add_scalar('train/loss/superposition', superposition_loss, batch_count)
 
                 # Compute the total loss for this batch
                 loss = multipliers['support'] * support_loss + \
                        multipliers['content'] * content_loss + \
                        multipliers['harmonic'] * harmonic_loss + \
                        multipliers['geometric'] * geometric_loss + \
-                       multipliers['timbre'] * timbre_loss
-                       #multipliers['superposition'] * superposition_loss
+                       multipliers['timbre'] * timbre_loss + \
+                       multipliers['superposition'] * superposition_loss
 
                 # Log the total loss for this batch
                 writer.add_scalar('train/loss/total', loss, batch_count)
@@ -357,12 +350,12 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
             if batch_count % checkpoint_interval == 0:
                 for val_set in validation_sets:
                     # Validate the model with each validation dataset
-                    evaluate(model=model,
-                             hcqt=hcqt,
-                             eval_set=val_set,
-                             writer=writer,
-                             i=batch_count,
-                             device=device)
+                     results = evaluate(model=model,
+                                        hcqt=hcqt,
+                                        eval_set=val_set,
+                                        writer=writer,
+                                        i=batch_count,
+                                        device=device)
 
                 # Place model back in training mode
                 model.train()
