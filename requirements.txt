@@ -10,3 +10,4 @@ sacred
 requests
 lhvqt
 pretty_midi
+pandas
