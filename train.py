@@ -3,13 +3,11 @@
 # My imports
 from common import ComboSet
 from FreeMusicArchive import FreeMusicArchive
-from MagnaTagATune import MagnaTagATune
 from NSynth import NSynth
-from ToyNSynth import ToyNSynthTrain, ToyNSynthEval
+from ToyNSynth import ToyNSynthEval
 from Bach10 import Bach10
 from Su import Su
 from TRIOS import TRIOS
-from MusicNet import MusicNet
 from model import SAUNet
 from lhvqt import LHVQT
 from objectives import *
@@ -20,7 +18,6 @@ from evaluate import evaluate
 from torch.utils.tensorboard import SummaryWriter
 from sacred.observers import FileStorageObserver
 from torch.utils.data import DataLoader
-from torch_audiomentations import *
 from sacred import Experiment
 from tqdm import tqdm
 
@@ -29,8 +26,8 @@ import torch
 import os
 
 
-CONFIG = 1 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['StepByStep'])
+CONFIG = 0 # (0 - desktop | 1 - lab)
+EX_NAME = '_'.join(['Refinements'])
 
 ex = Experiment('Train a model to learn representations for MPE')
 
@@ -57,11 +54,12 @@ def config():
 
     # Scaling factors for each loss term
     multipliers = {
-        'support' : 0.1,
+        'support' : 1,
         'content' : 1,
-        'translation' : 1,
-        'invariance' : 1,
-        'linearity' : 0
+        'harmonic' : 1,
+        'geometric' : 1,
+        'timbre' : 0,
+        'superposition' : 0
     }
 
     # IDs of the GPUs to use, if available
@@ -180,6 +178,14 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                  db_to_prob=False,
                  batch_norm=False)
 
+    # Determine index of first harmonic
+    h_idx = harmonics.index(1)
+
+    # Create weights for harmonic loss
+    harmonic_weights = 1 / torch.Tensor(harmonics) ** 2
+    # Apply zero weight to sub-harmonics
+    harmonic_weights[harmonic_weights > 1] = 0
+
     # Determine the sequence length of training samples
     n_frames = int(n_secs * sample_rate / hop_length)
 
@@ -200,81 +206,6 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
 
     # Initialize an optimizer for the model parameters
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-
-    # Choose cutoff frequencies to retain at least one octave
-    low_cutoff = librosa.note_to_hz('C2')
-    high_cutoff = librosa.note_to_hz('C6')
-
-    # Define boundaries for musically-relevant fundamental frequencies
-    low_bound = librosa.note_to_hz('A0')
-    high_bound = librosa.note_to_hz('C8')
-
-    def octave_fraction(n_octave):
-        """
-        Compute the fraction of an arbitrary frequency
-        in Hz which corresponds to n_octave octaves.
-        """
-
-        return 2 ** (n_octave / 2) - 2 ** (-n_octave / 2)
-
-    # Define a transformation pipeline to modify the timbre of audio
-    timbre_transforms = Compose(
-        transforms=[
-            #AddColoredNoise(),
-            #AddBackgroundNoise(),
-            #ApplyImpulseResponse(),
-            OneOf(
-                transforms=[
-                    LowPassFilter(
-                        min_cutoff_freq=low_cutoff,
-                        max_cutoff_freq=high_bound,
-                        p=1.0
-                    ),
-                    HighPassFilter(
-                        min_cutoff_freq=low_bound,
-                        max_cutoff_freq=high_cutoff,
-                        p=1.0
-                    ),
-                    BandPassFilter(
-                        min_center_frequency=low_cutoff,
-                        max_center_frequency=high_cutoff,
-                        min_bandwidth_fraction=octave_fraction(1),
-                        max_bandwidth_fraction=octave_fraction(2),
-                        p=1.0
-                    ),
-                    BandStopFilter(
-                        min_center_frequency=low_cutoff,
-                        max_center_frequency=high_cutoff,
-                        min_bandwidth_fraction=octave_fraction(1),
-                        max_bandwidth_fraction=octave_fraction(2),
-                        p=1.0
-                    )
-                ]
-            )
-        ]
-    )
-
-    # Define a transformation pipeline to add variance to audio
-    variety_transforms = Compose(
-        transforms=[
-            # TODO - consider adding these augmentations
-            #PolarityInversion(),
-            #TimeInversion(),
-            #PitchShift(),
-            #Shift(),
-            OneOf(
-                transforms=[
-                    #PeakNormalization(),
-                    #Gain(),
-                    Identity()
-                ]
-            )
-            #ShuffleChannels()
-        ]
-    )
-
-    # Connect the two types of transformations to obtain the full pipeline
-    transforms = Compose(transforms=[timbre_transforms, variety_transforms])
 
     # Define maximum time and frequency shift
     max_shift_time = n_frames // 4
@@ -333,120 +264,87 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     for i in range(max_epochs):
         # Loop through batches
         for audio in tqdm(loader, desc=f'Epoch {i}'):
+            # Add all data to the appropriate device
+            audio = audio.to(device)
+
             with torch.no_grad():
-                # Feed the audio through the augmentation pipeline
-                augmentations = transforms(audio, sample_rate=sample_rate)
-
-                # Obtain another set of augmented embeddings for contrastive loss
-                augmentations_ = transforms(audio, sample_rate=sample_rate)
-
-                # Add all data to the appropriate device
-                audio = audio.to(device)
-                augmentations = augmentations.to(device)
-                augmentations_ = augmentations_.to(device)
+                # TODO - perform equalization-curve augmentation here
 
                 # Create random mixtures of the audio and keep track of mixing
                 #original_mixtures, original_legend = get_random_mixtures(audio)
                 #augment_mixtures, augment_legend = get_random_mixtures(augmentations)
 
                 # TODO - augment original mixtures for more examples per batch?
+                pass
 
             with torch.autocast(device_type=f'cuda'):
-                # Obtain spectral features
-                original_features = hcqt(audio)
-                augment_features = hcqt(augmentations)
-                augment_features_ = hcqt(augmentations_)
-                #mixture_o_features = hcqt(original_mixtures)
-                #mixture_a_features = hcqt(augment_mixtures)
-
-                original_features_l = decibels_to_amplitude(original_features)
-                augment_features_l = decibels_to_amplitude(augment_features)
-                augment_features_l_ = decibels_to_amplitude(augment_features_)
-                #mixture_o_features_l = decibels_to_amplitude(mixture_o_features)
-                #mixture_a_features_l = decibels_to_amplitude(mixture_a_features)
-
-                original_features_s = rescale_decibels(original_features)
-                augment_features_s = rescale_decibels(augment_features)
-                augment_features_s_ = rescale_decibels(augment_features_)
-                #mixture_o_features_s = rescale_decibels(mixture_o_features)
-                #mixture_a_features_s = rescale_decibels(mixture_a_features)
+                # Obtain spectral features in decibels
+                original_features_dec = hcqt(audio)
+                # Convert decibels to linear gain between 0 and 1
+                original_features_lin = decibels_to_amplitude(original_features_dec)
+                # Scale decibels to be between 0 and 1
+                original_features_log = rescale_decibels(original_features_dec)
 
                 # Compute pitch salience embeddings
-                original_embeddings = model(original_features_s).squeeze()
-                augment_embeddings = model(augment_features_s).squeeze()
-                augment_embeddings_ = model(augment_features_s_).squeeze()
-                #mixture_o_embeddings = model(mixture_o_features_s).squeeze()
-                #mixture_a_embeddings = model(mixture_a_features_s).squeeze()
+                original_embeddings = model(original_features_log).squeeze()
 
                 # Convert logits to activations (implicit pitch salience)
                 original_salience = torch.sigmoid(original_embeddings)
-                augment_salience = torch.sigmoid(augment_embeddings)
-                #mixture_o_salience = torch.sigmoid(mixture_o_embeddings)
-                #mixture_a_salience = torch.sigmoid(mixture_a_embeddings)
+
+                # Obtain pseudo-ground-truth as features at first harmonic
+                pseudo_ground_truth = original_features_lin[:, h_idx]
 
                 # Compute the support loss with respect to the first harmonic for this batch
-                support_loss = compute_support_loss(original_embeddings, original_features_l)
-                support_loss += compute_support_loss(augment_embeddings, original_features_l)
-                #support_loss += compute_support_loss(mixture_o_embeddings, original_features_s)
-                #support_loss += compute_support_loss(mixture_a_embeddings, original_features_s)
+                support_loss = compute_support_loss(original_embeddings, pseudo_ground_truth)
 
                 # Log the support loss for this batch
                 writer.add_scalar('train/loss/support', support_loss, batch_count)
 
                 # Compute the content loss for this batch
-                content_loss = compute_content_loss(original_salience, original_features_l)
-                content_loss += compute_content_loss(augment_salience, original_features_l)
-                #content_loss += compute_content_loss(mixture_o_salience, original_features_s)
-                #content_loss += compute_content_loss(mixture_a_salience, original_features_s)
+                content_loss = compute_content_loss(original_salience, pseudo_ground_truth)
 
                 # Log the content loss for this batch
                 writer.add_scalar('train/loss/content', content_loss, batch_count)
 
-                # Compute the translation loss for this batch
-                translation_loss = compute_translation_loss(model, original_features_s, original_salience,
-                                                            max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
-                                                            min_stretch=min_stretch_time, max_stretch=max_stretch_time)
-                translation_loss += compute_translation_loss(model, augment_features_s, augment_salience,
-                                                             max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
-                                                             min_stretch=min_stretch_time, max_stretch=max_stretch_time)
-                #translation_loss += compute_translation_loss(model, mixture_o_features_s, mixture_o_salience,
-                #                                             max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
-                #                                             min_stretch=min_stretch_time, max_stretch=max_stretch_time)
-                #translation_loss += compute_translation_loss(model, mixture_a_features_s, mixture_a_salience,
-                #                                             max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
-                #                                             min_stretch=min_stretch_time, max_stretch=max_stretch_time)
+                # Compute the harmonic loss for this batch
+                harmonic_loss = compute_harmonic_loss(original_salience, original_features_lin, weights=harmonic_weights)
 
-                # Log the translation loss for this batch
-                writer.add_scalar('train/loss/translation', translation_loss, batch_count)
+                # Log the harmonic loss for this batch
+                writer.add_scalar('train/loss/harmonic', content_loss, batch_count)
 
-                # Compute the invariance loss for this batch
-                invariance_loss = compute_contrastive_loss(original_embeddings.transpose(-1, -2),
-                                                           augment_embeddings.transpose(-1, -2)) / batch_size
-                invariance_loss += compute_contrastive_loss(original_embeddings.transpose(-1, -2),
-                                                            augment_embeddings_.transpose(-1, -2)) / batch_size
-                invariance_loss += compute_contrastive_loss(augment_embeddings.transpose(-1, -2),
-                                                            augment_embeddings_.transpose(-1, -2)) / batch_size
+                # Compute the geometric-invariance loss for this batch
+                geometric_loss = compute_geometric_loss(model, original_features_log, original_salience,
+                                                        max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
+                                                        min_stretch=min_stretch_time, max_stretch=max_stretch_time)
 
-                # Log the invariance loss for this batch
-                writer.add_scalar('train/loss/invariance', invariance_loss, batch_count)
+                # Log the geometric-invariance loss for this batch
+                writer.add_scalar('train/loss/geometric', geometric_loss, batch_count)
 
-                # Compute the linearity loss for this batch
-                #linearity_loss = compute_linearity_loss(mixture_o_embeddings, original_salience, original_legend)
-                #linearity_loss += compute_linearity_loss(mixture_a_embeddings, augment_salience, augment_legend)
+                # Compute the timbre-invariance loss for this batch
+                #timbre_loss = compute_timbre_loss(original_embeddings.transpose(-1, -2),
+                #                                  augment_embeddings.transpose(-1, -2)) / batch_size
+                #timbre_loss += compute_timbre_loss(original_embeddings.transpose(-1, -2),
+                #                                   augment_embeddings_.transpose(-1, -2)) / batch_size
+                #timbre_loss += compute_timbre_loss(augment_embeddings.transpose(-1, -2),
+                #                                   augment_embeddings_.transpose(-1, -2)) / batch_size
 
-                # Log the linearity loss for this batch
-                #writer.add_scalar('train/loss/linearity', linearity_loss, batch_count)
+                # Log the timbre-invariance loss for this batch
+                #writer.add_scalar('train/loss/timbre', timbre_loss, batch_count)
+
+                # Compute the superposition loss for this batch
+                #superposition_loss = compute_superposition_loss(mixture_o_embeddings, original_salience, original_legend)
+                #superposition_loss += compute_superposition_loss(mixture_a_embeddings, augment_salience, augment_legend)
+
+                # Log the superposition loss for this batch
+                #writer.add_scalar('train/loss/superposition', superposition_loss, batch_count)
 
                 # Compute the total loss for this batch
-                loss = multipliers['support'] / 2 * support_loss + \
-                       multipliers['content'] / 2 * content_loss + \
-                       multipliers['translation'] / 2 * translation_loss + \
-                       multipliers['invariance'] * invariance_loss
-                #loss = multipliers['support'] / 4 * support_loss + \
-                       #multipliers['content'] / 4 * content_loss + \
-                       #multipliers['translation'] / 4 * translation_loss + \
-                       #multipliers['invariance'] * invariance_loss + \
-                       #multipliers['linearity'] / 2 * linearity_loss
+                loss = multipliers['support'] * support_loss + \
+                       multipliers['content'] * content_loss + \
+                       multipliers['harmonic'] * harmonic_loss + \
+                       multipliers['geometric'] * geometric_loss # + \
+                       #multipliers['timbre'] * timbre_loss
+                       #multipliers['superposition'] * superposition_loss
 
                 # Log the total loss for this batch
                 writer.add_scalar('train/loss/total', loss, batch_count)

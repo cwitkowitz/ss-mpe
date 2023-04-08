@@ -6,6 +6,8 @@ from Bach10 import Bach10
 from Su import Su
 from TRIOS import TRIOS
 from MusicNet import MusicNet
+from URMP import URMP
+from SWD import SWD
 from lhvqt import LHVQT
 from evaluate import MultipitchEvaluator
 from utils import *
@@ -95,33 +97,48 @@ h_idx = harmonics.index(1)
 ##############################
 ## DATASETS
 
-# Instantiate Bach10 dataset for validation
+# Instantiate Bach10 dataset for evaluation
 bach10 = Bach10(sample_rate=sample_rate,
                 hop_length=hop_length,
                 fmin=fmin,
                 n_bins=n_bins,
                 bins_per_octave=bins_per_octave)
 
-# Instantiate Su dataset for validation
+# Instantiate Su dataset for evaluation
 su = Su(sample_rate=sample_rate,
         hop_length=hop_length,
         fmin=fmin,
         n_bins=n_bins,
         bins_per_octave=bins_per_octave)
 
-# Instantiate Su dataset for validation
+# Instantiate TRIOS dataset for evaluation
 trios = TRIOS(sample_rate=sample_rate,
               hop_length=hop_length,
               fmin=fmin,
               n_bins=n_bins,
               bins_per_octave=bins_per_octave)
 
-# Instantiate Su dataset for validation
+# Instantiate MusicNet dataset for evaluation
 musicnet = MusicNet(sample_rate=sample_rate,
                     hop_length=hop_length,
                     fmin=fmin,
                     n_bins=n_bins,
                     bins_per_octave=bins_per_octave)
+
+# Instantiate URMP dataset for evaluation
+urmp = URMP(sample_rate=sample_rate,
+            hop_length=hop_length,
+            fmin=fmin,
+            n_bins=n_bins,
+            bins_per_octave=bins_per_octave)
+
+# Instantiate SWD dataset for evaluation
+swd = SWD(sample_rate=sample_rate,
+          hop_length=hop_length,
+          fmin=fmin,
+          n_bins=n_bins,
+          bins_per_octave=bins_per_octave)
+
 
 
 ##############################
@@ -162,7 +179,7 @@ def print_and_log(text, path=None):
 
 
 # Loop through all evaluation datasets
-for test_set in [bach10, su, trios, musicnet]:
+for test_set in [bach10, su, trios, musicnet, urmp, swd]:
     # Initialize evaluators for all models
     bp_evaluator = MultipitchEvaluator()
     ss_evaluator = MultipitchEvaluator()
@@ -209,12 +226,14 @@ for test_set in [bach10, su, trios, musicnet]:
         bp_results = bp_evaluator.evaluate(bp_salience, ground_truth)
 
         with torch.no_grad():
-            # Obtain features for the audio
-            features = hcqt(audio.unsqueeze(0))
-            features_l = decibels_to_amplitude(features)
-            features_s = rescale_decibels(features)
+            # Obtain spectral features in decibels
+            features_dec = hcqt(audio.unsqueeze(0))
+            # Convert decibels to linear gain between 0 and 1
+            features_lin = decibels_to_amplitude(features_dec)
+            # Scale decibels to be between 0 and 1
+            features_log = rescale_decibels(features_dec)
             # Trim away unused HCQT bins
-            features_t = features_s[..., n_trim_low: -n_trim_high,:]
+            features_t = features_log[..., n_trim_low: -n_trim_high,:]
             # Obtain predictions from the self-supervised model
             ss_salience = torch.sigmoid(ss_mpe(features_t).squeeze())
             # Pad the salience with zeros for unsupported bins
@@ -224,10 +243,10 @@ for test_set in [bach10, su, trios, musicnet]:
         ss_results = ss_evaluator.evaluate(ss_salience.cpu().numpy(), ground_truth)
 
         # Obtain salience as the first harmonic of the CQT features
-        ln_salience = features_l.squeeze()[h_idx]
-        #ln_salience = features_l.squeeze().mean(0)
-        sc_salience = features_s.squeeze()[h_idx]
-        #sc_salience = features_s.squeeze().mean(0)
+        ln_salience = features_lin.squeeze()[h_idx]
+        #ln_salience = features_lin.squeeze().mean(0)
+        sc_salience = features_log.squeeze()[h_idx]
+        #sc_salience = features_log.squeeze().mean(0)
 
         # Determine performance floor when using CQT features as predictions
         ln_results = ln_evaluator.evaluate(ln_salience.cpu().numpy(), ground_truth)

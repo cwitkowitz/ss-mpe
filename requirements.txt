@@ -1,4 +1,3 @@
-torch-audiomentations
 torchaudio
 torch
 scipy

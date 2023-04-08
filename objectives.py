@@ -8,41 +8,97 @@ import torch.nn.functional as F
 import torch
 
 
-def compute_support_loss(embeddings, features, pos_weight=0):
-    # Determine the number of channels in the input features
-    n_channels = features.shape[-3]
+def compute_support_loss(embeddings, h1_features):
+    # Set the weight for positive activations to zero
+    pos_weight = torch.tensor(0)
 
-    # Copy the produced embeddings along the channel dimension
-    embeddings = embeddings.unsqueeze(-3).repeat(1, n_channels, 1, 1)
+    # Compute support loss as BCE of activations with respect to features (negative activations only)
+    support_loss = F.binary_cross_entropy_with_logits(embeddings, h1_features, reduction='none', pos_weight=pos_weight)
 
-    # Make sure the weight for positive activations is a tensor
-    pos_weight = torch.tensor(pos_weight)
-
-    # Compute the support loss as BCE of activations with respect to features for negative activations only
-    support_loss = F.binary_cross_entropy_with_logits(embeddings, features, reduction='none', pos_weight=pos_weight)
-
-    # Sum across channels and frequency bins and average across time and batch
-    support_loss = support_loss.sum(-3).sum(-2).mean(-1).mean(-1)
+    # Sum across frequency bins and average across time and batch
+    support_loss = support_loss.sum(-2).mean(-1).mean(-1)
 
     return support_loss
 
 
-def compute_content_loss(activations, features):
-    # Compute the average energy across channels for each frame
-    average_energy = torch.mean(features, dim=-3)
-    # Sum the average energy across all frequency bins
-    total_energy = torch.sum(average_energy, dim=-2)
+def compute_content_loss(activations, h1_features):
+    # Sum the features across all frequency bins
+    total_energy = torch.sum(h1_features, dim=-2)
 
     # Sum the activations across all frequency bins
     total_activations = torch.sum(activations, dim=-2)
 
-    # Compute squared difference between total energy and activations
+    # Compute content loss as squared difference between total power
     content_loss = (total_energy - total_activations) ** 2
 
     # Average loss across time and batch
     content_loss = content_loss.mean(-1).mean(-1)
 
     return content_loss
+
+
+def compute_harmonic_loss(embeddings, features, weights=None):
+    # Determine the number of CQT channels
+    n_channels = features.size(-3)
+
+    if weights is None:
+        # Default to weighting each channel equally
+        weights = torch.ones(n_channels)
+
+    # Normalize the harmonic weights
+    weights /= torch.sum(weights)
+
+    # Make sure weights are on appropriate device
+    weights = weights.to(features.device)
+
+    # Compute a weighted sum of the features to obtain a rough salience estimate
+    salience = torch.sum(features * weights.unsqueeze(-1).unsqueeze(-1), dim=-3)
+
+    # Compute harmonic loss as BCE of activations with respect to salience estimate (positive activations only)
+    harmonic_loss = -salience * torch.log(torch.sigmoid(embeddings)) # TODO - log sum exp trick implementation
+    #support_loss = F.binary_cross_entropy_with_logits(embeddings, salience, reduction='none')
+
+    # Sum across frequency bins and average across time and batch
+    harmonic_loss = harmonic_loss.sum(-2).mean(-1).mean(-1)
+
+    return harmonic_loss
+
+
+def compute_geometric_loss(model, features, activations, max_shift_f=12,
+                           max_shift_t=25, min_stretch=0.5, max_stretch=2):
+    # Determine the number of samples in the batch
+    B = features.size(0)
+
+    # Sample a random frequency and time shift for each sample in the batch
+    freq_shifts = torch.randint(low=0, high=max_shift_f + 1, size=(B,)).tolist()
+    time_shifts = torch.randint(low=-max_shift_t, high=max_shift_t + 1, size=(B,)).tolist()
+
+    # Sample a random stretch factor for each sample in the batch
+    stretch_factors = (torch.rand(size=(B,)) * (max_stretch - min_stretch) + min_stretch).tolist()
+
+    with torch.no_grad():
+        # Translate the features by the sampled number of bins and frames
+        shifted_features = translate_batch(features, freq_shifts, -2)
+        shifted_features = translate_batch(shifted_features, time_shifts)
+
+        # Translate the activations by the sampled number of bins and frames
+        shifted_activations = translate_batch(activations, freq_shifts, -2)
+        shifted_activations = translate_batch(shifted_activations, time_shifts)
+
+        # Stretch the features and activations by the sampled stretch factors
+        shifted_features = stretch_batch(shifted_features, stretch_factors)
+        shifted_activations = stretch_batch(shifted_activations, stretch_factors)
+
+    # Process the shifted features with the model
+    embeddings = model(shifted_features).squeeze()
+
+    # Compute geometric loss as BCE of embeddings computed from shifted features with respect to shifted activations
+    geometric_loss = F.binary_cross_entropy_with_logits(embeddings, shifted_activations, reduction='none')
+
+    # Sum across frequency bins and average across time and batch
+    geometric_loss = geometric_loss.sum(-2).mean(-1).mean(-1)
+
+    return geometric_loss
 
 
 def get_random_mixtures(audio, p=0.8, seed=None):
@@ -155,40 +211,3 @@ def compute_contrastive_loss(original_embeddings, augment_embeddings, temperatur
     contrastive_loss = contrastive_loss.sum(0).mean(-1)
 
     return contrastive_loss
-
-
-def compute_translation_loss(model, features, activations, max_shift_f=12,
-                             max_shift_t=50, min_stretch=0.5, max_stretch=2):
-    # Determine the number of samples in the batch
-    B = features.size(0)
-
-    # Sample a random frequency and time shift for each sample in the batch
-    freq_shifts = torch.randint(low=-max_shift_f, high=max_shift_f + 1, size=(B,)).tolist()
-    time_shifts = torch.randint(low=-max_shift_t, high=max_shift_t + 1, size=(B,)).tolist()
-
-    # Sample a random stretch factorfor each sample in the batch
-    stretch_factors = (torch.rand(size=(B,)) * (max_stretch - min_stretch) + min_stretch).tolist()
-
-    with torch.no_grad():
-        # Translate the features by the sampled number of bins and frames
-        shifted_features = translate_batch(features, freq_shifts, -2)
-        shifted_features = translate_batch(shifted_features, time_shifts)
-
-        # Translate the activations by the sampled number of bins and frames
-        shifted_activations = translate_batch(activations, freq_shifts, -2)
-        shifted_activations = translate_batch(shifted_activations, time_shifts, -1)
-
-        # Stretch the features and activations by the sampled stretch factors
-        shifted_features = stretch_batch(shifted_features, stretch_factors)
-        shifted_activations = stretch_batch(shifted_activations, stretch_factors)
-
-    # Process the shifted features with the model
-    embeddings = model(shifted_features).squeeze()
-
-    # Compute BCE loss to push computed activations toward shifted activations
-    translation_loss = F.binary_cross_entropy_with_logits(embeddings, shifted_activations, reduction='none')
-
-    # Sum across frequency bins and average across time and batch
-    translation_loss = translation_loss.sum(-2).mean(-1).mean(-1)
-
-    return translation_loss
