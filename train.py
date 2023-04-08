@@ -58,7 +58,7 @@ def config():
         'content' : 1,
         'harmonic' : 1,
         'geometric' : 1,
-        'timbre' : 0,
+        'timbre' : 1,
         'superposition' : 0
     }
 
@@ -321,15 +321,10 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 writer.add_scalar('train/loss/geometric', geometric_loss, batch_count)
 
                 # Compute the timbre-invariance loss for this batch
-                #timbre_loss = compute_timbre_loss(original_embeddings.transpose(-1, -2),
-                #                                  augment_embeddings.transpose(-1, -2)) / batch_size
-                #timbre_loss += compute_timbre_loss(original_embeddings.transpose(-1, -2),
-                #                                   augment_embeddings_.transpose(-1, -2)) / batch_size
-                #timbre_loss += compute_timbre_loss(augment_embeddings.transpose(-1, -2),
-                #                                   augment_embeddings_.transpose(-1, -2)) / batch_size
+                timbre_loss = compute_timbre_loss(model, original_embeddings, original_features_log, n_bins, bins_per_octave)
 
                 # Log the timbre-invariance loss for this batch
-                #writer.add_scalar('train/loss/timbre', timbre_loss, batch_count)
+                writer.add_scalar('train/loss/timbre', timbre_loss, batch_count)
 
                 # Compute the superposition loss for this batch
                 #superposition_loss = compute_superposition_loss(mixture_o_embeddings, original_salience, original_legend)
@@ -342,8 +337,8 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 loss = multipliers['support'] * support_loss + \
                        multipliers['content'] * content_loss + \
                        multipliers['harmonic'] * harmonic_loss + \
-                       multipliers['geometric'] * geometric_loss # + \
-                       #multipliers['timbre'] * timbre_loss
+                       multipliers['geometric'] * geometric_loss + \
+                       multipliers['timbre'] * timbre_loss
                        #multipliers['superposition'] * superposition_loss
 
                 # Log the total loss for this batch

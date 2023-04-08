@@ -101,6 +101,35 @@ def compute_geometric_loss(model, features, activations, max_shift_f=12,
     return geometric_loss
 
 
+def compute_timbre_loss(model, embeddings, features, n_bins, bins_per_octave, points_per_octave=2):
+    # Determine the number of samples in the batch
+    B = features.size(0)
+
+    # Determine the number of cut/boost points to sample
+    n_points = 1 + points_per_octave * (n_bins // bins_per_octave)
+
+    # Sample a random stretch factor for each sample in the batch
+    equalization_curves = 0.5 + torch.rand(size=(B, 1, n_points))
+    # Upsample the equalization curve to the number of frequency bins via linear interpolation
+    equalization_curves = F.interpolate(equalization_curves, size=(n_bins), mode='linear', align_corners=True)
+
+    with torch.no_grad():
+        # TODO - apply equalization curves
+        pass
+
+        # Process the augmented features with the model
+        # TODO - place into eval mode? do this the other way around?
+        augmented_activations = model(shifted_features).squeeze()
+
+    # Compute timbre loss as BCE of embeddings with respect to activations computed from augmented features
+    timbre_loss = F.binary_cross_entropy_with_logits(embeddings, augmented_activations, reduction='none')
+
+    # Sum across frequency bins and average across time and batch
+    timbre_loss = timbre_loss.sum(-2).mean(-1).mean(-1)
+
+    return timbre_loss
+
+
 def get_random_mixtures(audio, p=0.8, seed=None):
     # Keep track of the original dimensionality of the audio
     dimensionality = audio.size()
