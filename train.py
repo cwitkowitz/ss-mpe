@@ -311,7 +311,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 writer.add_scalar('train/loss/harmonic', content_loss, batch_count)
 
                 # Compute the geometric-invariance loss for this batch
-                geometric_loss = compute_geometric_loss(model, features_log, salience,
+                geometric_loss = compute_geometric_loss(model, features_log, embeddings,
                                                         max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
                                                         min_stretch=min_stretch_time, max_stretch=max_stretch_time)
 
@@ -319,7 +319,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 writer.add_scalar('train/loss/geometric', geometric_loss, batch_count)
 
                 # Compute the timbre-invariance loss for this batch
-                timbre_loss = compute_timbre_loss(model, features_log, salience, fbins_midi, bins_per_octave)
+                timbre_loss = compute_timbre_loss(model, features_log, embeddings, fbins_midi, bins_per_octave)
 
                 # Log the timbre-invariance loss for this batch
                 writer.add_scalar('train/loss/timbre', timbre_loss, batch_count)

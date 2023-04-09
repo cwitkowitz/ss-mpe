@@ -64,13 +64,13 @@ def compute_harmonic_loss(embeddings, features, weights=None):
     return harmonic_loss
 
 
-def compute_geometric_loss(model, features, activations, max_shift_f=12,
+def compute_geometric_loss(model, features, embeddings, max_shift_f=12,
                            max_shift_t=25, min_stretch=0.5, max_stretch=2):
     # Determine the number of samples in the batch
     B = features.size(0)
 
     # Sample a random frequency and time shift for each sample in the batch
-    freq_shifts = torch.randint(low=0, high=max_shift_f + 1, size=(B,)).tolist()
+    freq_shifts = torch.randint(low=-max_shift_f, high=max_shift_f + 1, size=(B,)).tolist()
     time_shifts = torch.randint(low=-max_shift_t, high=max_shift_t + 1, size=(B,)).tolist()
 
     # Sample a random stretch factor for each sample in the batch
@@ -78,32 +78,38 @@ def compute_geometric_loss(model, features, activations, max_shift_f=12,
 
     with torch.no_grad():
         # Translate the features by the sampled number of bins and frames
-        shifted_features = translate_batch(features, freq_shifts, -2)
-        shifted_features = translate_batch(shifted_features, time_shifts)
+        distorted_features = translate_batch(features, freq_shifts, -2)
+        distorted_features = translate_batch(distorted_features, time_shifts)
+        # Stretch the features by the sampled stretch factors
+        distorted_features = stretch_batch(distorted_features, stretch_factors)
 
-        # Translate the activations by the sampled number of bins and frames
-        shifted_activations = translate_batch(activations, freq_shifts, -2)
-        shifted_activations = translate_batch(shifted_activations, time_shifts)
+    # Translate the original embeddings by the sampled number of bins and frames
+    distorted_embeddings = translate_batch(embeddings, freq_shifts, -2)
+    distorted_embeddings = translate_batch(distorted_embeddings, time_shifts)
+    # Stretch the original embeddings by the sampled stretch factors
+    distorted_embeddings = stretch_batch(distorted_embeddings, stretch_factors)
 
-        # Stretch the features and activations by the sampled stretch factors
-        shifted_features = stretch_batch(shifted_features, stretch_factors)
-        shifted_activations = stretch_batch(shifted_activations, stretch_factors)
+    # Process the distorted features with the model
+    distortion_embeddings = model(distorted_features).squeeze()
 
-    # Process the shifted features with the model
-    embeddings = model(shifted_features).squeeze()
+    # Convert both sets of logits to activations (implicit pitch salience)
+    distorted_salience = torch.sigmoid(distorted_embeddings)
+    distortion_salience = torch.sigmoid(distortion_embeddings)
 
-    # Compute geometric loss as BCE of embeddings computed from shifted features with respect to shifted activations
-    # TODO - do both with stop gradient()
-    geometric_loss = F.binary_cross_entropy_with_logits(embeddings, shifted_activations, reduction='none')
+    # Compute geometric loss as BCE of embeddings computed from distorted features with respect to distorted activations
+    geometric_loss_ds = F.binary_cross_entropy_with_logits(distortion_embeddings, distorted_salience.detach(), reduction='none')
 
-    # Sum across frequency bins and average across time and batch
-    geometric_loss = geometric_loss.sum(-2).mean(-1).mean(-1)
+    # Compute geometric loss as BCE of distorted embeddings with respect to activations computed from distorted features
+    geometric_loss_og = F.binary_cross_entropy_with_logits(distorted_embeddings, distortion_salience.detach(), reduction='none')
+
+    # Sum across frequency bins and average across time and batch for both variations of geometric loss
+    geometric_loss = (geometric_loss_ds.sum(-2).mean(-1).mean(-1) + geometric_loss_og.sum(-2).mean(-1).mean(-1)) / 2
 
     return geometric_loss
 
 
 # TODO - can initial logic be simplified at all?
-def compute_timbre_loss(model, features, activations, fbins_midi, bins_per_octave, points_per_octave=2):
+def compute_timbre_loss(model, features, embeddings, fbins_midi, bins_per_octave, points_per_octave=2):
     # Determine the number of samples in the batch
     B, H, K, _ = features.size()
 
@@ -144,32 +150,20 @@ def compute_timbre_loss(model, features, activations, fbins_midi, bins_per_octav
         # Apply the sampled equalization curves to the batch
         equalization_features = torch.clip(equalization * features, min=0, max=1)
 
-    """
-    # Code for visualizing equalization
-    import matplotlib.pyplot as plt
-    (fig, ax), n = plt.subplots(1, 3), 3
-    ax[0].imshow(features[n, 1].cpu().detach(), aspect='auto', origin='lower')
-    ax[0].get_xaxis().set_visible(False)
-    ax[0].set_title('Original')
-    ax[1].imshow(equalization_features[n, 1].cpu().detach(), aspect='auto', origin='lower')
-    ax[1].axis('off')
-    ax[1].set_title('Equalized')
-    ax[2].plot(equalization_curves[n, 36: 252].cpu().detach(), np.arange(216))
-    ax[2].set_xlim(0.5, 1.5)
-    ax[2].get_yaxis().set_visible(False)
-    ax[2].set_title('Factor')
-    fig.tight_layout()
-    """
-
     # Process the equalized features with the model
     equalization_embeddings = model(equalization_features).squeeze()
 
-    # Compute timbre loss as BCE of embeddings computed from equalized features with respect to activations
-    # TODO - do both with stop gradient()
-    timbre_loss = F.binary_cross_entropy_with_logits(equalization_embeddings, activations, reduction='none')
+    # Convert both sets of logits to activations (implicit pitch salience)
+    original_salience, equalization_salience = torch.sigmoid(embeddings), torch.sigmoid(equalization_embeddings)
 
-    # Sum across frequency bins and average across time and batch
-    timbre_loss = timbre_loss.sum(-2).mean(-1).mean(-1)
+    # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original activations
+    timbre_loss_eq = F.binary_cross_entropy_with_logits(equalization_embeddings, original_salience.detach(), reduction='none')
+
+    # Compute timbre loss as BCE of embeddings computed from original features with respect to equalization activations
+    timbre_loss_og = F.binary_cross_entropy_with_logits(embeddings, equalization_salience.detach(), reduction='none')
+
+    # Sum across frequency bins and average across time and batch for both variations of timbre loss
+    timbre_loss = (timbre_loss_eq.sum(-2).mean(-1).mean(-1) + timbre_loss_og.sum(-2).mean(-1).mean(-1)) / 2
 
     return timbre_loss
 
