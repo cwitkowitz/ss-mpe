@@ -93,6 +93,7 @@ def compute_geometric_loss(model, features, activations, max_shift_f=12,
     embeddings = model(shifted_features).squeeze()
 
     # Compute geometric loss as BCE of embeddings computed from shifted features with respect to shifted activations
+    # TODO - do both with stop gradient()
     geometric_loss = F.binary_cross_entropy_with_logits(embeddings, shifted_activations, reduction='none')
 
     # Sum across frequency bins and average across time and batch
@@ -101,28 +102,71 @@ def compute_geometric_loss(model, features, activations, max_shift_f=12,
     return geometric_loss
 
 
-def compute_timbre_loss(model, embeddings, features, n_bins, bins_per_octave, points_per_octave=2):
+# TODO - can initial logic be simplified at all?
+def compute_timbre_loss(model, features, activations, fbins_midi, bins_per_octave, points_per_octave=2):
     # Determine the number of samples in the batch
-    B = features.size(0)
+    B, H, K, _ = features.size()
+
+    # Infer the number of bins per semitone
+    bins_per_semitone = bins_per_octave / 12
+
+    # Determine the semitone span of the frequency support
+    semitone_span = fbins_midi.max() - fbins_midi.min()
+
+    # Determine how many bins are represented across all harmonics
+    n_psuedo_bins = (bins_per_semitone * semitone_span).round()
+
+    # Determine how many octaves have been covered
+    n_octaves = int(torch.ceil(n_psuedo_bins / bins_per_octave))
 
     # Determine the number of cut/boost points to sample
-    n_points = 1 + points_per_octave * (n_bins // bins_per_octave)
+    n_points = 1 + points_per_octave * n_octaves
+
+    # Cover the full octave for proper interpolation
+    out_size = n_octaves * bins_per_octave
 
     # Sample a random stretch factor for each sample in the batch
-    equalization_curves = 0.5 + torch.rand(size=(B, 1, n_points))
+    equalization_curves = 0.5 + torch.rand(size=(B, 1, n_points), device=features.device)
     # Upsample the equalization curve to the number of frequency bins via linear interpolation
-    equalization_curves = F.interpolate(equalization_curves, size=(n_bins), mode='linear', align_corners=True)
+    equalization_curves = F.interpolate(equalization_curves,
+                                        size=out_size,
+                                        mode='linear',
+                                        align_corners=True).squeeze()
+
+    # Determine which bins correspond to which equalization
+    nearest_bins = torch.round(bins_per_semitone * (fbins_midi - fbins_midi.min())).long()
 
     with torch.no_grad():
-        # TODO - apply equalization curves
-        pass
+        # Obtain indices corresponding to equalization for each sample in the batch
+        equalization_idcs = torch.meshgrid(torch.arange(B), nearest_bins.flatten())
+        # Obtain the equalization for each sample in the batch
+        equalization = equalization_curves[equalization_idcs].view(B, H, K, -1)
+        # Apply the sampled equalization curves to the batch
+        equalization_features = torch.clip(equalization * features, min=0, max=1)
 
-        # Process the augmented features with the model
-        # TODO - place into eval mode? do this the other way around?
-        augmented_activations = model(shifted_features).squeeze()
+    """
+    # Code for visualizing equalization
+    import matplotlib.pyplot as plt
+    (fig, ax), n = plt.subplots(1, 3), 3
+    ax[0].imshow(features[n, 1].cpu().detach(), aspect='auto', origin='lower')
+    ax[0].get_xaxis().set_visible(False)
+    ax[0].set_title('Original')
+    ax[1].imshow(equalization_features[n, 1].cpu().detach(), aspect='auto', origin='lower')
+    ax[1].axis('off')
+    ax[1].set_title('Equalized')
+    ax[2].plot(equalization_curves[n, 36: 252].cpu().detach(), np.arange(216))
+    ax[2].set_xlim(0.5, 1.5)
+    ax[2].get_yaxis().set_visible(False)
+    ax[2].set_title('Factor')
+    fig.tight_layout()
+    """
 
-    # Compute timbre loss as BCE of embeddings with respect to activations computed from augmented features
-    timbre_loss = F.binary_cross_entropy_with_logits(embeddings, augmented_activations, reduction='none')
+    # Process the equalized features with the model
+    equalization_embeddings = model(equalization_features).squeeze()
+
+    # Compute timbre loss as BCE of embeddings computed from equalized features with respect to activations
+    # TODO - do both with stop gradient()
+    timbre_loss = F.binary_cross_entropy_with_logits(equalization_embeddings, activations, reduction='none')
 
     # Sum across frequency bins and average across time and batch
     timbre_loss = timbre_loss.sum(-2).mean(-1).mean(-1)

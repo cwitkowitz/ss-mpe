@@ -44,7 +44,7 @@ def config():
     checkpoint_interval = 50
 
     # Number of samples to gather for a batch
-    batch_size = 96 if CONFIG else 32
+    batch_size = 128 if CONFIG else 32
 
     # Number of seconds of audio per sample
     n_secs = 4 if CONFIG else 4
@@ -135,13 +135,18 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     # Apply zero weight to sub-harmonics (harmonic loss)
     harmonic_weights[harmonic_weights > 1] = 0
 
-    # Define maximum time and frequency shift (geometric loss)
+    # Define maximum time and frequency shift (geometric-invariance loss)
     max_shift_time = n_frames // 4
     max_shift_freq = 2 * bins_per_octave
 
-    # Define time stretch boundaries (geometric loss)
+    # Define time stretch boundaries (geometric-invariance loss)
     min_stretch_time = 0.5
     max_stretch_time = 2
+
+    # Compute minimum MIDI frequency of each harmonic
+    fmins_midi = (fmin + 12 * torch.log2(torch.Tensor(harmonics))).unsqueeze(-1)
+    # Determine center MIDI frequency of each bin in the HCQT (timbre-invariance loss)
+    fbins_midi = fmins_midi + torch.arange(n_bins) / (bins_per_octave / 12)
 
     # Define probability of mixing two tracks in a batch (superposition loss)
     mix_probability = np.log2(batch_size) / batch_size
@@ -157,8 +162,8 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
         # Use the default base directory paths
         fma_base_dir = None
         nsynth_base_dir = None
-        bach10_base_dir= None
-        su_base_dir= None
+        bach10_base_dir = None
+        su_base_dir = None
         trios_base_dir = None
 
     # Instantiate FreeMusicArchive dataset for training
@@ -314,17 +319,17 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 writer.add_scalar('train/loss/geometric', geometric_loss, batch_count)
 
                 # Compute the timbre-invariance loss for this batch
-                #timbre_loss = compute_timbre_loss(model, embeddings, features_log, n_bins, bins_per_octave)
-                timbre_loss = 0
+                timbre_loss = compute_timbre_loss(model, features_log, salience, fbins_midi, bins_per_octave)
 
                 # Log the timbre-invariance loss for this batch
                 writer.add_scalar('train/loss/timbre', timbre_loss, batch_count)
 
                 # Compute the superposition loss for this batch
-                superposition_loss = compute_superposition_loss(hcqt, model, audio, salience, mix_probability)
+                #superposition_loss = compute_superposition_loss(hcqt, model, audio, salience, mix_probability)
+                superposition_loss = 0
 
                 # Log the superposition loss for this batch
-                writer.add_scalar('train/loss/superposition', superposition_loss, batch_count)
+                #writer.add_scalar('train/loss/superposition', superposition_loss, batch_count)
 
                 # Compute the total loss for this batch
                 loss = multipliers['support'] * support_loss + \
@@ -350,12 +355,12 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
             if batch_count % checkpoint_interval == 0:
                 for val_set in validation_sets:
                     # Validate the model with each validation dataset
-                     results = evaluate(model=model,
-                                        hcqt=hcqt,
-                                        eval_set=val_set,
-                                        writer=writer,
-                                        i=batch_count,
-                                        device=device)
+                    results = evaluate(model=model,
+                                       hcqt=hcqt,
+                                       eval_set=val_set,
+                                       writer=writer,
+                                       i=batch_count,
+                                       device=device)
 
                 # Place model back in training mode
                 model.train()
@@ -369,3 +374,5 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 else:
                     # Save the model as is
                     torch.save(model, model_path)
+
+                # TODO - add stopping criterion here

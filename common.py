@@ -257,11 +257,8 @@ class EvalSet(TrainSet):
 
         self.hop_length = hop_length
 
-        # Determine the MIDI frequency of the highest bin
-        fmax = fmin + (n_bins - 1) / (bins_per_octave / 12)
-
         # Compute the center frequencies for all bins
-        self.center_freqs = np.linspace(fmin, fmax, n_bins)
+        self.center_freqs = fmin + np.arange(n_bins) / (bins_per_octave / 12)
 
         # Obtain a function to resample annotation frequencies
         self.res_func_freq = scipy.interpolate.interp1d(x=self.center_freqs,
