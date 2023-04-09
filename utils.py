@@ -205,7 +205,7 @@ def rescale_decibels(decibels, negative_infinity_dB=-80):
 
 
 # TODO - can this function be sped up?
-def translate_batch(batch, shifts, dim=-1):
+def translate_batch(batch, shifts, dim=-1, val=0):
     """
     TODO
     """
@@ -214,7 +214,7 @@ def translate_batch(batch, shifts, dim=-1):
     dimensionality = batch.size()
 
     # Combine the original tensor with tensor filled with zeros such that no wrapping will occur
-    rolled_batch = torch.cat([batch, torch.zeros(dimensionality, device=batch.device)], dim=dim)
+    rolled_batch = torch.cat([batch, val * torch.ones(dimensionality, device=batch.device)], dim=dim)
 
     # Roll each sample in the batch independently and reconstruct the tensor
     rolled_batch = torch.cat([x.unsqueeze(0).roll(i, dim) for x, i in zip(rolled_batch, shifts)])
@@ -242,7 +242,13 @@ def stretch_batch(batch, stretch_factors):
         # Reshape the sample to B x H x W
         original = sample.reshape(-1, H, W)
         # Stretch the sample by the specified amount
-        stretched_sample = F.interpolate(original, scale_factor=factor, mode='linear')
+        stretched_sample = F.interpolate(original,
+                                         scale_factor=factor,
+                                         mode='linear',
+                                         align_corners=True)
+
+        # Patch upsampled -∞ values that end up being NaNs (a little hacky)
+        stretched_sample[stretched_sample.isnan()] = -torch.inf
 
         if factor < 1:
             # Determine how much padding is necessary

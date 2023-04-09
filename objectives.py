@@ -84,8 +84,8 @@ def compute_geometric_loss(model, features, embeddings, max_shift_f=12,
         distorted_features = stretch_batch(distorted_features, stretch_factors)
 
     # Translate the original embeddings by the sampled number of bins and frames
-    distorted_embeddings = translate_batch(embeddings, freq_shifts, -2)
-    distorted_embeddings = translate_batch(distorted_embeddings, time_shifts)
+    distorted_embeddings = translate_batch(embeddings, freq_shifts, -2, -torch.inf)
+    distorted_embeddings = translate_batch(distorted_embeddings, time_shifts, -1, -torch.inf)
     # Stretch the original embeddings by the sampled stretch factors
     distorted_embeddings = stretch_batch(distorted_embeddings, stretch_factors)
 
@@ -101,6 +101,9 @@ def compute_geometric_loss(model, features, embeddings, max_shift_f=12,
 
     # Compute geometric loss as BCE of distorted embeddings with respect to activations computed from distorted features
     geometric_loss_og = F.binary_cross_entropy_with_logits(distorted_embeddings, distortion_salience.detach(), reduction='none')
+
+    # Ignore NaNs introduced by computing BCE loss on -∞
+    geometric_loss_og[distorted_embeddings.isinf()] = 0
 
     # Sum across frequency bins and average across time and batch for both variations of geometric loss
     geometric_loss = (geometric_loss_ds.sum(-2).mean(-1).mean(-1) + geometric_loss_og.sum(-2).mean(-1).mean(-1)) / 2
