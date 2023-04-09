@@ -155,7 +155,7 @@ def get_random_mixtures(audio, mix_probability=0.5):
     legend = torch.rand((N, N), device=legend.device) * legend
 
     # Mix the tracks based on the legend
-    mixtures = torch.matmul(legend, audio)
+    mixtures = torch.sparse.mm(legend, audio)
     # Apply the mixture weights
     mixtures /= n_mix
 
@@ -170,20 +170,23 @@ def compute_superposition_loss(hcqt, model, audio, activations, mix_probability=
         # Randomly mix the audio tracks in the batch
         mixtures, legend = get_random_mixtures(audio, mix_probability)
 
+        # Ignore mixing weights
+        legend = torch.ceil(legend)
+
         # Determine how many tracks were included in each mixture
-        n_mix = torch.sum(legend != 0, dim=-1).unsqueeze(-1)
+        n_mix = torch.sum(legend, dim=-1).unsqueeze(-1)
 
         # Obtain normalization coefficients for log-softmax operator
         normalization_coeffs = n_mix * torch.tensor(1).exp()
 
         # Superimpose thresholded activations for mixture targets
-        mixed_activations = torch.matmul(torch.ceil(legend), activations.flatten(-2).exp())
+        mixture_activations = torch.sparse.mm(legend, activations.flatten(-2).exp())
 
         # Normalize the log-softmax mixture activations using coefficients
-        mixed_activations = mixed_activations.log() / normalization_coeffs
+        mixture_activations = mixture_activations.log() / normalization_coeffs
 
         # Restore original dimensionality to the mixture activations
-        mixed_activations = mixed_activations.view(activations.size())
+        mixture_activations = mixture_activations.view(activations.size())
 
     # Obtain log-scale features for the mixtures
     mixture_features = rescale_decibels(hcqt(mixtures))
@@ -192,7 +195,7 @@ def compute_superposition_loss(hcqt, model, audio, activations, mix_probability=
     mixture_embeddings = model(mixture_features).squeeze()
 
     # Compute superpositions loss as BCE of embeddings computed from mixtures with respect to mixed activations
-    superposition_loss = F.binary_cross_entropy_with_logits(mixture_embeddings, mixed_activations, reduction='none')
+    superposition_loss = F.binary_cross_entropy_with_logits(mixture_embeddings, mixture_activations, reduction='none')
 
     # Sum across frequency bins and average across time and batch
     superposition_loss = superposition_loss.sum(-2).mean(-1).mean(-1)
