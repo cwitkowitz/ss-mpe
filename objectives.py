@@ -170,12 +170,20 @@ def compute_superposition_loss(hcqt, model, audio, activations, mix_probability=
         # Randomly mix the audio tracks in the batch
         mixtures, legend = get_random_mixtures(audio, mix_probability)
 
-        # Superimpose thresholded activations for mixture targets
-        # TODO - log-softmax operator or something else instead?
-        mixed_activations = torch.matmul(torch.ceil(legend), activations.flatten(-2))
+        # Determine how many tracks were included in each mixture
+        n_mix = torch.sum(legend != 0, dim=-1).unsqueeze(-1)
 
-        # Clip summed activations at 1 and restore dimensionality
-        mixed_activations = torch.clip(mixed_activations, max=1).view(activations.size())
+        # Obtain normalization coefficients for log-softmax operator
+        normalization_coeffs = n_mix * torch.tensor(1).exp()
+
+        # Superimpose thresholded activations for mixture targets
+        mixed_activations = torch.matmul(torch.ceil(legend), activations.flatten(-2).exp())
+
+        # Normalize the log-softmax mixture activations using coefficients
+        mixed_activations = mixed_activations.log() / normalization_coeffs
+
+        # Restore original dimensionality to the mixture activations
+        mixed_activations = mixed_activations.view(activations.size())
 
     # Obtain log-scale features for the mixtures
     mixture_features = rescale_decibels(hcqt(mixtures))
