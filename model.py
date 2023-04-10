@@ -216,7 +216,7 @@ class SinusoidalEncodings(nn.Module):
         positions = torch.arange(0, seq_length)
 
         if self.training and self.max_seq is not None:
-            # Add a random offset to diversify positions (TODO - random seed?)
+            # Add a random offset to diversify positions
             positions += torch.randint(high=(self.max_seq - seq_length + 1), size=(1,))
 
         # Multiply every position by every period

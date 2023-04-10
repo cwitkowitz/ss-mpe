@@ -171,6 +171,34 @@ def compute_timbre_loss(model, features, embeddings, fbins_midi, bins_per_octave
     return timbre_loss
 
 
+def compute_scaling_loss(model, features, activations):
+    # Determine the number of samples in the batch
+    B = features.size(0)
+
+    # Sample a random scaling factor for each sample in the batch
+    scaling_factors = torch.rand(size=(B, 1, 1), device=features.device)
+
+    # Apply the scaling factors to the batch
+    scaled_features = scaling_factors.unsqueeze(-1) * features
+    scaled_activations = scaling_factors * activations
+
+    # Process the scaled features with the model and convert to activations
+    #scale_embeddings = model(scaled_features).squeeze()
+    scale_activations = torch.sigmoid(model(scaled_features)).squeeze()
+
+    # Compute scaling loss as MSE between embeddings computed from scaled features and scaled activations
+    #scaling_loss = F.binary_cross_entropy_with_logits(scale_embeddings, scaled_activations.detach(), reduction='none')
+    #scaling_loss = F.mse_loss(scale_activations, scaled_activations.detach(), reduction='none')
+    #scaling_loss = F.mse_loss(scaled_activations, scale_activations.detach(), reduction='none')
+    scaling_loss = F.mse_loss(scale_activations, scaled_activations, reduction='none')
+
+    # Sum across frequency bins and average across time and batch
+    #scaling_loss = (scaling_loss_sc.sum(-2).mean(-1).mean(-1) + scaling_loss_og.sum(-2).mean(-1).mean(-1)) / 2
+    scaling_loss = scaling_loss.sum(-2).mean(-1).mean(-1)
+
+    return scaling_loss
+
+
 def get_random_mixtures(audio, mix_probability=0.5):
     # Keep track of the original dimensionality of the audio
     dimensionality = audio.size()
@@ -194,6 +222,7 @@ def get_random_mixtures(audio, mix_probability=0.5):
 
     # Randomly sample mixture weights
     legend = torch.rand((N, N), device=legend.device) * legend
+    #legend = (0.5 + torch.rand((N, N), device=legend.device)) * legend
 
     # Mix the tracks based on the legend
     mixtures = torch.sparse.mm(legend, audio)

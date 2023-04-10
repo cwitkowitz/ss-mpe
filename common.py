@@ -151,12 +151,14 @@ class TrainSet(Dataset):
         # Obtain the path of the track's audio
         audio_path = self.get_audio_path(track)
 
-        # Load and normalize the audio
+        # Load the audio
         audio, fs = torchaudio.load(audio_path)
         # Average channels to obtain mono-channel
         audio = torch.mean(audio, dim=0, keepdim=True)
         # Resample audio to appropriate sampling rate
         audio = torchaudio.functional.resample(audio, fs, self.sample_rate)
+        # Normalize the audio using the infinity norm
+        audio /= audio.abs().max()
 
         return audio
 

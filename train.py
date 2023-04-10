@@ -38,13 +38,13 @@ def config():
     ## TRAINING HYPERPARAMETERS
 
     # Maximum number of training iterations to conduct
-    max_epochs = 10
+    max_epochs = 50
 
     # Number of iterations between checkpoints
     checkpoint_interval = 50
 
     # Number of samples to gather for a batch
-    batch_size = 128 if CONFIG else 32
+    batch_size = 192 if CONFIG else 32
 
     # Number of seconds of audio per sample
     n_secs = 4 if CONFIG else 4
@@ -55,16 +55,17 @@ def config():
     # Scaling factors for each loss term
     multipliers = {
         'support' : 1,
-        'content' : 1,
+        'content' : 0,
         'harmonic' : 1,
         'geometric' : 1,
         'timbre' : 1,
+        'scaling' : 1,
         'superposition' : 0
     }
 
     # IDs of the GPUs to use, if available
     #gpu_ids = [0, 1, 2] if CONFIG else [0]
-    gpu_ids = [0, 1] if CONFIG else [0]
+    gpu_ids = [0, 1, 2] if CONFIG else [0]
 
     # Random seed for this experiment
     seed = 0
@@ -98,7 +99,7 @@ def config():
 
     # Number of threads to use for data loading
     #n_workers = 8 if CONFIG else 4
-    n_workers = 8 if CONFIG else 0
+    n_workers = 16 if CONFIG else 0
 
     if path_layout:
         root_dir = os.path.join('/', 'storage', 'frank', 'self-supervised-pitch', EX_NAME)
@@ -240,9 +241,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     model = SAUNet(n_ch_in=len(harmonics),
                    n_bins_in=n_bins,
                    model_complexity=2,
-                   # TODO - uncomment the following when ready to test on longer sequences
-                   #max_seq=4*n_frames)
-                   )
+                   max_seq=4*n_frames)
 
     # Initialize the primary PyTorch device
     device = torch.device(f'cuda:{gpu_ids[0]}'
@@ -308,7 +307,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 harmonic_loss = compute_harmonic_loss(salience, features_lin, weights=harmonic_weights)
 
                 # Log the harmonic loss for this batch
-                writer.add_scalar('train/loss/harmonic', content_loss, batch_count)
+                writer.add_scalar('train/loss/harmonic', harmonic_loss, batch_count)
 
                 # Compute the geometric-invariance loss for this batch
                 geometric_loss = compute_geometric_loss(model, features_log, embeddings,
@@ -324,12 +323,17 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 # Log the timbre-invariance loss for this batch
                 writer.add_scalar('train/loss/timbre', timbre_loss, batch_count)
 
+                # Compute the scaling loss for this batch
+                scaling_loss = compute_scaling_loss(model, features_log, salience)
+
+                # Log the scaling loss for this batch
+                writer.add_scalar('train/loss/scaling', scaling_loss, batch_count)
+
                 # Compute the superposition loss for this batch
-                #superposition_loss = compute_superposition_loss(hcqt, model, audio, salience, mix_probability)
-                superposition_loss = 0
+                superposition_loss = compute_superposition_loss(hcqt, model, audio, salience, mix_probability)
 
                 # Log the superposition loss for this batch
-                #writer.add_scalar('train/loss/superposition', superposition_loss, batch_count)
+                writer.add_scalar('train/loss/superposition', superposition_loss, batch_count)
 
                 # Compute the total loss for this batch
                 loss = multipliers['support'] * support_loss + \
@@ -337,6 +341,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                        multipliers['harmonic'] * harmonic_loss + \
                        multipliers['geometric'] * geometric_loss + \
                        multipliers['timbre'] * timbre_loss + \
+                       multipliers['scaling'] * scaling_loss + \
                        multipliers['superposition'] * superposition_loss
 
                 # Log the total loss for this batch
