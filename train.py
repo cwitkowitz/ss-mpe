@@ -98,7 +98,7 @@ def config():
     path_layout = 1 if CONFIG else 0
 
     # Number of threads to use for data loading
-    n_workers = (24 if CONFIG else 0) if SYNTH else (8 if CONFIG else 0)
+    n_workers = (16 if CONFIG else 0) if SYNTH else (8 if CONFIG else 0)
 
     if path_layout:
         root_dir = os.path.join('/', 'storage', 'frank', 'self-supervised-pitch', EX_NAME)

@@ -240,6 +240,9 @@ def compute_superposition_loss(hcqt, model, audio, activations, mix_probability=
         # Randomly mix the audio tracks in the batch
         mixtures, legend = get_random_mixtures(audio, mix_probability)
 
+        # Normalize the mixing weights so their influence is relative
+        legend /= torch.max(legend, dim=-1)[0].unsqueeze(-1)
+
         # Superimpose thresholded activations for mixture targets with max operation
         mixture_activations = (legend.unsqueeze(-1).unsqueeze(-1) * activations.unsqueeze(0)).max(-3)[0]
 
