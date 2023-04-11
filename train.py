@@ -45,7 +45,7 @@ def config():
     checkpoint_interval = 50
 
     # Number of samples to gather for a batch
-    batch_size = (192 if CONFIG else 32) if SYNTH else (24 if CONFIG else 4)
+    batch_size = (150 if CONFIG else 32) if SYNTH else (24 if CONFIG else 4)
 
     # Number of seconds of audio per sample
     n_secs = (4 if CONFIG else 4) if SYNTH else (30 if CONFIG else 4)

@@ -244,7 +244,11 @@ def compute_superposition_loss(hcqt, model, audio, activations, mix_probability=
         legend /= torch.max(legend, dim=-1)[0].unsqueeze(-1)
 
         # Superimpose thresholded activations for mixture targets with max operation
-        mixture_activations = (legend.unsqueeze(-1).unsqueeze(-1) * activations.unsqueeze(0)).max(-3)[0]
+        mixture_activations = torch.sparse.mm(legend.cpu().detach().to_sparse_csr(),
+                                              activations.float().flatten(-2).cpu().detach(), 'max')
+
+        # Add the mixed activations to the appropriate device and restore dimensionality
+        mixture_activations = mixture_activations.to(legend.device).view(activations.size())
 
     # Obtain log-scale features for the mixtures
     mixture_features = rescale_decibels(hcqt(mixtures))
