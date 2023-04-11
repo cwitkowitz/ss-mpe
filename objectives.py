@@ -54,9 +54,18 @@ def compute_harmonic_loss(embeddings, features, weights=None):
     # Compute a weighted sum of the features to obtain a rough salience estimate
     salience = torch.sum(features * weights.unsqueeze(-1).unsqueeze(-1), dim=-3)
 
+    # Sum the salience across all frequency bins
+    #salience_energy = torch.sum(salience, dim=-2, keepdim=True)
+
+    # Scale positive class inversely proportional to the salience for each
+    #positive_scaling = (salience.size(-2) - salience_energy) / (salience_energy)
+
+    # Ignore ∞ introduced from no salience
+    #positive_scaling[positive_scaling.isinf()] = 0
+
     # Compute harmonic loss as BCE of activations with respect to salience estimate (positive activations only)
     harmonic_loss = -salience * torch.log(torch.sigmoid(embeddings)) # TODO - log sum exp trick implementation
-    #support_loss = F.binary_cross_entropy_with_logits(embeddings, salience, reduction='none')
+    #harmonic_loss = F.binary_cross_entropy_with_logits(embeddings, salience, reduction='none', pos_weight=positive_scaling)
 
     # Sum across frequency bins and average across time and batch
     harmonic_loss = harmonic_loss.sum(-2).mean(-1).mean(-1)
@@ -97,16 +106,17 @@ def compute_geometric_loss(model, features, embeddings, max_shift_f=12,
     distortion_salience = torch.sigmoid(distortion_embeddings)
 
     # Compute geometric loss as BCE of embeddings computed from distorted features with respect to distorted activations
-    geometric_loss_ds = F.binary_cross_entropy_with_logits(distortion_embeddings, distorted_salience.detach(), reduction='none')
+    geometric_loss = F.binary_cross_entropy_with_logits(distortion_embeddings, distorted_salience.detach(), reduction='none')
 
     # Compute geometric loss as BCE of distorted embeddings with respect to activations computed from distorted features
-    geometric_loss_og = F.binary_cross_entropy_with_logits(distorted_embeddings, distortion_salience.detach(), reduction='none')
+    #geometric_loss_og = F.binary_cross_entropy_with_logits(distorted_embeddings, distortion_salience.detach(), reduction='none')
 
     # Ignore NaNs introduced by computing BCE loss on -∞
-    geometric_loss_og[distorted_embeddings.isinf()] = 0
+    #geometric_loss_og[distorted_embeddings.isinf()] = 0
 
     # Sum across frequency bins and average across time and batch for both variations of geometric loss
-    geometric_loss = (geometric_loss_ds.sum(-2).mean(-1).mean(-1) + geometric_loss_og.sum(-2).mean(-1).mean(-1)) / 2
+    #geometric_loss = (geometric_loss_ds.sum(-2).mean(-1).mean(-1) + geometric_loss_og.sum(-2).mean(-1).mean(-1)) / 2
+    geometric_loss = geometric_loss.sum(-2).mean(-1).mean(-1)
 
     return geometric_loss
 
@@ -160,13 +170,14 @@ def compute_timbre_loss(model, features, embeddings, fbins_midi, bins_per_octave
     original_salience, equalization_salience = torch.sigmoid(embeddings), torch.sigmoid(equalization_embeddings)
 
     # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original activations
-    timbre_loss_eq = F.binary_cross_entropy_with_logits(equalization_embeddings, original_salience.detach(), reduction='none')
+    timbre_loss = F.binary_cross_entropy_with_logits(equalization_embeddings, original_salience.detach(), reduction='none')
 
     # Compute timbre loss as BCE of embeddings computed from original features with respect to equalization activations
-    timbre_loss_og = F.binary_cross_entropy_with_logits(embeddings, equalization_salience.detach(), reduction='none')
+    #timbre_loss_og = F.binary_cross_entropy_with_logits(embeddings, equalization_salience.detach(), reduction='none')
 
     # Sum across frequency bins and average across time and batch for both variations of timbre loss
-    timbre_loss = (timbre_loss_eq.sum(-2).mean(-1).mean(-1) + timbre_loss_og.sum(-2).mean(-1).mean(-1)) / 2
+    #timbre_loss = (timbre_loss_eq.sum(-2).mean(-1).mean(-1) + timbre_loss_og.sum(-2).mean(-1).mean(-1)) / 2
+    timbre_loss = timbre_loss.sum(-2).mean(-1).mean(-1)
 
     return timbre_loss
 
@@ -183,17 +194,12 @@ def compute_scaling_loss(model, features, activations):
     scaled_activations = scaling_factors * activations
 
     # Process the scaled features with the model and convert to activations
-    #scale_embeddings = model(scaled_features).squeeze()
     scale_activations = torch.sigmoid(model(scaled_features)).squeeze()
 
     # Compute scaling loss as MSE between embeddings computed from scaled features and scaled activations
-    #scaling_loss = F.binary_cross_entropy_with_logits(scale_embeddings, scaled_activations.detach(), reduction='none')
-    #scaling_loss = F.mse_loss(scale_activations, scaled_activations.detach(), reduction='none')
-    #scaling_loss = F.mse_loss(scaled_activations, scale_activations.detach(), reduction='none')
     scaling_loss = F.mse_loss(scale_activations, scaled_activations, reduction='none')
 
     # Sum across frequency bins and average across time and batch
-    #scaling_loss = (scaling_loss_sc.sum(-2).mean(-1).mean(-1) + scaling_loss_og.sum(-2).mean(-1).mean(-1)) / 2
     scaling_loss = scaling_loss.sum(-2).mean(-1).mean(-1)
 
     return scaling_loss
@@ -217,17 +223,11 @@ def get_random_mixtures(audio, mix_probability=0.5):
     # Include the original track in each mix (diagonal)
     legend = torch.logical_or(torch.eye(N, device=legend.device), legend)
 
-    # Determine how many tracks will be included in each mixture
-    n_mix = torch.sum(legend, dim=-1).unsqueeze(-1)
-
     # Randomly sample mixture weights
     legend = torch.rand((N, N), device=legend.device) * legend
-    #legend = (0.5 + torch.rand((N, N), device=legend.device)) * legend
 
     # Mix the tracks based on the legend
     mixtures = torch.sparse.mm(legend, audio)
-    # Apply the mixture weights
-    mixtures /= n_mix
 
     # Restore the original dimensionality
     mixtures = mixtures.view(dimensionality)
@@ -240,23 +240,8 @@ def compute_superposition_loss(hcqt, model, audio, activations, mix_probability=
         # Randomly mix the audio tracks in the batch
         mixtures, legend = get_random_mixtures(audio, mix_probability)
 
-        # Ignore mixing weights
-        legend = torch.ceil(legend)
-
-        # Determine how many tracks were included in each mixture
-        n_mix = torch.sum(legend, dim=-1).unsqueeze(-1)
-
-        # Obtain normalization coefficients for log-softmax operator
-        normalization_coeffs = n_mix * torch.tensor(1).exp()
-
-        # Superimpose thresholded activations for mixture targets
-        mixture_activations = torch.sparse.mm(legend, activations.flatten(-2).exp())
-
-        # Normalize the log-softmax mixture activations using coefficients
-        mixture_activations = mixture_activations.log() / normalization_coeffs
-
-        # Restore original dimensionality to the mixture activations
-        mixture_activations = mixture_activations.view(activations.size())
+        # Superimpose thresholded activations for mixture targets with max operation
+        mixture_activations = (legend.unsqueeze(-1).unsqueeze(-1) * activations.unsqueeze(0)).max(-3)[0]
 
     # Obtain log-scale features for the mixtures
     mixture_features = rescale_decibels(hcqt(mixtures))
@@ -264,7 +249,7 @@ def compute_superposition_loss(hcqt, model, audio, activations, mix_probability=
     # Process the audio mixtures with the model
     mixture_embeddings = model(mixture_features).squeeze()
 
-    # Compute superpositions loss as BCE of embeddings computed from mixtures with respect to mixed activations
+    # Compute superposition loss as BCE of embeddings computed from mixtures with respect to mixed activations
     superposition_loss = F.binary_cross_entropy_with_logits(mixture_embeddings, mixture_activations, reduction='none')
 
     # Sum across frequency bins and average across time and batch

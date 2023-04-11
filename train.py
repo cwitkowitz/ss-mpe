@@ -26,7 +26,8 @@ import torch
 import os
 
 
-CONFIG = 0 # (0 - desktop | 1 - lab)
+SYNTH = 1 # (0 FMA | 1 - NSynth)
+CONFIG = 1 # (0 - desktop | 1 - lab)
 EX_NAME = '_'.join(['Refinements'])
 
 ex = Experiment('Train a model to learn representations for MPE')
@@ -38,16 +39,16 @@ def config():
     ## TRAINING HYPERPARAMETERS
 
     # Maximum number of training iterations to conduct
-    max_epochs = 50
+    max_epochs = 50 if SYNTH else 10
 
     # Number of iterations between checkpoints
     checkpoint_interval = 50
 
     # Number of samples to gather for a batch
-    batch_size = 192 if CONFIG else 32
+    batch_size = (192 if CONFIG else 32) if SYNTH else (24 if CONFIG else 4)
 
     # Number of seconds of audio per sample
-    n_secs = 4 if CONFIG else 4
+    n_secs = (4 if CONFIG else 4) if SYNTH else (30 if CONFIG else 4)
 
     # Fixed learning rate
     learning_rate = 1e-3
@@ -60,11 +61,10 @@ def config():
         'geometric' : 1,
         'timbre' : 1,
         'scaling' : 1,
-        'superposition' : 0
+        'superposition' : 1
     }
 
     # IDs of the GPUs to use, if available
-    #gpu_ids = [0, 1, 2] if CONFIG else [0]
     gpu_ids = [0, 1, 2] if CONFIG else [0]
 
     # Random seed for this experiment
@@ -98,8 +98,7 @@ def config():
     path_layout = 1 if CONFIG else 0
 
     # Number of threads to use for data loading
-    #n_workers = 8 if CONFIG else 4
-    n_workers = 16 if CONFIG else 0
+    n_workers = (24 if CONFIG else 0) if SYNTH else (8 if CONFIG else 0)
 
     if path_layout:
         root_dir = os.path.join('/', 'storage', 'frank', 'self-supervised-pitch', EX_NAME)
@@ -168,6 +167,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
         trios_base_dir = None
 
     # Instantiate FreeMusicArchive dataset for training
+    # TODO - NaNs around 100 iterations with FMA?
     freemusicarchive = FreeMusicArchive(base_dir=fma_base_dir,
                                         sample_rate=sample_rate,
                                         n_secs=n_secs,
@@ -181,8 +181,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                     seed=seed)
 
     # Combine all training datasets into one
-    #training_data = ComboSet([freemusicarchive])
-    training_data = ComboSet([nsynth])
+    training_data = ComboSet([nsynth]) if SYNTH else ComboSet([freemusicarchive])
 
     # Instantiate Su dataset for validation
     toynsynthtest = ToyNSynthEval(base_dir=nsynth_base_dir,
@@ -241,7 +240,9 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     model = SAUNet(n_ch_in=len(harmonics),
                    n_bins_in=n_bins,
                    model_complexity=2,
-                   max_seq=4*n_frames)
+                   )
+                   # TODO - this is likely messing up some losses
+                   #max_seq=4*n_frames)
 
     # Initialize the primary PyTorch device
     device = torch.device(f'cuda:{gpu_ids[0]}'
