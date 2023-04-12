@@ -28,7 +28,7 @@ import os
 
 SYNTH = 1 # (0 FMA | 1 - NSynth)
 CONFIG = 1 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['Refinements'])
+EX_NAME = '_'.join(['<EXPERIMENT_NAME>'])
 
 ex = Experiment('Train a model to learn representations for MPE')
 
@@ -45,7 +45,7 @@ def config():
     checkpoint_interval = 50
 
     # Number of samples to gather for a batch
-    batch_size = (150 if CONFIG else 32) if SYNTH else (24 if CONFIG else 4)
+    batch_size = (150 if CONFIG else 50) if SYNTH else (24 if CONFIG else 4)
 
     # Number of seconds of audio per sample
     n_secs = (4 if CONFIG else 4) if SYNTH else (30 if CONFIG else 4)
@@ -305,7 +305,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 writer.add_scalar('train/loss/content', content_loss, batch_count)
 
                 # Compute the harmonic loss for this batch
-                harmonic_loss = compute_harmonic_loss(salience, features_lin, weights=harmonic_weights)
+                harmonic_loss = compute_harmonic_loss(embeddings, features_lin, weights=harmonic_weights)
 
                 # Log the harmonic loss for this batch
                 writer.add_scalar('train/loss/harmonic', harmonic_loss, batch_count)

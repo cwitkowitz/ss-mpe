@@ -54,18 +54,11 @@ def compute_harmonic_loss(embeddings, features, weights=None):
     # Compute a weighted sum of the features to obtain a rough salience estimate
     salience = torch.sum(features * weights.unsqueeze(-1).unsqueeze(-1), dim=-3)
 
-    # Sum the salience across all frequency bins
-    #salience_energy = torch.sum(salience, dim=-2, keepdim=True)
-
-    # Scale positive class inversely proportional to the salience for each
-    #positive_scaling = (salience.size(-2) - salience_energy) / (salience_energy)
-
-    # Ignore ∞ introduced from no salience
-    #positive_scaling[positive_scaling.isinf()] = 0
+    # Set the weight for negative activations to zero
+    neg_weight = torch.tensor(0)
 
     # Compute harmonic loss as BCE of activations with respect to salience estimate (positive activations only)
-    harmonic_loss = -salience * torch.log(torch.sigmoid(embeddings)) # TODO - log sum exp trick implementation
-    #harmonic_loss = F.binary_cross_entropy_with_logits(embeddings, salience, reduction='none', pos_weight=positive_scaling)
+    harmonic_loss = F.binary_cross_entropy_with_logits(-embeddings, (1 - salience), reduction='none', pos_weight=neg_weight)
 
     # Sum across frequency bins and average across time and batch
     harmonic_loss = harmonic_loss.sum(-2).mean(-1).mean(-1)
