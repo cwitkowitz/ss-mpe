@@ -2,31 +2,32 @@
 
 # My imports
 from NSynth import NSynth
-from common import TrainSet, EvalSet
+from common import EvalSet
 
 # Regular imports
-import os
+import random
 
 
-class ToyNSynthTrain(TrainSet):
+class ToyNSynthTrain(NSynth):
     """
-    Implements a minimal wrapper for the NSynth dataset (https://magenta.tensorflow.org/datasets/nsynth).
+    TODO
     """
 
-    @staticmethod
-    def available_splits():
+    def __init__(self, n_tracks, **kwargs):
         """
-        Obtain a list of pre-defined dataset splits.
+        TODO.
 
-        Returns
+        Parameters
         ----------
-        splits : list of strings
-          Partitions of dataset for different stages of pipeline
+        n_tracks : int
+          TODO
+        kwargs : TODO
+          TODO
         """
 
-        splits = ['all']
+        self.n_tracks = n_tracks
 
-        return splits
+        super().__init__(**kwargs)
 
     def get_tracks(self, split):
         """
@@ -43,30 +44,16 @@ class ToyNSynthTrain(TrainSet):
           TODO
         """
 
-        # Pre-define a few tracks
-        tracks = ['guitar_acoustic_010-072-127', 'guitar_acoustic_010-055-127']
+        # Obtain the standard track list
+        tracks = super().get_tracks(split)
+
+        # Shuffle the tracks
+        random.shuffle(tracks)
+
+        # Trim tracks to selected amount
+        tracks = tracks[:self.n_tracks]
 
         return tracks
-
-    def get_audio_path(self, track):
-        """
-        Get the path to a track's audio.
-
-        Parameters
-        ----------
-        track : string
-          NSynth track name
-
-        Returns
-        ----------
-        wav_path : string
-          Path to the specified track's audio
-        """
-
-        # Get the path to the audio
-        wav_path = os.path.join(self.base_dir, 'nsynth-valid', 'audio', track + '.wav')
-
-        return wav_path
 
     @classmethod
     def name(cls):
@@ -77,14 +64,6 @@ class ToyNSynthTrain(TrainSet):
         name = NSynth.name()
 
         return name
-
-    @classmethod
-    def download(cls, save_dir):
-        """
-        TODO
-        """
-
-        return NotImplementedError
 
 
 class ToyNSynthEval(EvalSet, ToyNSynthTrain):
@@ -110,13 +89,16 @@ class ToyNSynthEval(EvalSet, ToyNSynthTrain):
         # Obtain an empty array for inserting ground-truth
         ground_truth = super().get_ground_truth(track, times)
 
-        # Obtain the index of the pitch of the sample from the track name
-        pitch_idx = int(self.res_func_freq(track.split('-')[-2]).item())
+        try:
+            # Obtain the index of the pitch of the sample from the track name
+            pitch_idx = int(self.res_func_freq(track.split('-')[-2]).item())
 
-        # Obtain time indices corresponding to pitch activity
-        time_idcs = (times >= 0) & (times <= 3)
+            # Obtain time indices corresponding to pitch activity
+            time_idcs = (times >= 0) & (times <= 3)
 
-        # Make the pitch active for the entire duration
-        ground_truth[pitch_idx, time_idcs] = 1
+            # Make the pitch active for the entire duration
+            ground_truth[pitch_idx, time_idcs] = 1
+        except Exception as e:
+            pass
 
         return ground_truth
