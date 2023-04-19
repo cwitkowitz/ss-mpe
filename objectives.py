@@ -37,23 +37,7 @@ def compute_content_loss(activations, h1_features):
     return content_loss
 
 
-def compute_harmonic_loss(embeddings, features, weights=None):
-    # Determine the number of CQT channels
-    n_channels = features.size(-3)
-
-    if weights is None:
-        # Default to weighting each channel equally
-        weights = torch.ones(n_channels)
-
-    # Normalize the harmonic weights
-    weights /= torch.sum(weights)
-
-    # Make sure weights are on appropriate device
-    weights = weights.to(features.device)
-
-    # Compute a weighted sum of the features to obtain a rough salience estimate
-    salience = torch.sum(features * weights.unsqueeze(-1).unsqueeze(-1), dim=-3)
-
+def compute_harmonic_loss(embeddings, salience):
     # Set the weight for negative activations to zero
     neg_weight = torch.tensor(0)
 
@@ -99,17 +83,16 @@ def compute_geometric_loss(model, features, embeddings, max_shift_f=12,
     distortion_salience = torch.sigmoid(distortion_embeddings)
 
     # Compute geometric loss as BCE of embeddings computed from distorted features with respect to distorted activations
-    geometric_loss = F.binary_cross_entropy_with_logits(distortion_embeddings, distorted_salience.detach(), reduction='none')
+    geometric_loss_ds = F.binary_cross_entropy_with_logits(distortion_embeddings, distorted_salience.detach(), reduction='none')
 
     # Compute geometric loss as BCE of distorted embeddings with respect to activations computed from distorted features
-    #geometric_loss_og = F.binary_cross_entropy_with_logits(distorted_embeddings, distortion_salience.detach(), reduction='none')
+    geometric_loss_og = F.binary_cross_entropy_with_logits(distorted_embeddings, distortion_salience.detach(), reduction='none')
 
     # Ignore NaNs introduced by computing BCE loss on -∞
-    #geometric_loss_og[distorted_embeddings.isinf()] = 0
+    geometric_loss_og[distorted_embeddings.isinf()] = 0
 
     # Sum across frequency bins and average across time and batch for both variations of geometric loss
-    #geometric_loss = (geometric_loss_ds.sum(-2).mean(-1).mean(-1) + geometric_loss_og.sum(-2).mean(-1).mean(-1)) / 2
-    geometric_loss = geometric_loss.sum(-2).mean(-1).mean(-1)
+    geometric_loss = (geometric_loss_ds.sum(-2).mean(-1).mean(-1) + geometric_loss_og.sum(-2).mean(-1).mean(-1)) / 2
 
     return geometric_loss
 
@@ -138,7 +121,7 @@ def compute_timbre_loss(model, features, embeddings, fbins_midi, bins_per_octave
     out_size = n_octaves * bins_per_octave
 
     # Sample a random stretch factor for each sample in the batch
-    equalization_curves = 0.5 + torch.rand(size=(B, 1, n_points), device=features.device)
+    equalization_curves = 1 + torch.randn(size=(B, 1, n_points), device=features.device) * 0.10
     # Upsample the equalization curve to the number of frequency bins via linear interpolation
     equalization_curves = F.interpolate(equalization_curves,
                                         size=out_size,
@@ -163,14 +146,13 @@ def compute_timbre_loss(model, features, embeddings, fbins_midi, bins_per_octave
     original_salience, equalization_salience = torch.sigmoid(embeddings), torch.sigmoid(equalization_embeddings)
 
     # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original activations
-    timbre_loss = F.binary_cross_entropy_with_logits(equalization_embeddings, original_salience.detach(), reduction='none')
+    timbre_loss_eq = F.binary_cross_entropy_with_logits(equalization_embeddings, original_salience.detach(), reduction='none')
 
     # Compute timbre loss as BCE of embeddings computed from original features with respect to equalization activations
-    #timbre_loss_og = F.binary_cross_entropy_with_logits(embeddings, equalization_salience.detach(), reduction='none')
+    timbre_loss_og = F.binary_cross_entropy_with_logits(embeddings, equalization_salience.detach(), reduction='none')
 
     # Sum across frequency bins and average across time and batch for both variations of timbre loss
-    #timbre_loss = (timbre_loss_eq.sum(-2).mean(-1).mean(-1) + timbre_loss_og.sum(-2).mean(-1).mean(-1)) / 2
-    timbre_loss = timbre_loss.sum(-2).mean(-1).mean(-1)
+    timbre_loss = (timbre_loss_eq.sum(-2).mean(-1).mean(-1) + timbre_loss_og.sum(-2).mean(-1).mean(-1)) / 2
 
     return timbre_loss
 

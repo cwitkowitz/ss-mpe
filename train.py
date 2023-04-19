@@ -39,10 +39,12 @@ def config():
     ## TRAINING HYPERPARAMETERS
 
     # Maximum number of training iterations to conduct
-    max_epochs = 50 if SYNTH else 10
+    #max_epochs = 50 if SYNTH else 10
+    max_epochs = 1000
 
     # Number of iterations between checkpoints
-    checkpoint_interval = 50
+    #checkpoint_interval = 50
+    checkpoint_interval = 10
 
     # Number of samples to gather for a batch
     batch_size = (150 if CONFIG else 50) if SYNTH else (24 if CONFIG else 4)
@@ -56,12 +58,12 @@ def config():
     # Scaling factors for each loss term
     multipliers = {
         'support' : 1,
-        'content' : 0,
+        'content' : 1,
         'harmonic' : 1,
-        'geometric' : 1,
+        'geometric' : 0,
         'timbre' : 1,
-        'scaling' : 1,
-        'superposition' : 1
+        'scaling' : 0,
+        'superposition' : 0
     }
 
     # IDs of the GPUs to use, if available
@@ -98,7 +100,8 @@ def config():
     path_layout = 1 if CONFIG else 0
 
     # Number of threads to use for data loading
-    n_workers = (16 if CONFIG else 0) if SYNTH else (8 if CONFIG else 0)
+    #n_workers = (16 if CONFIG else 0) if SYNTH else (8 if CONFIG else 0)
+    n_workers = 0
 
     if path_layout:
         root_dir = os.path.join('/', 'storage', 'frank', 'self-supervised-pitch', EX_NAME)
@@ -134,6 +137,8 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     harmonic_weights = 1 / torch.Tensor(harmonics) ** 2
     # Apply zero weight to sub-harmonics (harmonic loss)
     harmonic_weights[harmonic_weights > 1] = 0
+    # Normalize the harmonic weights
+    harmonic_weights /= torch.sum(harmonic_weights)
 
     # Define maximum time and frequency shift (geometric-invariance loss)
     max_shift_time = n_frames // 4
@@ -183,8 +188,10 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     # Combine all training datasets into one
     training_data = ComboSet([nsynth]) if SYNTH else ComboSet([freemusicarchive])
 
-    # Instantiate Su dataset for validation
+    # Instantiate NSynth dataset for validation
     toynsynthtest = ToyNSynthEval(base_dir=nsynth_base_dir,
+                                  splits=['valid'],
+                                  n_tracks=150 if CONFIG else 50,
                                   sample_rate=sample_rate,
                                   hop_length=hop_length,
                                   fmin=fmin,
@@ -207,7 +214,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
             n_bins=n_bins,
             bins_per_octave=bins_per_octave)
 
-    # Instantiate Su dataset for validation
+    # Instantiate TRIOS dataset for validation
     trios = TRIOS(base_dir=trios_base_dir,
                   sample_rate=sample_rate,
                   hop_length=hop_length,
@@ -216,7 +223,9 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                   bins_per_octave=bins_per_octave)
 
     # Initialize a list to hold all validation datasets
-    validation_sets = [toynsynthtest, bach10, su, trios]
+    #validation_sets = [toynsynthtest, bach10, su, trios]
+    training_data.datasets[0].tracks = toynsynthtest.tracks
+    validation_sets = [toynsynthtest]
 
     # Initialize a PyTorch dataloader for the data
     loader = DataLoader(dataset=training_data,
@@ -256,6 +265,9 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     # Add model and feature extraction to primary device
     hcqt, model = hcqt.to(device), model.to(device)
 
+    # Make sure weights are on appropriate device
+    harmonic_weights = harmonic_weights.to(device)
+
     # Initialize an optimizer for the model parameters
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
@@ -271,7 +283,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     # Loop through epochs
     for i in range(max_epochs):
         # Loop through batches
-        for audio in tqdm(loader, desc=f'Epoch {i}'):
+        for audio in tqdm(loader, desc=f'Epoch {i + 1}'):
             # Add audio to the appropriate device
             audio = audio.to(device)
 
@@ -292,6 +304,9 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 # Obtain pseudo-ground-truth as features at first harmonic
                 pseudo_ground_truth = features_lin[:, h_idx]
 
+                # Compute a weighted sum of the features to obtain a rough salience estimate
+                pseudo_salience = torch.sum(features_lin * harmonic_weights.unsqueeze(-1).unsqueeze(-1), dim=-3)
+
                 # Compute the support loss with respect to the first harmonic for this batch
                 support_loss = compute_support_loss(embeddings, pseudo_ground_truth)
 
@@ -299,13 +314,13 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 writer.add_scalar('train/loss/support', support_loss, batch_count)
 
                 # Compute the content loss for this batch
-                content_loss = compute_content_loss(salience, pseudo_ground_truth)
+                content_loss = compute_content_loss(salience, pseudo_salience)
 
                 # Log the content loss for this batch
                 writer.add_scalar('train/loss/content', content_loss, batch_count)
 
                 # Compute the harmonic loss for this batch
-                harmonic_loss = compute_harmonic_loss(embeddings, features_lin, weights=harmonic_weights)
+                harmonic_loss = compute_harmonic_loss(embeddings, pseudo_salience)
 
                 # Log the harmonic loss for this batch
                 writer.add_scalar('train/loss/harmonic', harmonic_loss, batch_count)
