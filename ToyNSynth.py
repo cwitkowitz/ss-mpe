@@ -8,12 +8,12 @@ from common import EvalSet
 import random
 
 
-class ToyNSynthTrain(NSynth):
+class ToyNSynthEval(EvalSet, NSynth):
     """
     TODO
     """
 
-    def __init__(self, n_tracks, **kwargs):
+    def __init__(self, n_tracks=None, **kwargs):
         """
         TODO.
 
@@ -47,29 +47,37 @@ class ToyNSynthTrain(NSynth):
         # Obtain the standard track list
         tracks = super().get_tracks(split)
 
-        # Shuffle the tracks
-        random.shuffle(tracks)
+        # Filter out tracks with no positive ground-truth activations
+        tracks = [t for t in tracks if self.get_pitch(t) in self.center_freqs]
 
-        # Trim tracks to selected amount
-        tracks = tracks[:self.n_tracks]
+        if self.n_tracks is not None:
+            # Shuffle the tracks
+            random.shuffle(tracks)
+
+            # Trim tracks to selected amount
+            tracks = tracks[:self.n_tracks]
 
         return tracks
 
-    @classmethod
-    def name(cls):
+    def get_pitch(self, track):
         """
-        Simple helper function to get the class name.
+        Determine the pitch associated with a track.
+
+        Parameters
+        ----------
+        track : string
+          NSynth track name
+
+        Returns
+        ----------
+        pitch : TODO
+          TODO
         """
 
-        name = NSynth.name()
+        # Extract the pitch from track name
+        pitch = int(track.split('-')[-2])
 
-        return name
-
-
-class ToyNSynthEval(EvalSet, ToyNSynthTrain):
-    """
-    TODO
-    """
+        return pitch
 
     def get_ground_truth(self, track, times):
         """
@@ -91,7 +99,7 @@ class ToyNSynthEval(EvalSet, ToyNSynthTrain):
 
         try:
             # Obtain the index of the pitch of the sample from the track name
-            pitch_idx = int(self.res_func_freq(track.split('-')[-2]).item())
+            pitch_idx = int(self.res_func_freq(self.get_pitch(track)).item())
 
             # Obtain time indices corresponding to pitch activity
             time_idcs = (times >= 0) & (times <= 3)
@@ -102,3 +110,13 @@ class ToyNSynthEval(EvalSet, ToyNSynthTrain):
             pass
 
         return ground_truth
+
+    @classmethod
+    def name(cls):
+        """
+        Simple helper function to get the class name.
+        """
+
+        name = NSynth.name()
+
+        return name

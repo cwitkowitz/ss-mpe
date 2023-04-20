@@ -255,8 +255,6 @@ class EvalSet(TrainSet):
           TODO
         """
 
-        super().__init__(**kwargs)
-
         self.hop_length = hop_length
 
         # Compute the center frequencies for all bins
@@ -268,6 +266,8 @@ class EvalSet(TrainSet):
                                                         kind='nearest',
                                                         bounds_error=True,
                                                         assume_sorted=True)
+
+        super().__init__(**kwargs)
 
     def get_times(self, audio):
         """
