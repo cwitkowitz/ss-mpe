@@ -23,6 +23,7 @@ from tqdm import tqdm
 
 import librosa
 import torch
+import math
 import os
 
 
@@ -40,14 +41,15 @@ def config():
 
     # Maximum number of training iterations to conduct
     #max_epochs = 50 if SYNTH else 10
-    max_epochs = 1000
+    max_epochs = 10000
 
     # Number of iterations between checkpoints
     #checkpoint_interval = 50
     checkpoint_interval = 10
 
     # Number of samples to gather for a batch
-    batch_size = (150 if CONFIG else 50) if SYNTH else (24 if CONFIG else 4)
+    #batch_size = (150 if CONFIG else 50) if SYNTH else (24 if CONFIG else 4)
+    batch_size = (150 if CONFIG else 50) if SYNTH else (16 if CONFIG else 4)
 
     # Number of seconds of audio per sample
     n_secs = (4 if CONFIG else 4) if SYNTH else (30 if CONFIG else 4)
@@ -67,7 +69,8 @@ def config():
     }
 
     # IDs of the GPUs to use, if available
-    gpu_ids = [0, 1, 2] if CONFIG else [0]
+    #gpu_ids = [0, 1, 2] if CONFIG else [0]
+    gpu_ids = [1, 2] if CONFIG else [0]
 
     # Random seed for this experiment
     seed = 0
@@ -197,6 +200,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                                   fmin=fmin,
                                   n_bins=n_bins,
                                   bins_per_octave=bins_per_octave)
+    #training_data.datasets[0].tracks = toynsynthtest.tracks
 
     # Instantiate Bach10 dataset for validation
     bach10 = Bach10(base_dir=bach10_base_dir,
@@ -223,9 +227,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                   bins_per_octave=bins_per_octave)
 
     # Initialize a list to hold all validation datasets
-    #validation_sets = [toynsynthtest, bach10, su, trios]
-    training_data.datasets[0].tracks = toynsynthtest.tracks
-    validation_sets = [toynsynthtest]
+    validation_sets = [toynsynthtest, bach10, su, trios]
 
     # Initialize a PyTorch dataloader for the data
     loader = DataLoader(dataset=training_data,
@@ -270,6 +272,9 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
 
     # Initialize an optimizer for the model parameters
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+
+    #def anneal(i, max_iterations):
+    #    return 0.5 * (1 + math.cos(min(i, max_iterations) * math.pi / max_iterations))
 
     # Construct the path to the directory for saving models
     log_dir = os.path.join(root_dir, 'models')
@@ -326,12 +331,12 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 writer.add_scalar('train/loss/harmonic', harmonic_loss, batch_count)
 
                 # Compute the geometric-invariance loss for this batch
-                geometric_loss = compute_geometric_loss(model, features_log, embeddings,
-                                                        max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
-                                                        min_stretch=min_stretch_time, max_stretch=max_stretch_time)
+                #geometric_loss = compute_geometric_loss(model, features_log, embeddings,
+                #                                        max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
+                #                                        min_stretch=min_stretch_time, max_stretch=max_stretch_time)
 
                 # Log the geometric-invariance loss for this batch
-                writer.add_scalar('train/loss/geometric', geometric_loss, batch_count)
+                #writer.add_scalar('train/loss/geometric', geometric_loss, batch_count)
 
                 # Compute the timbre-invariance loss for this batch
                 timbre_loss = compute_timbre_loss(model, features_log, embeddings, fbins_midi, bins_per_octave)
@@ -340,25 +345,32 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 writer.add_scalar('train/loss/timbre', timbre_loss, batch_count)
 
                 # Compute the scaling loss for this batch
-                scaling_loss = compute_scaling_loss(model, features_log, salience)
+                #scaling_loss = compute_scaling_loss(model, features_log, salience)
 
                 # Log the scaling loss for this batch
-                writer.add_scalar('train/loss/scaling', scaling_loss, batch_count)
+                #writer.add_scalar('train/loss/scaling', scaling_loss, batch_count)
 
                 # Compute the superposition loss for this batch
-                superposition_loss = compute_superposition_loss(hcqt, model, audio, salience, mix_probability)
+                #superposition_loss = compute_superposition_loss(hcqt, model, audio, salience, mix_probability)
 
                 # Log the superposition loss for this batch
-                writer.add_scalar('train/loss/superposition', superposition_loss, batch_count)
+                #writer.add_scalar('train/loss/superposition', superposition_loss, batch_count)
+
+                #anneal_factor = anneal(batch_count, 1000)
+                #       multipliers['content'] * content_loss * (1 - anneal_factor) + \
+                #       multipliers['harmonic'] * harmonic_loss * anneal_factor + \
+                #       multipliers['content'] * content_loss + \
+                #       multipliers['harmonic'] * harmonic_loss + \
 
                 # Compute the total loss for this batch
                 loss = multipliers['support'] * support_loss + \
                        multipliers['content'] * content_loss + \
                        multipliers['harmonic'] * harmonic_loss + \
-                       multipliers['geometric'] * geometric_loss + \
-                       multipliers['timbre'] * timbre_loss + \
-                       multipliers['scaling'] * scaling_loss + \
-                       multipliers['superposition'] * superposition_loss
+                       multipliers['timbre'] * timbre_loss
+                       #multipliers['geometric'] * geometric_loss + \
+                       #multipliers['timbre'] * timbre_loss + \
+                       #multipliers['scaling'] * scaling_loss + \
+                       #multipliers['superposition'] * superposition_loss
 
                 # Log the total loss for this batch
                 writer.add_scalar('train/loss/total', loss, batch_count)

@@ -26,10 +26,14 @@ def compute_content_loss(activations, h1_features):
     total_energy = torch.sum(h1_features, dim=-2)
 
     # Sum the activations across all frequency bins
-    total_activations = torch.sum(activations, dim=-2)
+    #total_activations = torch.sum(activations, dim=-2)
+    #total_activations = torch.norm(activations, 0.5, dim=-2)
+    total_activations = torch.norm(activations, 0, dim=-2)
 
     # Compute content loss as squared difference between total power
-    content_loss = (total_energy - total_activations) ** 2
+    #content_loss = (total_energy - total_activations) ** 2
+    #content_loss = total_activations + (total_energy - total_activations) ** 2
+    content_loss = total_activations
 
     # Average loss across time and batch
     content_loss = content_loss.mean(-1).mean(-1)
