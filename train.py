@@ -273,8 +273,13 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     # Initialize an optimizer for the model parameters
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
-    #def anneal(i, max_iterations):
-    #    return 0.5 * (1 + math.cos(min(i, max_iterations) * math.pi / max_iterations))
+    def anneal(i, max_iterations):
+        # Bound within range [0, max_iterations]
+        x = max(0, min(i, max_iterations))
+        # Compute the cosine annealing scaling factor for the iteration
+        scaling = 0.5 * (1 + math.cos(x * math.pi / max_iterations))
+
+        return scaling
 
     # Construct the path to the directory for saving models
     log_dir = os.path.join(root_dir, 'models')
@@ -356,16 +361,13 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 # Log the superposition loss for this batch
                 #writer.add_scalar('train/loss/superposition', superposition_loss, batch_count)
 
-                #anneal_factor = anneal(batch_count, 1000)
-                #       multipliers['content'] * content_loss * (1 - anneal_factor) + \
-                #       multipliers['harmonic'] * harmonic_loss * anneal_factor + \
-                #       multipliers['content'] * content_loss + \
-                #       multipliers['harmonic'] * harmonic_loss + \
+                # Update the cosine annealing scaling factor
+                anneal_factor = anneal(batch_count, 1000)
 
                 # Compute the total loss for this batch
                 loss = multipliers['support'] * support_loss + \
-                       multipliers['content'] * content_loss + \
-                       multipliers['harmonic'] * harmonic_loss + \
+                       multipliers['content'] * content_loss * (1 - anneal_factor) + \
+                       multipliers['harmonic'] * harmonic_loss * anneal_factor + \
                        multipliers['timbre'] * timbre_loss
                        #multipliers['geometric'] * geometric_loss + \
                        #multipliers['timbre'] * timbre_loss + \

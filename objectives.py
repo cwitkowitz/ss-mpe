@@ -12,8 +12,12 @@ def compute_support_loss(embeddings, h1_features):
     # Set the weight for positive activations to zero
     pos_weight = torch.tensor(0)
 
+    #embeddings = torch.log(h1_features / (1 - h1_features))
+
     # Compute support loss as BCE of activations with respect to features (negative activations only)
     support_loss = F.binary_cross_entropy_with_logits(embeddings, h1_features, reduction='none', pos_weight=pos_weight)
+
+    #support_loss[embeddings.isinf()] = 0
 
     # Sum across frequency bins and average across time and batch
     support_loss = support_loss.sum(-2).mean(-1).mean(-1)
@@ -27,13 +31,14 @@ def compute_content_loss(activations, h1_features):
 
     # Sum the activations across all frequency bins
     #total_activations = torch.sum(activations, dim=-2)
-    #total_activations = torch.norm(activations, 0.5, dim=-2)
-    total_activations = torch.norm(activations, 0, dim=-2)
+    total_activations = torch.max(activations, dim=-2)[0]
+    norm = torch.norm(activations, 0.5, dim=-2)
+    #norm = torch.norm(activations, 0, dim=-2)
 
     # Compute content loss as squared difference between total power
     #content_loss = (total_energy - total_activations) ** 2
-    #content_loss = total_activations + (total_energy - total_activations) ** 2
-    content_loss = total_activations
+    content_loss = norm + (total_energy - total_activations) ** 2
+    #content_loss = norm
 
     # Average loss across time and batch
     content_loss = content_loss.mean(-1).mean(-1)
@@ -45,8 +50,12 @@ def compute_harmonic_loss(embeddings, salience):
     # Set the weight for negative activations to zero
     neg_weight = torch.tensor(0)
 
+    #embeddings = torch.log(salience / (1 - salience))
+
     # Compute harmonic loss as BCE of activations with respect to salience estimate (positive activations only)
     harmonic_loss = F.binary_cross_entropy_with_logits(-embeddings, (1 - salience), reduction='none', pos_weight=neg_weight)
+
+    #harmonic_loss[embeddings.isinf()] = 0
 
     # Sum across frequency bins and average across time and batch
     harmonic_loss = harmonic_loss.sum(-2).mean(-1).mean(-1)
@@ -156,7 +165,12 @@ def compute_timbre_loss(model, features, embeddings, fbins_midi, bins_per_octave
     timbre_loss_og = F.binary_cross_entropy_with_logits(embeddings, equalization_salience.detach(), reduction='none')
 
     # Sum across frequency bins and average across time and batch for both variations of timbre loss
-    timbre_loss = (timbre_loss_eq.sum(-2).mean(-1).mean(-1) + timbre_loss_og.sum(-2).mean(-1).mean(-1)) / 2
+    #timbre_loss = (timbre_loss_eq.sum(-2).mean(-1).mean(-1) + timbre_loss_og.sum(-2).mean(-1).mean(-1)) / 2
+    timbre_loss = (timbre_loss_eq + timbre_loss_og).sum(-2).mean(-1).mean(-1)
+
+    #timbre_loss = F.mse_loss(equalization_salience, original_salience, reduction='none')
+
+    #timbre_loss = timbre_loss.sum(-2).mean(-1).mean(-1)
 
     return timbre_loss
 
