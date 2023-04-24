@@ -5,6 +5,7 @@ from NSynth import NSynth
 from common import EvalSet
 
 # Regular imports
+import warnings
 import random
 
 
@@ -106,8 +107,9 @@ class ToyNSynthEval(EvalSet, NSynth):
 
             # Make the pitch active for the entire duration
             ground_truth[pitch_idx, time_idcs] = 1
-        except Exception as e:
-            pass
+        except ValueError:
+            warnings.warn('Cannot represent ground-truth '
+                          f'for track \'{track}\'.', RuntimeWarning)
 
         return ground_truth
 

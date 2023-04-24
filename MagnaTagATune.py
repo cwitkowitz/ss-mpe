@@ -66,7 +66,7 @@ class MagnaTagATune(TrainSet):
 
         Returns
         ----------
-        wav_path : string
+        mp3_path : string
           Path to the specified track's audio
         """
 
