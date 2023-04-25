@@ -1,6 +1,8 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
+from lhvqt import torch_amplitude_to_db
+
 from utils import *
 
 # Regular imports
@@ -143,8 +145,12 @@ def evaluate(model, hcqt, eval_set, writer=None, i=0, device='cpu'):
     with torch.no_grad():
         # Loop through each testing track
         for audio, ground_truth in loader:
+            # Obtain spectral features in decibels
+            features_dec = torch_amplitude_to_db(hcqt(audio.to(device)))
+            # Obtain amplitude features for the audio
+            features_lin = decibels_to_amplitude(features_dec)
             # Obtain log-scale features for the audio
-            features_log = rescale_decibels(hcqt(audio.to(device)))
+            features_log = rescale_decibels(features_dec)
             # Compute the pitch salience of the features
             salience = torch.sigmoid(model(features_log).squeeze())
             # Threshold the salience to obtain multi pitch predictions
@@ -166,8 +172,9 @@ def evaluate(model, hcqt, eval_set, writer=None, i=0, device='cpu'):
                 writer.add_scalar(f'val-{eval_set.name()}/{key}', average_results[key], i)
 
             # Visualize predictions for the final sample of the evaluation dataset
-            writer.add_image(f'val-{eval_set.name()}/CQT', features_log.squeeze()[1: 2].flip(-2), i)
-            writer.add_image(f'val-{eval_set.name()}/salience', salience.unsqueeze(0).flip(-2), i)
+            writer.add_image(f'val-{eval_set.name()}/log-scaled CQT', features_log.squeeze()[1: 2].flip(-2), i)
+            writer.add_image(f'val-{eval_set.name()}/amplitude CQT', features_lin.squeeze()[1: 2].flip(-2), i)
+            writer.add_image(f'val-{eval_set.name()}/pitch salience', salience.unsqueeze(0).flip(-2), i)
             writer.add_image(f'val-{eval_set.name()}/ground-truth', ground_truth.unsqueeze(0).flip(-2), i)
 
     return average_results

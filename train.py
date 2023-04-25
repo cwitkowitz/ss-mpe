@@ -9,7 +9,7 @@ from Bach10 import Bach10
 from Su import Su
 from TRIOS import TRIOS
 from model import SAUNet
-from lhvqt import LHVQT
+from lhvqt import LHVQT, torch_amplitude_to_db
 from objectives import *
 from utils import *
 from evaluate import evaluate
@@ -40,8 +40,7 @@ def config():
     ## TRAINING HYPERPARAMETERS
 
     # Maximum number of training iterations to conduct
-    #max_epochs = 50 if SYNTH else 10
-    max_epochs = 10000
+    max_epochs = 50 if SYNTH else 10
 
     # Number of iterations between checkpoints
     #checkpoint_interval = 50
@@ -52,7 +51,7 @@ def config():
     batch_size = (150 if CONFIG else 50) if SYNTH else (16 if CONFIG else 4)
 
     # Number of seconds of audio per sample
-    n_secs = (4 if CONFIG else 4) if SYNTH else (30 if CONFIG else 4)
+    n_secs = 4 if SYNTH else 30
 
     # Fixed learning rate
     learning_rate = 1e-3
@@ -175,7 +174,6 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
         trios_base_dir = None
 
     # Instantiate FreeMusicArchive dataset for training
-    # TODO - NaNs around 100 iterations with FMA?
     freemusicarchive = FreeMusicArchive(base_dir=fma_base_dir,
                                         sample_rate=sample_rate,
                                         n_secs=n_secs,
@@ -244,6 +242,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                  bins_per_octave=bins_per_octave,
                  harmonics=harmonics,
                  update=False,
+                 to_db=False,
                  db_to_prob=False,
                  batch_norm=False)
 
@@ -299,7 +298,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
 
             with torch.autocast(device_type=f'cuda'):
                 # Obtain spectral features in decibels
-                features_dec = hcqt(audio)
+                features_dec = torch_amplitude_to_db(hcqt(audio))
                 # Convert decibels to linear gain between 0 and 1
                 features_lin = decibels_to_amplitude(features_dec)
                 # Scale decibels to be between 0 and 1
@@ -336,12 +335,12 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 writer.add_scalar('train/loss/harmonic', harmonic_loss, batch_count)
 
                 # Compute the geometric-invariance loss for this batch
-                #geometric_loss = compute_geometric_loss(model, features_log, embeddings,
-                #                                        max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
-                #                                        min_stretch=min_stretch_time, max_stretch=max_stretch_time)
+                geometric_loss = compute_geometric_loss(model, features_log, embeddings,
+                                                        max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
+                                                        min_stretch=min_stretch_time, max_stretch=max_stretch_time)
 
                 # Log the geometric-invariance loss for this batch
-                #writer.add_scalar('train/loss/geometric', geometric_loss, batch_count)
+                writer.add_scalar('train/loss/geometric', geometric_loss, batch_count)
 
                 # Compute the timbre-invariance loss for this batch
                 timbre_loss = compute_timbre_loss(model, features_log, embeddings, fbins_midi, bins_per_octave)
@@ -368,9 +367,8 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 loss = multipliers['support'] * support_loss + \
                        multipliers['content'] * content_loss * (1 - anneal_factor) + \
                        multipliers['harmonic'] * harmonic_loss * anneal_factor + \
+                       multipliers['geometric'] * geometric_loss + \
                        multipliers['timbre'] * timbre_loss
-                       #multipliers['geometric'] * geometric_loss + \
-                       #multipliers['timbre'] * timbre_loss + \
                        #multipliers['scaling'] * scaling_loss + \
                        #multipliers['superposition'] * superposition_loss
 

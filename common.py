@@ -157,8 +157,10 @@ class TrainSet(Dataset):
         audio = torch.mean(audio, dim=0, keepdim=True)
         # Resample audio to appropriate sampling rate
         audio = torchaudio.functional.resample(audio, fs, self.sample_rate)
-        # Normalize the audio using the infinity norm
-        audio /= audio.abs().max()
+
+        if audio.abs().max():
+            # Normalize the audio using the infinity norm
+            audio /= audio.abs().max()
 
         return audio
 

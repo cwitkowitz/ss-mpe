@@ -32,6 +32,7 @@ def compute_content_loss(activations, h1_features):
     # Sum the activations across all frequency bins
     #total_activations = torch.sum(activations, dim=-2)
     total_activations = torch.max(activations, dim=-2)[0]
+    # TODO - try different norms (< 1 might cause NaNs)
     norm = torch.norm(activations, 0.5, dim=-2)
     #norm = torch.norm(activations, 0, dim=-2)
 
@@ -105,7 +106,8 @@ def compute_geometric_loss(model, features, embeddings, max_shift_f=12,
     geometric_loss_og[distorted_embeddings.isinf()] = 0
 
     # Sum across frequency bins and average across time and batch for both variations of geometric loss
-    geometric_loss = (geometric_loss_ds.sum(-2).mean(-1).mean(-1) + geometric_loss_og.sum(-2).mean(-1).mean(-1)) / 2
+    #geometric_loss = (geometric_loss_ds.sum(-2).mean(-1).mean(-1) + geometric_loss_og.sum(-2).mean(-1).mean(-1)) / 2
+    geometric_loss = (geometric_loss_ds + geometric_loss_og).sum(-2).mean(-1).mean(-1)
 
     return geometric_loss
 
@@ -167,10 +169,6 @@ def compute_timbre_loss(model, features, embeddings, fbins_midi, bins_per_octave
     # Sum across frequency bins and average across time and batch for both variations of timbre loss
     #timbre_loss = (timbre_loss_eq.sum(-2).mean(-1).mean(-1) + timbre_loss_og.sum(-2).mean(-1).mean(-1)) / 2
     timbre_loss = (timbre_loss_eq + timbre_loss_og).sum(-2).mean(-1).mean(-1)
-
-    #timbre_loss = F.mse_loss(equalization_salience, original_salience, reduction='none')
-
-    #timbre_loss = timbre_loss.sum(-2).mean(-1).mean(-1)
 
     return timbre_loss
 
