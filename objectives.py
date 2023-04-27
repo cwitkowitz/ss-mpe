@@ -12,12 +12,8 @@ def compute_support_loss(embeddings, h1_features):
     # Set the weight for positive activations to zero
     pos_weight = torch.tensor(0)
 
-    #embeddings = torch.log(h1_features / (1 - h1_features))
-
     # Compute support loss as BCE of activations with respect to features (negative activations only)
     support_loss = F.binary_cross_entropy_with_logits(embeddings, h1_features, reduction='none', pos_weight=pos_weight)
-
-    #support_loss[embeddings.isinf()] = 0
 
     # Sum across frequency bins and average across time and batch
     support_loss = support_loss.sum(-2).mean(-1).mean(-1)
@@ -25,9 +21,9 @@ def compute_support_loss(embeddings, h1_features):
     return support_loss
 
 
-def compute_content_loss(activations, h1_features):
+def compute_content_loss(activations, salience):
     # Sum the features across all frequency bins
-    total_energy = torch.sum(h1_features, dim=-2)
+    total_energy = torch.sum(salience, dim=-2)
 
     # Sum the activations across all frequency bins
     #total_activations = torch.sum(activations, dim=-2)
@@ -51,12 +47,8 @@ def compute_harmonic_loss(embeddings, salience):
     # Set the weight for negative activations to zero
     neg_weight = torch.tensor(0)
 
-    #embeddings = torch.log(salience / (1 - salience))
-
     # Compute harmonic loss as BCE of activations with respect to salience estimate (positive activations only)
     harmonic_loss = F.binary_cross_entropy_with_logits(-embeddings, (1 - salience), reduction='none', pos_weight=neg_weight)
-
-    #harmonic_loss[embeddings.isinf()] = 0
 
     # Sum across frequency bins and average across time and batch
     harmonic_loss = harmonic_loss.sum(-2).mean(-1).mean(-1)

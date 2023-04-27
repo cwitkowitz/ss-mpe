@@ -23,7 +23,6 @@ from tqdm import tqdm
 
 import librosa
 import torch
-import math
 import os
 
 
@@ -43,8 +42,7 @@ def config():
     max_epochs = 50 if SYNTH else 10
 
     # Number of iterations between checkpoints
-    #checkpoint_interval = 50
-    checkpoint_interval = 10
+    checkpoint_interval = 50
 
     # Number of samples to gather for a batch
     #batch_size = (150 if CONFIG else 50) if SYNTH else (24 if CONFIG else 4)
@@ -102,8 +100,7 @@ def config():
     path_layout = 1 if CONFIG else 0
 
     # Number of threads to use for data loading
-    #n_workers = (16 if CONFIG else 0) if SYNTH else (8 if CONFIG else 0)
-    n_workers = 0
+    n_workers = (16 if CONFIG else 0) if SYNTH else (8 if CONFIG else 0)
 
     if path_layout:
         root_dir = os.path.join('/', 'storage', 'frank', 'self-supervised-pitch', EX_NAME)
@@ -251,7 +248,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                    n_bins_in=n_bins,
                    model_complexity=2,
                    )
-                   # TODO - this is likely messing up some losses
+                   # TODO - this is likely messing up some losses (insert into geometric?)
                    #max_seq=4*n_frames)
 
     # Initialize the primary PyTorch device
@@ -272,14 +269,6 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     # Initialize an optimizer for the model parameters
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
-    def anneal(i, max_iterations):
-        # Bound within range [0, max_iterations]
-        x = max(0, min(i, max_iterations))
-        # Compute the cosine annealing scaling factor for the iteration
-        scaling = 0.5 * (1 + math.cos(x * math.pi / max_iterations))
-
-        return scaling
-
     # Construct the path to the directory for saving models
     log_dir = os.path.join(root_dir, 'models')
 
@@ -288,6 +277,9 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
 
     # Number of batches that have been processed
     batch_count = 0
+
+    # Determine the amount of batches in one epoch
+    epoch_steps = len(loader)
 
     # Loop through epochs
     for i in range(max_epochs):
@@ -360,13 +352,10 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 # Log the superposition loss for this batch
                 #writer.add_scalar('train/loss/superposition', superposition_loss, batch_count)
 
-                # Update the cosine annealing scaling factor
-                anneal_factor = anneal(batch_count, 1000)
-
                 # Compute the total loss for this batch
                 loss = multipliers['support'] * support_loss + \
-                       multipliers['content'] * content_loss * (1 - anneal_factor) + \
-                       multipliers['harmonic'] * harmonic_loss * anneal_factor + \
+                       multipliers['content'] * content_loss * (1 - cosine_anneal(batch_count, epoch_steps)) + \
+                       multipliers['harmonic'] * harmonic_loss * cosine_anneal(batch_count, epoch_steps, floor=0.1) + \
                        multipliers['geometric'] * geometric_loss + \
                        multipliers['timbre'] * timbre_loss
                        #multipliers['scaling'] * scaling_loss + \

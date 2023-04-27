@@ -96,8 +96,6 @@ class URMP(EvalSet):
           TODO
         """
 
-        # TODO
-
         # Obtain the paths to the track's ground_truth
         txt_paths = self.get_ground_truth_path(track)
 
