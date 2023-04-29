@@ -8,6 +8,22 @@ import torch.nn.functional as F
 import torch
 
 
+def compute_power_loss(activations, h1_features):
+    # Sum the feature power across all frequency bins
+    power_features = torch.sum(h1_features ** 2, dim=-2)
+
+    # Sum the activation power across all frequency bins
+    power_activations = torch.sum(activations ** 2, dim=-2)
+
+    # Compute power loss as difference between sum of powers
+    power_loss = torch.abs(power_features - power_activations)
+
+    # Average loss across time and batch
+    power_loss = power_loss.mean(-1).mean(-1)
+
+    return power_loss
+
+
 def compute_support_loss(embeddings, h1_features):
     # Set the weight for positive activations to zero
     pos_weight = torch.tensor(0)
@@ -19,28 +35,6 @@ def compute_support_loss(embeddings, h1_features):
     support_loss = support_loss.sum(-2).mean(-1).mean(-1)
 
     return support_loss
-
-
-def compute_content_loss(activations, salience):
-    # Sum the features across all frequency bins
-    total_energy = torch.sum(salience, dim=-2)
-
-    # Sum the activations across all frequency bins
-    #total_activations = torch.sum(activations, dim=-2)
-    total_activations = torch.max(activations, dim=-2)[0]
-    # TODO - try different norms (< 1 might cause NaNs)
-    norm = torch.norm(activations, 0.5, dim=-2)
-    #norm = torch.norm(activations, 0, dim=-2)
-
-    # Compute content loss as squared difference between total power
-    #content_loss = (total_energy - total_activations) ** 2
-    content_loss = norm + (total_energy - total_activations) ** 2
-    #content_loss = norm
-
-    # Average loss across time and batch
-    content_loss = content_loss.mean(-1).mean(-1)
-
-    return content_loss
 
 
 def compute_harmonic_loss(embeddings, salience):
@@ -56,52 +50,14 @@ def compute_harmonic_loss(embeddings, salience):
     return harmonic_loss
 
 
-def compute_geometric_loss(model, features, embeddings, max_shift_f=12,
-                           max_shift_t=25, min_stretch=0.5, max_stretch=2):
-    # Determine the number of samples in the batch
-    B = features.size(0)
+def compute_sparsity_loss(activations):
+    # Compute sparsity loss as the L1 norm of the activations
+    sparsity_loss = torch.norm(activations, 1, dim=-2)
 
-    # Sample a random frequency and time shift for each sample in the batch
-    freq_shifts = torch.randint(low=-max_shift_f, high=max_shift_f + 1, size=(B,)).tolist()
-    time_shifts = torch.randint(low=-max_shift_t, high=max_shift_t + 1, size=(B,)).tolist()
+    # Average loss across time and batch
+    sparsity_loss = sparsity_loss.mean(-1).mean(-1)
 
-    # Sample a random stretch factor for each sample in the batch
-    stretch_factors = (torch.rand(size=(B,)) * (max_stretch - min_stretch) + min_stretch).tolist()
-
-    with torch.no_grad():
-        # Translate the features by the sampled number of bins and frames
-        distorted_features = translate_batch(features, freq_shifts, -2)
-        distorted_features = translate_batch(distorted_features, time_shifts)
-        # Stretch the features by the sampled stretch factors
-        distorted_features = stretch_batch(distorted_features, stretch_factors)
-
-    # Translate the original embeddings by the sampled number of bins and frames
-    distorted_embeddings = translate_batch(embeddings, freq_shifts, -2, -torch.inf)
-    distorted_embeddings = translate_batch(distorted_embeddings, time_shifts, -1, -torch.inf)
-    # Stretch the original embeddings by the sampled stretch factors
-    distorted_embeddings = stretch_batch(distorted_embeddings, stretch_factors)
-
-    # Process the distorted features with the model
-    distortion_embeddings = model(distorted_features).squeeze()
-
-    # Convert both sets of logits to activations (implicit pitch salience)
-    distorted_salience = torch.sigmoid(distorted_embeddings)
-    distortion_salience = torch.sigmoid(distortion_embeddings)
-
-    # Compute geometric loss as BCE of embeddings computed from distorted features with respect to distorted activations
-    geometric_loss_ds = F.binary_cross_entropy_with_logits(distortion_embeddings, distorted_salience.detach(), reduction='none')
-
-    # Compute geometric loss as BCE of distorted embeddings with respect to activations computed from distorted features
-    geometric_loss_og = F.binary_cross_entropy_with_logits(distorted_embeddings, distortion_salience.detach(), reduction='none')
-
-    # Ignore NaNs introduced by computing BCE loss on -∞
-    geometric_loss_og[distorted_embeddings.isinf()] = 0
-
-    # Sum across frequency bins and average across time and batch for both variations of geometric loss
-    #geometric_loss = (geometric_loss_ds.sum(-2).mean(-1).mean(-1) + geometric_loss_og.sum(-2).mean(-1).mean(-1)) / 2
-    geometric_loss = (geometric_loss_ds + geometric_loss_og).sum(-2).mean(-1).mean(-1)
-
-    return geometric_loss
+    return sparsity_loss
 
 
 # TODO - can initial logic be simplified at all?
@@ -165,27 +121,52 @@ def compute_timbre_loss(model, features, embeddings, fbins_midi, bins_per_octave
     return timbre_loss
 
 
-def compute_scaling_loss(model, features, activations):
+def compute_geometric_loss(model, features, embeddings, max_shift_f=12,
+                           max_shift_t=25, min_stretch=0.5, max_stretch=2):
     # Determine the number of samples in the batch
     B = features.size(0)
 
-    # Sample a random scaling factor for each sample in the batch
-    scaling_factors = torch.rand(size=(B, 1, 1), device=features.device)
+    # Sample a random frequency and time shift for each sample in the batch
+    freq_shifts = torch.randint(low=-max_shift_f, high=max_shift_f + 1, size=(B,)).tolist()
+    time_shifts = torch.randint(low=-max_shift_t, high=max_shift_t + 1, size=(B,)).tolist()
 
-    # Apply the scaling factors to the batch
-    scaled_features = scaling_factors.unsqueeze(-1) * features
-    scaled_activations = scaling_factors * activations
+    # Sample a random stretch factor for each sample in the batch
+    stretch_factors = (torch.rand(size=(B,)) * (max_stretch - min_stretch) + min_stretch).tolist()
 
-    # Process the scaled features with the model and convert to activations
-    scale_activations = torch.sigmoid(model(scaled_features)).squeeze()
+    with torch.no_grad():
+        # Translate the features by the sampled number of bins and frames
+        distorted_features = translate_batch(features, freq_shifts, -2)
+        distorted_features = translate_batch(distorted_features, time_shifts)
+        # Stretch the features by the sampled stretch factors
+        distorted_features = stretch_batch(distorted_features, stretch_factors)
 
-    # Compute scaling loss as MSE between embeddings computed from scaled features and scaled activations
-    scaling_loss = F.mse_loss(scale_activations, scaled_activations, reduction='none')
+    # Translate the original embeddings by the sampled number of bins and frames
+    distorted_embeddings = translate_batch(embeddings, freq_shifts, -2, -torch.inf)
+    distorted_embeddings = translate_batch(distorted_embeddings, time_shifts, -1, -torch.inf)
+    # Stretch the original embeddings by the sampled stretch factors
+    distorted_embeddings = stretch_batch(distorted_embeddings, stretch_factors)
 
-    # Sum across frequency bins and average across time and batch
-    scaling_loss = scaling_loss.sum(-2).mean(-1).mean(-1)
+    # Process the distorted features with the model
+    distortion_embeddings = model(distorted_features).squeeze()
 
-    return scaling_loss
+    # Convert both sets of logits to activations (implicit pitch salience)
+    distorted_salience = torch.sigmoid(distorted_embeddings)
+    distortion_salience = torch.sigmoid(distortion_embeddings)
+
+    # Compute geometric loss as BCE of embeddings computed from distorted features with respect to distorted activations
+    geometric_loss_ds = F.binary_cross_entropy_with_logits(distortion_embeddings, distorted_salience.detach(), reduction='none')
+
+    # Compute geometric loss as BCE of distorted embeddings with respect to activations computed from distorted features
+    geometric_loss_og = F.binary_cross_entropy_with_logits(distorted_embeddings, distortion_salience.detach(), reduction='none')
+
+    # Ignore NaNs introduced by computing BCE loss on -∞
+    geometric_loss_og[distorted_embeddings.isinf()] = 0
+
+    # Sum across frequency bins and average across time and batch for both variations of geometric loss
+    #geometric_loss = (geometric_loss_ds.sum(-2).mean(-1).mean(-1) + geometric_loss_og.sum(-2).mean(-1).mean(-1)) / 2
+    geometric_loss = (geometric_loss_ds + geometric_loss_og).sum(-2).mean(-1).mean(-1)
+
+    return geometric_loss
 
 
 def get_random_mixtures(audio, mix_probability=0.5):
@@ -246,3 +227,26 @@ def compute_superposition_loss(hcqt, model, audio, activations, mix_probability=
     superposition_loss = superposition_loss.sum(-2).mean(-1).mean(-1)
 
     return superposition_loss
+
+
+def compute_scaling_loss(model, features, activations):
+    # Determine the number of samples in the batch
+    B = features.size(0)
+
+    # Sample a random scaling factor for each sample in the batch
+    scaling_factors = torch.rand(size=(B, 1, 1), device=features.device)
+
+    # Apply the scaling factors to the batch
+    scaled_features = scaling_factors.unsqueeze(-1) * features
+    scaled_activations = scaling_factors * activations
+
+    # Process the scaled features with the model and convert to activations
+    scale_activations = torch.sigmoid(model(scaled_features)).squeeze()
+
+    # Compute scaling loss as MSE between embeddings computed from scaled features and scaled activations
+    scaling_loss = F.mse_loss(scale_activations, scaled_activations, reduction='none')
+
+    # Sum across frequency bins and average across time and batch
+    scaling_loss = scaling_loss.sum(-2).mean(-1).mean(-1)
+
+    return scaling_loss

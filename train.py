@@ -56,13 +56,14 @@ def config():
 
     # Scaling factors for each loss term
     multipliers = {
+        'power' : 1,
         'support' : 1,
-        'content' : 1,
         'harmonic' : 1,
-        'geometric' : 0,
+        'sparsity' : 1,
         'timbre' : 1,
-        'scaling' : 0,
-        'superposition' : 0
+        'geometric' : 0,
+        'superposition' : 0,
+        'scaling' : 0
     }
 
     # IDs of the GPUs to use, if available
@@ -305,8 +306,11 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 # Obtain pseudo-ground-truth as features at first harmonic
                 pseudo_ground_truth = features_lin[:, h_idx]
 
-                # Compute a weighted sum of the features to obtain a rough salience estimate
-                pseudo_salience = torch.sum(features_lin * harmonic_weights.unsqueeze(-1).unsqueeze(-1), dim=-3)
+                # Compute the power loss for this batch
+                power_loss = compute_power_loss(salience, pseudo_ground_truth)
+
+                # Log the power loss for this batch
+                writer.add_scalar('train/loss/power', power_loss, batch_count)
 
                 # Compute the support loss with respect to the first harmonic for this batch
                 support_loss = compute_support_loss(embeddings, pseudo_ground_truth)
@@ -314,25 +318,20 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 # Log the support loss for this batch
                 writer.add_scalar('train/loss/support', support_loss, batch_count)
 
-                # Compute the content loss for this batch
-                content_loss = compute_content_loss(salience, pseudo_salience)
+                # Compute a weighted sum of the features to obtain a rough salience estimate
+                pseudo_salience = torch.sum(features_lin * harmonic_weights.unsqueeze(-1).unsqueeze(-1), dim=-3)
 
-                # Log the content loss for this batch
-                writer.add_scalar('train/loss/content', content_loss, batch_count)
-
-                # Compute the harmonic loss for this batch
+                # Compute the harmonic loss with respect to the weighted harmonic sum for this batch
                 harmonic_loss = compute_harmonic_loss(embeddings, pseudo_salience)
 
                 # Log the harmonic loss for this batch
                 writer.add_scalar('train/loss/harmonic', harmonic_loss, batch_count)
 
-                # Compute the geometric-invariance loss for this batch
-                geometric_loss = compute_geometric_loss(model, features_log, embeddings,
-                                                        max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
-                                                        min_stretch=min_stretch_time, max_stretch=max_stretch_time)
+                # Compute the sparsity loss for this batch
+                sparsity_loss = compute_sparsity_loss(salience)
 
-                # Log the geometric-invariance loss for this batch
-                writer.add_scalar('train/loss/geometric', geometric_loss, batch_count)
+                # Log the sparsity loss for this batch
+                writer.add_scalar('train/loss/sparsity', sparsity_loss, batch_count)
 
                 # Compute the timbre-invariance loss for this batch
                 timbre_loss = compute_timbre_loss(model, features_log, embeddings, fbins_midi, bins_per_octave)
@@ -340,11 +339,13 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 # Log the timbre-invariance loss for this batch
                 writer.add_scalar('train/loss/timbre', timbre_loss, batch_count)
 
-                # Compute the scaling loss for this batch
-                #scaling_loss = compute_scaling_loss(model, features_log, salience)
+                # Compute the geometric-invariance loss for this batch
+                #geometric_loss = compute_geometric_loss(model, features_log, embeddings,
+                #                                        max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
+                #                                        min_stretch=min_stretch_time, max_stretch=max_stretch_time)
 
-                # Log the scaling loss for this batch
-                #writer.add_scalar('train/loss/scaling', scaling_loss, batch_count)
+                # Log the geometric-invariance loss for this batch
+                #writer.add_scalar('train/loss/geometric', geometric_loss, batch_count)
 
                 # Compute the superposition loss for this batch
                 #superposition_loss = compute_superposition_loss(hcqt, model, audio, salience, mix_probability)
@@ -352,14 +353,21 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 # Log the superposition loss for this batch
                 #writer.add_scalar('train/loss/superposition', superposition_loss, batch_count)
 
+                # Compute the scaling loss for this batch
+                #scaling_loss = compute_scaling_loss(model, features_log, salience)
+
+                # Log the scaling loss for this batch
+                #writer.add_scalar('train/loss/scaling', scaling_loss, batch_count)
+
                 # Compute the total loss for this batch
-                loss = multipliers['support'] * support_loss + \
-                       multipliers['content'] * content_loss * (1 - cosine_anneal(batch_count, epoch_steps)) + \
-                       multipliers['harmonic'] * harmonic_loss * cosine_anneal(batch_count, epoch_steps, floor=0.1) + \
-                       multipliers['geometric'] * geometric_loss + \
+                loss = multipliers['power'] * power_loss + \
+                       multipliers['support'] * support_loss * cosine_anneal(batch_count, epoch_steps, floor=0.) + \
+                       multipliers['harmonic'] * harmonic_loss * cosine_anneal(batch_count, epoch_steps, floor=0.) + \
+                       multipliers['sparsity'] * sparsity_loss * (1 - cosine_anneal(batch_count, epoch_steps, floor=0.)) + \
                        multipliers['timbre'] * timbre_loss
-                       #multipliers['scaling'] * scaling_loss + \
-                       #multipliers['superposition'] * superposition_loss
+                       #multipliers['geometric'] * geometric_loss + \
+                       #multipliers['superposition'] * superposition_loss + \
+                       #multipliers['scaling'] * scaling_loss
 
                 # Log the total loss for this batch
                 writer.add_scalar('train/loss/total', loss, batch_count)
