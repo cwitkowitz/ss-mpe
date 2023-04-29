@@ -111,12 +111,8 @@ class MultipitchEvaluator(object):
         # Calculate the f1-score using the harmonic mean formula
         f_measure = hmean([precision + EPSILON, recall + EPSILON]) - EPSILON
 
-        # Determine where either silence or activity was correctly predicted
-        same_class = np.logical_not(np.logical_xor(flattened_multi_pitch_est,
-                                                   flattened_multi_pitch_ref))
-
-        # Calculate the total percentage of correct predictions
-        accuracy = np.sum(same_class) / len(flattened_multi_pitch_est)
+        # Calculate the accuracy of the predictions
+        accuracy = num_correct / (num_predicted + num_ground_truth - num_correct + EPSILON)
 
         results = {
             'precision' : precision,
