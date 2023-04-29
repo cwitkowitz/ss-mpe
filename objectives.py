@@ -121,7 +121,7 @@ def compute_timbre_loss(model, features, embeddings, fbins_midi, bins_per_octave
     return timbre_loss
 
 
-def compute_geometric_loss(model, features, embeddings, max_shift_f=12,
+def compute_geometric_loss(model, features, embeddings, max_seq_idx=250, max_shift_f=12,
                            max_shift_t=25, min_stretch=0.5, max_stretch=2):
     # Determine the number of samples in the batch
     B = features.size(0)
@@ -146,8 +146,8 @@ def compute_geometric_loss(model, features, embeddings, max_shift_f=12,
     # Stretch the original embeddings by the sampled stretch factors
     distorted_embeddings = stretch_batch(distorted_embeddings, stretch_factors)
 
-    # Process the distorted features with the model
-    distortion_embeddings = model(distorted_features).squeeze()
+    # Process the distorted features with the model and randomize start position
+    distortion_embeddings = model(distorted_features, max_seq_idx).squeeze()
 
     # Convert both sets of logits to activations (implicit pitch salience)
     distorted_salience = torch.sigmoid(distorted_embeddings)

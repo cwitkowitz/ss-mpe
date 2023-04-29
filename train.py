@@ -144,6 +144,9 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     # Normalize the harmonic weights
     harmonic_weights /= torch.sum(harmonic_weights)
 
+    # Define the maximum position index (geometric-invariance loss)
+    max_position = 4 * n_frames
+
     # Define maximum time and frequency shift (geometric-invariance loss)
     max_shift_time = n_frames // 4
     max_shift_freq = 2 * bins_per_octave
@@ -252,10 +255,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     # Initialize MPE representation learning model
     model = SAUNet(n_ch_in=len(harmonics),
                    n_bins_in=n_bins,
-                   model_complexity=2,
-                   )
-                   # TODO - this is likely messing up some losses (insert into geometric?)
-                   #max_seq=4*n_frames)
+                   model_complexity=2)
 
     # Initialize the primary PyTorch device
     device = torch.device(f'cuda:{gpu_ids[0]}'
@@ -345,12 +345,12 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 writer.add_scalar('train/loss/timbre', timbre_loss, batch_count)
 
                 # Compute the geometric-invariance loss for this batch
-                #geometric_loss = compute_geometric_loss(model, features_log, embeddings,
-                #                                        max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
-                #                                        min_stretch=min_stretch_time, max_stretch=max_stretch_time)
+                geometric_loss = compute_geometric_loss(model, features_log, embeddings, max_seq_idx=max_position,
+                                                        max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
+                                                        min_stretch=min_stretch_time, max_stretch=max_stretch_time)
 
                 # Log the geometric-invariance loss for this batch
-                #writer.add_scalar('train/loss/geometric', geometric_loss, batch_count)
+                writer.add_scalar('train/loss/geometric', geometric_loss, batch_count)
 
                 # Compute the superposition loss for this batch
                 #superposition_loss = compute_superposition_loss(hcqt, model, audio, salience, mix_probability)

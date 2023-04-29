@@ -12,7 +12,7 @@ class SAUNet(nn.Module):
     TODO - better description
     """
 
-    def __init__(self, n_ch_in=6, n_bins_in=216, n_heads=8, model_complexity=1, max_seq=None):
+    def __init__(self, n_ch_in=6, n_bins_in=216, n_heads=8, model_complexity=1):
         """
         TODO
         """
@@ -66,8 +66,9 @@ class SAUNet(nn.Module):
                        padding=1)
         )
 
+        self.positional = SinusoidalEncodings()
+
         self.bottleneck = nn.Sequential(
-            SinusoidalEncodings(max_seq=max_seq),
             nn.TransformerEncoderLayer(d_model=d_attention,
                                        nhead=n_heads,
                                        dim_feedforward=d_forward,
@@ -102,7 +103,7 @@ class SAUNet(nn.Module):
                                     padding=7,
                                     final_layer=True)
 
-    def forward(self, hcqt):
+    def forward(self, hcqt, max_seq=None):
         """
         TODO
         """
@@ -127,7 +128,7 @@ class SAUNet(nn.Module):
         embeddings = embeddings.flatten(-2).transpose(-1, -2)
 
         # Feed the features through the self-attention bottleneck
-        embeddings = self.bottleneck(embeddings)
+        embeddings = self.bottleneck(self.positional(embeddings, max_seq))
 
         # Restore original dimensions to the embeddings
         embeddings = embeddings.transpose(-1, -2).view(dimensionality)
@@ -182,7 +183,7 @@ class SinusoidalEncodings(nn.Module):
     Module to add fixed (sinusoidal) positional encoding to embeddings.
     """
 
-    def __init__(self, upper_bound=10000, interleave=True, max_seq=None):
+    def __init__(self, upper_bound=10000, interleave=True):
         """
         Initialize the module.
 
@@ -192,17 +193,14 @@ class SinusoidalEncodings(nn.Module):
           Upper boundary for geometric progression of periods (in 2π radians)
         interleave : bool
           TODO
-        max_seq : TODO
-          TODO
         """
 
         nn.Module.__init__(self)
 
         self.upper_bound = upper_bound
         self.interleave = interleave
-        self.max_seq = max_seq
 
-    def forward(self, features):
+    def forward(self, features, max_seq=None):
         """
         TODO
         """
@@ -215,9 +213,10 @@ class SinusoidalEncodings(nn.Module):
         # Construct a tensor of position indices for the features
         positions = torch.arange(0, seq_length)
 
-        if self.training and self.max_seq is not None:
-            # Add a random offset to diversify positions
-            positions += torch.randint(high=(self.max_seq - seq_length + 1), size=(1,))
+        if self.training and max_seq is not None:
+            if max_seq > seq_length + 1:
+                # Add a random offset to diversify positions
+                positions += torch.randint(high=(max_seq - seq_length + 1), size=(1,))
 
         # Multiply every position by every period
         angles = torch.outer(positions, 1 / periods)
