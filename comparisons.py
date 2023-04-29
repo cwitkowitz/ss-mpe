@@ -1,17 +1,19 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from ToyNSynth import ToyNSynthEval
-from NSynth import NSynth
+from NSynth import NSynthValidation
 from Bach10 import Bach10
 from Su import Su
 from TRIOS import TRIOS
+from MedleyDBPitch import MedleyDB_Pitch
 from MusicNet import MusicNet
 from URMP import URMP
 from SWD import SWD
+
 from lhvqt import LHVQT
-from evaluate import MultipitchEvaluator
+
 from utils import *
+from evaluate import MultipitchEvaluator
 
 # Regular imports
 from tqdm import tqdm
@@ -37,8 +39,10 @@ experiment_dir = os.path.join('.', 'generated', 'experiments', '<EXPERIMENT_DIR>
 verbose = True
 
 
-##############################
-## FEATURE EXTRACTION
+
+########################
+## FEATURE EXTRACTION ##
+########################
 
 # Number of samples per second of audio
 sample_rate = 22050
@@ -79,8 +83,9 @@ harmonic_weights[harmonic_weights > 1] = 0
 harmonic_weights /= torch.sum(harmonic_weights)
 
 
-##############################
-## MODELS
+############
+## MODELS ##
+############
 
 #from basic_pitch.note_creation import model_frames_to_time, midi_pitch_to_contour_bin
 #from basic_pitch import ICASSP_2022_MODEL_PATH
@@ -105,8 +110,9 @@ harmonic_weights /= torch.sum(harmonic_weights)
 h_idx = harmonics.index(1)
 
 
-##############################
-## DATASETS
+##############
+## DATASETS ##
+##############
 
 """
 # Instantiate Bach10 dataset for evaluation
@@ -150,18 +156,30 @@ swd = SWD(sample_rate=sample_rate,
           fmin=fmin,
           n_bins=n_bins,
           bins_per_octave=bins_per_octave)
-"""
 
-# Instantiate NSynth dataset for validation
-toynsynth = ToyNSynthEval(splits=['valid'],
-                          sample_rate=sample_rate,
+# Instantiate MedleyDB pitch-tracking subset for evaluation
+medleydb = MedleyDB_Pitch(sample_rate=sample_rate,
                           hop_length=hop_length,
                           fmin=fmin,
                           n_bins=n_bins,
                           bins_per_octave=bins_per_octave)
+"""
 
-##############################
-## EVALUATION
+#seed_everything(0)
+
+# Instantiate NSynth dataset for validation
+nsynthvalid = NSynthValidation(splits=['valid'],
+                               #n_tracks=150,
+                               #remove_out_of_bounds_tracks=True,
+                               sample_rate=sample_rate,
+                               hop_length=hop_length,
+                               fmin=fmin,
+                               n_bins=n_bins,
+                               bins_per_octave=bins_per_octave)
+
+################
+## EVALUATION ##
+################
 
 # Construct the path to the directory under which to save results
 #save_dir = os.path.join(experiment_dir, 'comparisons')
@@ -200,7 +218,7 @@ def print_and_log(text, path=None):
 
 
 # Loop through all evaluation datasets
-for test_set in [toynsynth]:#[bach10, su, trios, musicnet, urmp, swd]:
+for test_set in [nsynthvalid]:#[bach10, su, trios, musicnet, urmp, swd]:
     # Initialize evaluators for all models
     #bp_evaluator = MultipitchEvaluator()
     #ss_evaluator = MultipitchEvaluator()

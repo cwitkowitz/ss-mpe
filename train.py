@@ -1,15 +1,16 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from common import ComboSet
 from FreeMusicArchive import FreeMusicArchive
-from NSynth import NSynth
-from ToyNSynth import ToyNSynthEval
+from NSynth import NSynth, NSynthValidation
+from common import ComboSet
 from Bach10 import Bach10
 from Su import Su
 from TRIOS import TRIOS
-from model import SAUNet
+
 from lhvqt import LHVQT, torch_amplitude_to_db
+from model import SAUNet
+
 from objectives import *
 from utils import *
 from evaluate import evaluate
@@ -36,7 +37,8 @@ ex = Experiment('Train a model to learn representations for MPE')
 @ex.config
 def config():
     ##############################
-    ## TRAINING HYPERPARAMETERS
+    ## TRAINING HYPERPARAMETERS ##
+    ##############################
 
     # Maximum number of training iterations to conduct
     max_epochs = 50 if SYNTH else 10
@@ -73,8 +75,9 @@ def config():
     # Random seed for this experiment
     seed = 0
 
-    ##############################
-    ## FEATURE EXTRACTION
+    ########################
+    ## FEATURE EXTRACTION ##
+    ########################
 
     # Number of samples per second of audio
     sample_rate = 22050
@@ -94,8 +97,9 @@ def config():
     # First center frequency (MIDI) of geometric progression
     fmin = librosa.note_to_midi('C1')
 
-    ##############################
-    # OTHERS
+    ############
+    ## OTHERS ##
+    ############
 
     # Switch for managing multiple path layouts (0 - local | 1 - lab)
     path_layout = 1 if CONFIG else 0
@@ -178,25 +182,26 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                                         seed=seed)
 
     # Instantiate NSynth dataset for training
-    nsynth = NSynth(base_dir=nsynth_base_dir,
-                    splits=['train'],
-                    sample_rate=sample_rate,
-                    n_secs=n_secs,
-                    seed=seed)
+    nsynthtrain = NSynth(base_dir=nsynth_base_dir,
+                         splits=['train'],
+                         sample_rate=sample_rate,
+                         n_secs=n_secs,
+                         seed=seed)
 
     # Combine all training datasets into one
-    training_data = ComboSet([nsynth]) if SYNTH else ComboSet([freemusicarchive])
+    training_data = ComboSet([nsynthtrain]) if SYNTH else ComboSet([freemusicarchive])
 
     # Instantiate NSynth dataset for validation
-    toynsynthtest = ToyNSynthEval(base_dir=nsynth_base_dir,
-                                  splits=['valid'],
-                                  n_tracks=150 if CONFIG else 50,
-                                  sample_rate=sample_rate,
-                                  hop_length=hop_length,
-                                  fmin=fmin,
-                                  n_bins=n_bins,
-                                  bins_per_octave=bins_per_octave)
-    #training_data.datasets[0].tracks = toynsynthtest.tracks
+    nsynthvalid = NSynthValidation(base_dir=nsynth_base_dir,
+                                   splits=['valid'],
+                                   n_tracks=150 if CONFIG else 50,
+                                   remove_out_of_bounds_tracks=True,
+                                   sample_rate=sample_rate,
+                                   hop_length=hop_length,
+                                   fmin=fmin,
+                                   n_bins=n_bins,
+                                   bins_per_octave=bins_per_octave)
+    #training_data.datasets[0].tracks = nsynthvalid.tracks
 
     # Instantiate Bach10 dataset for validation
     bach10 = Bach10(base_dir=bach10_base_dir,
@@ -223,7 +228,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                   bins_per_octave=bins_per_octave)
 
     # Initialize a list to hold all validation datasets
-    validation_sets = [toynsynthtest, bach10, su, trios]
+    validation_sets = [nsynthvalid, bach10, su, trios]
 
     # Initialize a PyTorch dataloader for the data
     loader = DataLoader(dataset=training_data,

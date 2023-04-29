@@ -5,6 +5,8 @@ from utils import stream_url_resource, unzip_and_remove
 from common import TrainSet, EvalSet
 
 # Regular imports
+import warnings
+import random
 import json
 import os
 
@@ -110,10 +112,29 @@ class NSynth(TrainSet):
             unzip_and_remove(save_path, tar=True)
 
 
-class NSynthEval(EvalSet, NSynth):
+class NSynthValidation(EvalSet, NSynth):
     """
     TODO
     """
+
+    def __init__(self, n_tracks=None, remove_out_of_bounds_tracks=False, **kwargs):
+        """
+        TODO.
+
+        Parameters
+        ----------
+        n_tracks : int
+          TODO
+        remove_out_of_bounds_tracks : bool
+          TODO
+        kwargs : TODO
+          TODO
+        """
+
+        self.n_tracks = n_tracks
+        self.remove_out_of_bounds_tracks = remove_out_of_bounds_tracks
+
+        super().__init__(**kwargs)
 
     @classmethod
     def name(cls):
@@ -124,6 +145,57 @@ class NSynthEval(EvalSet, NSynth):
         name = NSynth.name()
 
         return name
+
+    def get_pitch(self, track):
+        """
+        Determine the pitch associated with a track.
+
+        Parameters
+        ----------
+        track : string
+          NSynth track name
+
+        Returns
+        ----------
+        pitch : int
+          Pitch of the note sample in the track
+        """
+
+        # Extract the pitch from track name
+        pitch = int(track.split('-')[-2])
+
+        return pitch
+
+    def get_tracks(self, split):
+        """
+        Get the names of the tracks in the dataset.
+
+        Parameters
+        ----------
+        split : string (unused)
+          TODO
+
+        Returns
+        ----------
+        tracks : list of strings
+          TODO
+        """
+
+        # Obtain the standard track list
+        tracks = super().get_tracks(split)
+
+        if self.remove_out_of_bounds_tracks:
+            # Filter out tracks with out-of-bounds ground-truth activations
+            tracks = [t for t in tracks if self.get_pitch(t) in self.center_freqs]
+
+        if self.n_tracks is not None:
+            # Shuffle the tracks
+            random.shuffle(tracks)
+
+            # Trim tracks to selected amount
+            tracks = tracks[:self.n_tracks]
+
+        return tracks
 
     def get_ground_truth(self, track, times):
         """
@@ -145,7 +217,7 @@ class NSynthEval(EvalSet, NSynth):
 
         try:
             # Obtain the index of the pitch of the sample from the track name
-            pitch_idx = int(self.res_func_freq(track.split('-')[-2]).item())
+            pitch_idx = int(self.res_func_freq(self.get_pitch(track)).item())
 
             # Obtain time indices corresponding to pitch activity
             time_idcs = (times >= 0) & (times <= 3)
@@ -153,8 +225,8 @@ class NSynthEval(EvalSet, NSynth):
             # Make the pitch active for the entire duration
             ground_truth[pitch_idx, time_idcs] = 1
 
-        except ValueError as e:
-            # Print warning message
-            print(f'{repr(e)}')
+        except ValueError:
+            warnings.warn('Cannot represent ground-truth '
+                          f'for track \'{track}\'.', RuntimeWarning)
 
         return ground_truth
