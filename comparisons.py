@@ -51,8 +51,8 @@ sample_rate = 22050
 hop_length = 512
 
 # Number of frequency bins per CQT
-#n_bins = 264
-n_bins = 216
+n_bins = 264
+#n_bins = 216
 
 # Number of bins in a single octave
 bins_per_octave = 36
@@ -61,8 +61,8 @@ bins_per_octave = 36
 harmonics = [0.5, 1, 2, 3, 4, 5]
 
 # First center frequency (MIDI) of geometric progression
-#fmin = librosa.note_to_midi('A0')
-fmin = librosa.note_to_midi('C1')
+fmin = librosa.note_to_midi('A0')
+#fmin = librosa.note_to_midi('C1')
 
 # Initialize the HCQT feature extraction module
 hcqt = LHVQT(fs=sample_rate,
@@ -87,13 +87,13 @@ harmonic_weights /= torch.sum(harmonic_weights)
 ## MODELS ##
 ############
 
-#from basic_pitch.note_creation import model_frames_to_time, midi_pitch_to_contour_bin
-#from basic_pitch import ICASSP_2022_MODEL_PATH
-#from basic_pitch.inference import predict
-#import tensorflow as tf
+from basic_pitch.note_creation import model_frames_to_time, midi_pitch_to_contour_bin
+from basic_pitch import ICASSP_2022_MODEL_PATH
+from basic_pitch.inference import predict
+import tensorflow as tf
 
 # Load the BasicPitch model checkpoint corresponding to paper
-#basic_pitch = tf.saved_model.load(str(ICASSP_2022_MODEL_PATH))
+basic_pitch = tf.saved_model.load(str(ICASSP_2022_MODEL_PATH))
 
 # Construct the path to the model checkpoint to evaluate
 #model_path = os.path.join(experiment_dir, 'models', f'model-{checkpoint}.pt')
@@ -114,7 +114,6 @@ h_idx = harmonics.index(1)
 ## DATASETS ##
 ##############
 
-"""
 # Instantiate Bach10 dataset for evaluation
 bach10 = Bach10(sample_rate=sample_rate,
                 hop_length=hop_length,
@@ -129,6 +128,7 @@ su = Su(sample_rate=sample_rate,
         n_bins=n_bins,
         bins_per_octave=bins_per_octave)
 
+"""
 # Instantiate TRIOS dataset for evaluation
 trios = TRIOS(sample_rate=sample_rate,
               hop_length=hop_length,
@@ -163,7 +163,6 @@ medleydb = MedleyDB_Pitch(sample_rate=sample_rate,
                           fmin=fmin,
                           n_bins=n_bins,
                           bins_per_octave=bins_per_octave)
-"""
 
 #seed_everything(0)
 
@@ -176,6 +175,7 @@ nsynthvalid = NSynthValidation(splits=['valid'],
                                fmin=fmin,
                                n_bins=n_bins,
                                bins_per_octave=bins_per_octave)
+"""
 
 ################
 ## EVALUATION ##
@@ -218,9 +218,9 @@ def print_and_log(text, path=None):
 
 
 # Loop through all evaluation datasets
-for test_set in [nsynthvalid]:#[bach10, su, trios, musicnet, urmp, swd]:
+for test_set in [bach10, su]:
     # Initialize evaluators for all models
-    #bp_evaluator = MultipitchEvaluator()
+    bp_evaluator = MultipitchEvaluator()
     #ss_evaluator = MultipitchEvaluator()
     ln_evaluator = MultipitchEvaluator()
     sc_evaluator = MultipitchEvaluator()
@@ -245,25 +245,58 @@ for test_set in [nsynthvalid]:#[bach10, su, trios, musicnet, urmp, swd]:
         gt_times = test_set.get_times(audio)
 
         # Obtain predictions from the BasicPitch model
-        #model_output, _, _ = predict(audio_path, basic_pitch)
+        model_output, _, _ = predict(audio_path, basic_pitch)
         # Extract the pitch salience predictions
-        #bp_salience = model_output['contour'].T
+        bp_salience = model_output['contour'].T
         # Determine times associated with each frame of predictions
-        #bp_times = model_frames_to_time(bp_salience.shape[-1])
+        bp_times = model_frames_to_time(bp_salience.shape[-1])
 
         # Obtain a function to resample predicted salience
-        #res_func_time = scipy.interpolate.interp1d(x=bp_times,
-        #                                           y=np.arange(len(bp_times)),
-        #                                           kind='nearest',
-        #                                           bounds_error=False,
-        #                                           fill_value=(0, len(bp_times) - 1),
-        #                                           assume_sorted=True)
+        res_func_time = scipy.interpolate.interp1d(x=bp_times,
+                                                   y=np.arange(len(bp_times)),
+                                                   kind='nearest',
+                                                   bounds_error=False,
+                                                   fill_value=(0, len(bp_times) - 1),
+                                                   assume_sorted=True)
 
         # Resample the BasicPitch salience predictions using above function
-        #bp_salience = bp_salience[..., res_func_time(gt_times).astype('uint')]
+        bp_salience = bp_salience[..., res_func_time(gt_times).astype('uint')]
 
         # Compute results for BasicPitch predictions
         #bp_results = bp_evaluator.evaluate(bp_salience, ground_truth)
+        """"""
+        # Apply peak-picking and thresholding on the raw salience
+        peaks = scipy.signal.argrelmax(bp_salience, axis=0)
+        peak_idcs = np.zeros(bp_salience.shape).astype(bool)
+        peak_idcs[peaks] = True
+        bp_salience[~peak_idcs] = 0
+        bp_salience[bp_salience >= 0.3] = 1
+        bp_salience[bp_salience != 1] = 0
+
+        from mir_eval.multipitch import evaluate
+
+        def multi_pitch_to_pitch_list(multi_pitch, center_freqs):
+            # Determine the number of frames in the multi pitch array
+            num_frames = multi_pitch.shape[-1]
+
+            # Initialize empty pitch arrays for each time entry
+            pitch_list = [np.empty(0)] * num_frames
+
+            # Determine which frames contain pitch activity
+            non_silent_frames = np.where(np.sum(multi_pitch, axis=-2) > 0)[-1]
+
+            # Loop through the frames containing pitch activity
+            for i in list(non_silent_frames):
+                # Determine the MIDI pitches active in the frame and add to the list
+                pitch_list[i] = center_freqs[np.where(multi_pitch[..., i])[-1]]
+
+            return pitch_list
+
+        gt_freqs = multi_pitch_to_pitch_list(ground_truth.round(), test_set.center_freqs)
+        bp_freqs = multi_pitch_to_pitch_list(bp_salience.round(), test_set.center_freqs)
+
+        bp_results = evaluate(gt_times, gt_freqs, gt_times, bp_freqs)
+        """"""
 
         with torch.no_grad():
             # Obtain spectral features in decibels
@@ -296,7 +329,7 @@ for test_set in [nsynthvalid]:#[bach10, su, trios, musicnet, urmp, swd]:
         if verbose:
             # Print results for the individual track
             print_and_log(f'\tResults for track \'{track}\' ({test_set.name()}):', save_path)
-            #print_and_log(f'\t- BasicPitch: {bp_results}', save_path)
+            print_and_log(f'\t- BasicPitch: {bp_results}', save_path)
             #print_and_log(f'\t- Self-Supervised: {ss_results}', save_path)
             print_and_log(f'\t- Amplitude CQT: {ln_results}', save_path)
             print_and_log(f'\t- Log-Scaled CQT: {sc_results}', save_path)
@@ -305,13 +338,19 @@ for test_set in [nsynthvalid]:#[bach10, su, trios, musicnet, urmp, swd]:
 
         # Track results with the respective evaluator
         #bp_evaluator.append_results(bp_results)
+        """"""
+        if i == 0:
+            bp_evaluator.results = dict(bp_results)
+        else:
+            bp_evaluator.append_results(dict(bp_results))
+        """"""
         #ss_evaluator.append_results(ss_results)
         ln_evaluator.append_results(ln_results)
         sc_evaluator.append_results(sc_results)
         hm_evaluator.append_results(hm_results)
 
     # Print average results for each evaluator
-    #print_and_log(f'BasicPitch: {bp_evaluator.average_results()}', save_path)
+    print_and_log(f'BasicPitch: {bp_evaluator.average_results()}', save_path)
     #print_and_log(f'Self-Supervised: {ss_evaluator.average_results()}', save_path)
     print_and_log(f'Amplitude CQT: {ln_evaluator.average_results()}', save_path)
     print_and_log(f'Log-Scaled CQT {sc_evaluator.average_results()}', save_path)
