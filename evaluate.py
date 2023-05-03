@@ -149,8 +149,8 @@ def evaluate(model, hcqt, eval_set, writer=None, i=0, device='cpu'):
             features_log = rescale_decibels(features_dec)
             # Compute the pitch salience of the features
             salience = torch.sigmoid(model(features_log).squeeze())
-            # Threshold the salience to obtain multi pitch predictions
-            multi_pitch = np.round(salience.cpu().numpy())
+            # Peak-pick and threshold the salience to obtain predictions
+            multi_pitch = np.round(filter_non_peaks(salience.cpu().numpy()))
             # Bring the ground-truth to the cpu
             ground_truth = ground_truth.squeeze().cpu()
             # Compute results for this track

@@ -9,6 +9,7 @@ import tarfile
 import zipfile
 import shutil
 import random
+import scipy
 import torch
 import math
 import os
@@ -236,6 +237,58 @@ def rescale_decibels(decibels, negative_infinity_dB=-80):
     scaled = 1 + (decibels / negative_infinity_dB)
 
     return scaled
+
+
+def filter_non_peaks(_arr):
+    """
+    Remove any values that are not peaks along the vertical axis.
+
+    Parameters
+    ----------
+    _arr : np.ndarray (... x H x W)
+      Original data
+
+    Returns
+    ----------
+    arr : np.ndarray (... x H x W)
+      Data with non-peaks removed
+    """
+
+    # Initialize an array to hold filtered data
+    arr = np.zeros(_arr.shape)
+
+    # Determine which indices correspond to peaks
+    peaks = scipy.signal.argrelmax(_arr, axis=-2)
+
+    # Transfer peaks to new array
+    arr[peaks] = _arr[peaks]
+
+    return arr
+
+
+def threshold(_arr, t=0.5):
+    """
+    Binarize data based on a given threshold.
+
+    Parameters
+    ----------
+    _arr : np.ndarray
+      Original data
+    t : float [0, 1]
+      Threshold value
+
+    Returns
+    ----------
+    arr : np.ndarray
+      Binarized data
+    """
+
+    # Initialize an array to hold binarized data
+    arr = np.zeros(_arr.shape)
+    # Set values above threshold to one
+    arr[_arr >= t] = 1
+
+    return arr
 
 
 # TODO - can this function be sped up?

@@ -81,6 +81,8 @@ harmonic_weights = 1 / torch.Tensor(harmonics) ** 2
 harmonic_weights[harmonic_weights > 1] = 0
 # Normalize the harmonic weights
 harmonic_weights /= torch.sum(harmonic_weights)
+# Add frequency and time dimensions for broadcasting
+harmonic_weights = harmonic_weights.unsqueeze(-1).unsqueeze(-1)
 
 
 ############
@@ -223,8 +225,9 @@ for test_set in [bach10, su]:
     bp_evaluator = MultipitchEvaluator()
     #ss_evaluator = MultipitchEvaluator()
     ln_evaluator = MultipitchEvaluator()
-    sc_evaluator = MultipitchEvaluator()
-    hm_evaluator = MultipitchEvaluator()
+    lg_evaluator = MultipitchEvaluator()
+    hm_ln_evaluator = MultipitchEvaluator()
+    hm_lg_evaluator = MultipitchEvaluator()
 
     print_and_log(f'Results for {test_set.name()}:', save_path)
 
@@ -266,12 +269,7 @@ for test_set in [bach10, su]:
         #bp_results = bp_evaluator.evaluate(bp_salience, ground_truth)
         """"""
         # Apply peak-picking and thresholding on the raw salience
-        peaks = scipy.signal.argrelmax(bp_salience, axis=0)
-        peak_idcs = np.zeros(bp_salience.shape).astype(bool)
-        peak_idcs[peaks] = True
-        bp_salience[~peak_idcs] = 0
-        bp_salience[bp_salience >= 0.3] = 1
-        bp_salience[bp_salience != 1] = 0
+        bp_salience = threshold(filter_non_peaks(bp_salience), 0.3)
 
         from mir_eval.multipitch import evaluate
 
@@ -287,8 +285,8 @@ for test_set in [bach10, su]:
 
             # Loop through the frames containing pitch activity
             for i in list(non_silent_frames):
-                # Determine the MIDI pitches active in the frame and add to the list
-                pitch_list[i] = center_freqs[np.where(multi_pitch[..., i])[-1]]
+                # Determine the pitches active in the frame and add to the list
+                pitch_list[i] = librosa.midi_to_hz(center_freqs[np.where(multi_pitch[..., i])[-1]])
 
             return pitch_list
 
@@ -316,15 +314,16 @@ for test_set in [bach10, su]:
         #ss_results = ss_evaluator.evaluate(ss_salience.cpu().numpy(), ground_truth)
 
         # Obtain salience as the first harmonic of the CQT features
-        ln_salience = features_lin.squeeze()[h_idx]
-        sc_salience = features_log.squeeze()[h_idx]
-        hm_salience = torch.sum(features_lin.squeeze() *
-                                harmonic_weights.unsqueeze(-1).unsqueeze(-1), dim=-3)
+        ln_salience = features_lin.squeeze()[h_idx].cpu().numpy()
+        lg_salience = features_log.squeeze()[h_idx].cpu().numpy()
+        hm_ln_salience = torch.sum(features_lin.squeeze() * harmonic_weights, dim=-3).cpu().numpy()
+        hm_lg_salience = torch.sum(features_log.squeeze() * harmonic_weights, dim=-3).cpu().numpy()
 
         # Determine performance floor when using CQT features as predictions
-        ln_results = ln_evaluator.evaluate(ln_salience.cpu().numpy(), ground_truth)
-        sc_results = sc_evaluator.evaluate(sc_salience.cpu().numpy(), ground_truth)
-        hm_results = hm_evaluator.evaluate(hm_salience.cpu().numpy(), ground_truth)
+        ln_results = ln_evaluator.evaluate(ln_salience, ground_truth)
+        lg_results = lg_evaluator.evaluate(filter_non_peaks(lg_salience), ground_truth)
+        hm_ln_results = hm_ln_evaluator.evaluate(hm_ln_salience, ground_truth)
+        hm_lg_results = hm_lg_evaluator.evaluate(filter_non_peaks(hm_lg_salience), ground_truth)
 
         if verbose:
             # Print results for the individual track
@@ -332,8 +331,9 @@ for test_set in [bach10, su]:
             print_and_log(f'\t- BasicPitch: {bp_results}', save_path)
             #print_and_log(f'\t- Self-Supervised: {ss_results}', save_path)
             print_and_log(f'\t- Amplitude CQT: {ln_results}', save_path)
-            print_and_log(f'\t- Log-Scaled CQT: {sc_results}', save_path)
-            print_and_log(f'\t- H-Weighted CQT: {hm_results}', save_path)
+            print_and_log(f'\t- Log-Scaled CQT: {lg_results}', save_path)
+            print_and_log(f'\t- H-Weighted (Lin) CQT: {hm_ln_results}', save_path)
+            print_and_log(f'\t- H-Weighted (Log) CQT: {hm_lg_results}', save_path)
             print_and_log('', save_path)
 
         # Track results with the respective evaluator
@@ -346,13 +346,15 @@ for test_set in [bach10, su]:
         """"""
         #ss_evaluator.append_results(ss_results)
         ln_evaluator.append_results(ln_results)
-        sc_evaluator.append_results(sc_results)
-        hm_evaluator.append_results(hm_results)
+        lg_evaluator.append_results(lg_results)
+        hm_ln_evaluator.append_results(hm_ln_results)
+        hm_lg_evaluator.append_results(hm_lg_results)
 
     # Print average results for each evaluator
     print_and_log(f'BasicPitch: {bp_evaluator.average_results()}', save_path)
     #print_and_log(f'Self-Supervised: {ss_evaluator.average_results()}', save_path)
     print_and_log(f'Amplitude CQT: {ln_evaluator.average_results()}', save_path)
-    print_and_log(f'Log-Scaled CQT {sc_evaluator.average_results()}', save_path)
-    print_and_log(f'H-Weighted CQT {hm_evaluator.average_results()}', save_path)
+    print_and_log(f'Log-Scaled CQT {lg_evaluator.average_results()}', save_path)
+    print_and_log(f'H-Weighted (Lin) CQT {hm_ln_evaluator.average_results()}', save_path)
+    print_and_log(f'H-Weighted (Log) CQT {hm_lg_evaluator.average_results()}', save_path)
     print_and_log('', save_path)
