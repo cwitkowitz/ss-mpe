@@ -299,7 +299,8 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 salience = torch.sigmoid(embeddings)
 
                 # Obtain pseudo-ground-truth as features at first harmonic
-                pseudo_ground_truth = features_lin[:, h_idx]
+                pseudo_ground_truth_lin = features_lin[:, h_idx]
+                pseudo_ground_truth_log = features_log[:, h_idx]
 
                 # Compute a weighted sum of the features to obtain a rough salience estimate
                 pseudo_salience_lin = torch.sum(features_lin * harmonic_weights, dim=-3)
@@ -307,19 +308,19 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 #pseudo_salience = torch.Tensor(filter_non_peaks(pseudo_salience.cpu().numpy())).to(device)
 
                 # Compute the power loss for this batch
-                power_loss = compute_power_loss(salience, pseudo_ground_truth)
+                power_loss = compute_power_loss(salience, pseudo_ground_truth_log)
 
                 # Log the power loss for this batch
                 writer.add_scalar('train/loss/power', power_loss, batch_count)
 
                 # Compute the support loss with respect to the first harmonic for this batch
-                support_loss = compute_support_loss(embeddings, pseudo_ground_truth)
+                support_loss = compute_support_loss(embeddings, pseudo_ground_truth_log)
 
                 # Log the support loss for this batch
                 writer.add_scalar('train/loss/support', support_loss, batch_count)
 
                 # Compute the harmonic loss with respect to the weighted harmonic sum for this batch
-                harmonic_loss = compute_harmonic_loss(embeddings, pseudo_salience_lin)
+                harmonic_loss = compute_harmonic_loss(embeddings, pseudo_salience_log)
 
                 # Log the harmonic loss for this batch
                 writer.add_scalar('train/loss/harmonic', harmonic_loss, batch_count)
