@@ -1,15 +1,16 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from common import EvalSet
+from common import EvalSetFrameLevel
 
 # Regular imports
 import numpy as np
+import librosa
 import scipy
 import os
 
 
-class Bach10(EvalSet):
+class Bach10(EvalSetFrameLevel):
     """
     Implements a wrapper for the Bach10 dataset (https://labsites.rochester.edu/air/resource.html).
     """
@@ -75,9 +76,9 @@ class Bach10(EvalSet):
 
         return mat_path
 
-    def get_ground_truth(self, track, times):
+    def get_ground_truth(self, track):
         """
-        Get the path for a track's ground_truth.
+        Get the ground-truth for a track.
 
         Parameters
         ----------
@@ -86,8 +87,10 @@ class Bach10(EvalSet):
 
         Returns
         ----------
-        ground_truth : TODO
-          TODO
+        times : ndarray (T)
+          Time associated with each frame of annotations
+        multi_pitch : list of ndarray (T x [...])
+          Frame-level multi-pitch annotations in Hertz
         """
 
         # Obtain the path to the track's ground_truth
@@ -99,39 +102,13 @@ class Bach10(EvalSet):
         # Determine how many frames were provided
         num_frames = multi_pitch.shape[-1]
 
-        # Create array of frame indices
-        original_idcs = np.arange(num_frames)
-
         # Compute the original times for each frame
-        original_times = 0.023 + 0.010 * original_idcs
+        times = 0.023 + 0.010 * np.arange(num_frames)
 
-        # Clamp resampled indices within the valid range
-        fill_values = (original_idcs[0], original_idcs[-1])
+        # Obtain ground-truth as a list of pitch observations in Hertz
+        multi_pitch = [librosa.midi_to_hz(p[p != 0]) for p in multi_pitch.T]
 
-        # Obtain a function to resample annotation times
-        res_func_time = scipy.interpolate.interp1d(x=original_times,
-                                                   y=original_idcs,
-                                                   kind='nearest',
-                                                   bounds_error=False,
-                                                   fill_value=fill_values,
-                                                   assume_sorted=True)
-
-        # Resample the multi-pitch annotations using above function
-        multi_pitch = multi_pitch[..., res_func_time(times).astype('uint')]
-
-        # Obtain an empty array for inserting ground-truth
-        ground_truth = super().get_ground_truth(track, times)
-
-        # Determine the frames corresponding to pitch observations
-        _, frame_idcs = multi_pitch.nonzero()
-
-        # Determine the closest frequency bin for each pitch observation
-        multi_pitch_idcs = self.res_func_freq(multi_pitch[multi_pitch != 0.])
-
-        # Insert pitch activity into the ground-truth
-        ground_truth[multi_pitch_idcs.astype('uint'), frame_idcs] = 1
-
-        return ground_truth
+        return times, multi_pitch
 
     @classmethod
     def download(cls, save_dir):

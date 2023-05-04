@@ -6,9 +6,10 @@ from NSynth import NSynth, NSynthValidation
 from common import ComboSet
 from Bach10 import Bach10
 from Su import Su
-from TRIOS import TRIOS
+#from TRIOS import TRIOS
 
-from lhvqt import LHVQT, torch_amplitude_to_db
+from hcqt import LHVQT
+from lhvqt import torch_amplitude_to_db
 from model import SAUNet
 
 from objectives import *
@@ -143,6 +144,8 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     harmonic_weights[harmonic_weights > 1] = 0
     # Normalize the harmonic weights
     harmonic_weights /= torch.sum(harmonic_weights)
+    # Add frequency and time dimensions for broadcasting
+    harmonic_weights = harmonic_weights.unsqueeze(-1).unsqueeze(-1)
 
     # Define the maximum position index (geometric-invariance loss)
     max_position = 4 * n_frames
@@ -194,44 +197,31 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
     # Combine all training datasets into one
     training_data = ComboSet([nsynthtrain]) if SYNTH else ComboSet([freemusicarchive])
 
+    # Determine maximum supported MIDI frequency
+    fmax = max(fbins_midi[h_idx])
+
     # Instantiate NSynth dataset for validation
     nsynthvalid = NSynthValidation(base_dir=nsynth_base_dir,
                                    splits=['valid'],
                                    n_tracks=150 if CONFIG else 50,
-                                   remove_out_of_bounds_tracks=True,
-                                   sample_rate=sample_rate,
-                                   hop_length=hop_length,
-                                   fmin=fmin,
-                                   n_bins=n_bins,
-                                   bins_per_octave=bins_per_octave)
+                                   midi_range=[fmin, fmax],
+                                   sample_rate=sample_rate)
     #training_data.datasets[0].tracks = nsynthvalid.tracks
 
     # Instantiate Bach10 dataset for validation
     bach10 = Bach10(base_dir=bach10_base_dir,
-                    sample_rate=sample_rate,
-                    hop_length=hop_length,
-                    fmin=fmin,
-                    n_bins=n_bins,
-                    bins_per_octave=bins_per_octave)
+                    sample_rate=sample_rate)
 
     # Instantiate Su dataset for validation
     su = Su(base_dir=su_base_dir,
-            sample_rate=sample_rate,
-            hop_length=hop_length,
-            fmin=fmin,
-            n_bins=n_bins,
-            bins_per_octave=bins_per_octave)
+            sample_rate=sample_rate)
 
     # Instantiate TRIOS dataset for validation
-    trios = TRIOS(base_dir=trios_base_dir,
-                  sample_rate=sample_rate,
-                  hop_length=hop_length,
-                  fmin=fmin,
-                  n_bins=n_bins,
-                  bins_per_octave=bins_per_octave)
+    #trios = TRIOS(base_dir=trios_base_dir,
+    #              sample_rate=sample_rate)
 
     # Initialize a list to hold all validation datasets
-    validation_sets = [nsynthvalid, bach10, su, trios]
+    validation_sets = [nsynthvalid, bach10, su]#, trios]
 
     # Initialize a PyTorch dataloader for the data
     loader = DataLoader(dataset=training_data,
@@ -311,6 +301,11 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 # Obtain pseudo-ground-truth as features at first harmonic
                 pseudo_ground_truth = features_lin[:, h_idx]
 
+                # Compute a weighted sum of the features to obtain a rough salience estimate
+                pseudo_salience = torch.sum(features_lin * harmonic_weights, dim=-3)
+                #pseudo_salience = torch.sum(features_log * harmonic_weights, dim=-3)
+                #pseudo_salience = torch.Tensor(filter_non_peaks(pseudo_salience.cpu().numpy())).to(device)
+
                 # Compute the power loss for this batch
                 power_loss = compute_power_loss(salience, pseudo_ground_truth)
 
@@ -322,9 +317,6 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
 
                 # Log the support loss for this batch
                 writer.add_scalar('train/loss/support', support_loss, batch_count)
-
-                # Compute a weighted sum of the features to obtain a rough salience estimate
-                pseudo_salience = torch.sum(features_lin * harmonic_weights.unsqueeze(-1).unsqueeze(-1), dim=-3)
 
                 # Compute the harmonic loss with respect to the weighted harmonic sum for this batch
                 harmonic_loss = compute_harmonic_loss(embeddings, pseudo_salience)
@@ -345,12 +337,12 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                 writer.add_scalar('train/loss/timbre', timbre_loss, batch_count)
 
                 # Compute the geometric-invariance loss for this batch
-                geometric_loss = compute_geometric_loss(model, features_log, embeddings, max_seq_idx=max_position,
-                                                        max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
-                                                        min_stretch=min_stretch_time, max_stretch=max_stretch_time)
+                #geometric_loss = compute_geometric_loss(model, features_log, embeddings, max_seq_idx=max_position,
+                #                                        max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
+                #                                        min_stretch=min_stretch_time, max_stretch=max_stretch_time)
 
                 # Log the geometric-invariance loss for this batch
-                writer.add_scalar('train/loss/geometric', geometric_loss, batch_count)
+                #writer.add_scalar('train/loss/geometric', geometric_loss, batch_count)
 
                 # Compute the superposition loss for this batch
                 #superposition_loss = compute_superposition_loss(hcqt, model, audio, salience, mix_probability)

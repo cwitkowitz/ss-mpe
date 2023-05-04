@@ -166,12 +166,12 @@ def normalize(_arr):
 
     Parameters
     ----------
-    _arr : np.ndarray
+    _arr : ndarray
       Original data
 
     Returns
     ----------
-    arr : np.ndarray
+    arr : ndarray
       Normalized data
     """
 
@@ -191,14 +191,14 @@ def decibels_to_amplitude(decibels, negative_infinity_dB=-80):
 
     Parameters
     ----------
-    decibels : np.ndarray or torch.tensor
+    decibels : ndarray or Tensor
       Tensor of decibel values with a ceiling of 0
     negative_infinity_dB : float
       Decibel cutoff beyond which is considered negative infinity
 
     Returns
     ----------
-    gain : np.ndarray or torch.tensor
+    gain : ndarray or Tensor
       Tensor of values linearly scaled between 0 and 1
     """
 
@@ -219,14 +219,14 @@ def rescale_decibels(decibels, negative_infinity_dB=-80):
 
     Parameters
     ----------
-    decibels : np.ndarray or torch.tensor
+    decibels : ndarray or Tensor
       Tensor of decibel values with a ceiling of 0
     negative_infinity_dB : float
       Decibel cutoff beyond which is considered negative infinity
 
     Returns
     ----------
-    scaled : np.ndarray or torch.tensor
+    scaled : ndarray or Tensor
       Tensor of values log-scale scaled between 0 and 1
     """
 
@@ -245,12 +245,12 @@ def filter_non_peaks(_arr):
 
     Parameters
     ----------
-    _arr : np.ndarray (... x H x W)
+    _arr : ndarray (... x H x W)
       Original data
 
     Returns
     ----------
-    arr : np.ndarray (... x H x W)
+    arr : ndarray (... x H x W)
       Data with non-peaks removed
     """
 
@@ -272,14 +272,14 @@ def threshold(_arr, t=0.5):
 
     Parameters
     ----------
-    _arr : np.ndarray
+    _arr : ndarray
       Original data
     t : float [0, 1]
       Threshold value
 
     Returns
     ----------
-    arr : np.ndarray
+    arr : ndarray
       Binarized data
     """
 

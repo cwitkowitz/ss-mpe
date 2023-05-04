@@ -1,5 +1,9 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
+# My imports
+from utils import *
+
+# Regular imports
 from torch.utils.data import Dataset
 from abc import abstractmethod
 
@@ -234,70 +238,19 @@ class TrainSet(Dataset):
         print(f'Downloading {cls.__name__}...')
 
 
-class EvalSet(TrainSet):
+class EvalSetFrameLevel(TrainSet):
     """
-    Implements a wrapper for an MPE dataset intended for evaluation.
+    Implements a wrapper for an MPE dataset with frame-level annotations intended for evaluation.
     """
 
-    def __init__(self, hop_length, fmin, n_bins, bins_per_octave, **kwargs):
+    @staticmethod
+    @abstractmethod
+    def has_frame_level_annotations():
         """
-        TODO.
-
-        Parameters
-        ----------
-        hop_length : TODO
-          TODO
-        fmin : TODO
-          TODO
-        n_bins : TODO
-          TODO
-        bins_per_octave : TODO
-          TODO
-        kwargs : TODO
-          TODO
+        Helper function to determine if ground-truth times are available.
         """
 
-        self.hop_length = hop_length
-
-        # Compute the center frequencies for all bins
-        self.center_freqs = fmin + np.arange(n_bins) / (bins_per_octave / 12)
-
-        # Obtain a function to resample annotation frequencies
-        self.res_func_freq = scipy.interpolate.interp1d(x=self.center_freqs,
-                                                        y=np.arange(n_bins),
-                                                        kind='nearest',
-                                                        bounds_error=True,
-                                                        assume_sorted=True)
-
-        super().__init__(**kwargs)
-
-    def get_times(self, audio):
-        """
-        TODO
-
-        TODO - does this really belong here?
-               seems more appropriate as function of HCQT module
-
-        Parameters
-        ----------
-        audio : TODO
-          TODO
-
-        Returns
-        ----------
-        times : TODO
-          TODO
-        """
-
-        # Determine number of frames as the number of hops
-        n_frames = 1 + audio.size(-1) // self.hop_length
-
-        # Compute time associated with center of each frame
-        times = librosa.frames_to_time(np.arange(n_frames),
-                                       sr=self.sample_rate,
-                                       hop_length=self.hop_length)
-
-        return times
+        return True
 
     @abstractmethod
     def get_ground_truth_path(self, track):
@@ -312,6 +265,182 @@ class EvalSet(TrainSet):
 
         return NotImplementedError
 
+    @staticmethod
+    @abstractmethod
+    def resample_multi_pitch(_times, _multi_pitch, times):
+        """
+        Protocol for resampling the ground-truth annotations, if necessary.
+
+        Parameters
+        ----------
+        _times : ndarray (T)
+          Original times
+        _multi_pitch : list of ndarray (T x [...])
+          Multi-pitch annotations corresponding to original times
+        times : ndarray (K)
+          Target times for resampling
+
+        Returns
+        ----------
+        multi_pitch : list of ndarray (K x [...])
+          Multi-pitch annotations corresponding to target times
+        """
+
+        # Create array of frame indices
+        original_idcs = np.arange(len(_times))
+
+        # Clamp resampled indices within the valid range
+        fill_values = (original_idcs[0], original_idcs[-1])
+
+        # Obtain a function to resample annotation times
+        res_func_time = scipy.interpolate.interp1d(x=_times,
+                                                   y=original_idcs,
+                                                   kind='nearest',
+                                                   bounds_error=False,
+                                                   fill_value=fill_values,
+                                                   assume_sorted=True)
+
+        # Resample the multi-pitch annotations using above function
+        multi_pitch = [_multi_pitch[t] for t in res_func_time(times).astype('uint')]
+
+        return multi_pitch
+
+    @abstractmethod
+    def get_ground_truth(self, track):
+        """
+        Get the ground-truth for a track.
+
+        Parameters
+        ----------
+        track : string
+          Track name
+
+        Returns
+        ----------
+        times : ndarray (T)
+          Time associated with each frame of annotations
+        multi_pitch : list of ndarray (T x [...])
+          Frame-level multi-pitch annotations in Hertz
+        """
+
+        return NotImplementedError
+
+    @staticmethod
+    def activations_to_multi_pitch(activations, midi_freqs, thr=0.5):
+        """
+        Convert an array of discrete pitch activations into a list of active pitches.
+
+        Parameters
+        ----------
+        activations : ndarray (F x T)
+          Discrete activations corresponding to MIDI pitches
+        midi_freqs : ndarray (F)
+          MIDI frequency corresponding to each bin
+        thr : float [0, 1]
+          Threshold value
+
+        Returns
+        ----------
+        multi_pitch : list of ndarray (T x [...])
+          Array of active pitches (in Hertz) across time
+        """
+
+        # Initialize empty pitch arrays for each frame
+        multi_pitch = [np.empty(0)] * activations.shape[-1]
+
+        # Make sure the activations are binarized
+        activations = threshold(activations, thr)
+
+        # Determine which frames contain pitch activity
+        non_silent_frames = np.where(np.sum(activations, axis=-2) > 0)[-1]
+
+        # Loop through these frames
+        for i in list(non_silent_frames):
+            # Determine the active pitches within the frame and insert into the list
+            multi_pitch[i] = librosa.midi_to_hz(midi_freqs[np.where(activations[..., i])[-1]])
+
+        return multi_pitch
+
+    @staticmethod
+    def multi_pitch_to_activations(multi_pitch, midi_freqs):
+        """
+        Convert a list of active pitches into an array of discrete pitch activations.
+
+        Parameters
+        ----------
+        multi_pitch : list of ndarray (T x [...])
+          Frame-level multi-pitch annotations in Hertz
+        midi_freqs : ndarray (F)
+          MIDI frequency corresponding to each bin
+
+        Returns
+        ----------
+        activations : ndarray (F x T)
+          Discrete activations corresponding to MIDI pitches
+        """
+
+        # Obtain a function to resample to discrete frequencies
+        res_func_freq = scipy.interpolate.interp1d(x=midi_freqs,
+                                                   y=np.arange(len(midi_freqs)),
+                                                   kind='nearest',
+                                                   bounds_error=True,
+                                                   assume_sorted=True)
+
+        # Construct an empty array of relevant size by default
+        activations = np.zeros((len(midi_freqs), len(multi_pitch)))
+
+        # Make sure zeros are filtered out and convert to MIDI
+        multi_pitch = [librosa.hz_to_midi(p[p != 0]) for p in multi_pitch]
+
+        # Obtain frame indices corresponding to pitch activity
+        frame_idcs = np.concatenate([[i] * len(multi_pitch[i])
+                                     for i in range(len(multi_pitch)) if len(multi_pitch[i])])
+
+        # Determine the closest frequency bin for each pitch observation
+        multi_pitch_idcs = np.concatenate([res_func_freq(multi_pitch[i])
+                                           for i in sorted(set(frame_idcs))])
+
+        # Insert pitch activity into the ground-truth
+        activations[multi_pitch_idcs.astype('uint'), frame_idcs] = 1
+
+        return activations
+
+
+class EvalSetNoteLevel(EvalSetFrameLevel):
+    """
+    Implements a wrapper for an MPE dataset with note-level annotations intended for evaluation.
+    """
+
+    @staticmethod
+    def has_frame_level_annotations():
+        """
+        Helper function to determine if ground-truth times are available.
+        """
+
+        return False
+
+    @staticmethod
+    def resample_multi_pitch(_times, _multi_pitch, times):
+        """
+        This is not necessary due to parameterization of times when generating ground-truth.
+
+        Parameters
+        ----------
+        _times : ndarray (T)
+          Original times
+        _multi_pitch : list of ndarray (T x [...])
+          Multi-pitch annotations corresponding to original times
+        times : ndarray (K)
+          Target times for resampling
+
+        Returns
+        ----------
+        multi_pitch : list of ndarray (K x [...])
+          Multi-pitch annotations corresponding to target times
+        """
+
+        return NotImplementedError
+
     @abstractmethod
     def get_ground_truth(self, track, times):
         """
@@ -321,49 +450,18 @@ class EvalSet(TrainSet):
         ----------
         track : string (unused)
           Track name
-        times : TODO (unused)
-          TODO
+        times : ndarray (T)
+          Frame times to use when constructing ground-truth
 
         Returns
         ----------
-        ground_truth : TODO
-          TODO
+        times : ndarray (T)
+          Time associated with each frame of annotations
+        multi_pitch : list of ndarray (T x [...])
+          Frame-level multi-pitch annotations in Hertz
         """
 
-        # Construct an empty array of relevant size by default
-        ground_truth = np.zeros((len(self.center_freqs), len(times)))
-
-        return ground_truth
-
-    @abstractmethod
-    def __getitem__(self, index):
-        """
-        TODO.
-
-        Parameters
-        ----------
-        index : int
-          Index of sampled track
-
-        Returns
-        ----------
-        audio : TODO
-          TODO
-        """
-
-        # TODO
-        audio = super().__getitem__(index)
-
-        # Obtain time associated with each frame
-        times = self.get_times(audio)
-
-        # TODO
-        ground_truth = self.get_ground_truth(self.tracks[index], times)
-
-        # Convert ground-truth to tensor with float type
-        ground_truth = torch.from_numpy(ground_truth).float()
-
-        return audio, ground_truth
+        return NotImplementedError
 
 
 class ComboSet(TrainSet):

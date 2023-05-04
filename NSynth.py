@@ -2,10 +2,11 @@
 
 # My imports
 from utils import stream_url_resource, unzip_and_remove
-from common import TrainSet, EvalSet
+from common import TrainSet, EvalSetNoteLevel
 
 # Regular imports
-import warnings
+import numpy as np
+import librosa
 import random
 import json
 import os
@@ -112,12 +113,12 @@ class NSynth(TrainSet):
             unzip_and_remove(save_path, tar=True)
 
 
-class NSynthValidation(EvalSet, NSynth):
+class NSynthValidation(EvalSetNoteLevel, NSynth):
     """
     TODO
     """
 
-    def __init__(self, n_tracks=None, remove_out_of_bounds_tracks=False, **kwargs):
+    def __init__(self, n_tracks=None, midi_range=None, **kwargs):
         """
         TODO.
 
@@ -125,14 +126,14 @@ class NSynthValidation(EvalSet, NSynth):
         ----------
         n_tracks : int
           TODO
-        remove_out_of_bounds_tracks : bool
+        midi_range : bool
           TODO
         kwargs : TODO
           TODO
         """
 
         self.n_tracks = n_tracks
-        self.remove_out_of_bounds_tracks = remove_out_of_bounds_tracks
+        self.midi_range = midi_range
 
         super().__init__(**kwargs)
 
@@ -184,9 +185,11 @@ class NSynthValidation(EvalSet, NSynth):
         # Obtain the standard track list
         tracks = super().get_tracks(split)
 
-        if self.remove_out_of_bounds_tracks:
+        if self.midi_range is not None:
             # Filter out tracks with out-of-bounds ground-truth activations
-            tracks = [t for t in tracks if self.get_pitch(t) in self.center_freqs]
+            tracks = [t for t in tracks if
+                      (self.get_pitch(t) >= self.midi_range[0]) &
+                      (self.get_pitch(t) <= self.midi_range[1])]
 
         if self.n_tracks is not None:
             # Shuffle the tracks
@@ -199,34 +202,28 @@ class NSynthValidation(EvalSet, NSynth):
 
     def get_ground_truth(self, track, times):
         """
-        Get the path for a track's ground_truth.
+        Get the ground-truth for a track.
 
         Parameters
         ----------
         track : string
           NSynth track name
+        times : ndarray (T)
+          Frame times to use when constructing ground-truth
 
         Returns
         ----------
-        ground_truth : TODO
-          TODO
+        times : ndarray (T)
+          Time associated with each frame of annotations
+        multi_pitch : list of ndarray (T x [...])
+          Frame-level multi-pitch annotations in Hertz
         """
 
-        # Obtain an empty array for inserting ground-truth
-        ground_truth = super().get_ground_truth(track, times)
+        # Obtain nominal pitch in Hertz from the track name
+        pitch = librosa.midi_to_hz(self.get_pitch(track))
 
-        try:
-            # Obtain the index of the pitch of the sample from the track name
-            pitch_idx = int(self.res_func_freq(self.get_pitch(track)).item())
+        # Obtain ground-truth as the nominal pitch across time
+        multi_pitch = [np.array([pitch]) if (t >= 0) & (t <= 3)
+                       else np.empty(0) for t in times]
 
-            # Obtain time indices corresponding to pitch activity
-            time_idcs = (times >= 0) & (times <= 3)
-
-            # Make the pitch active for the entire duration
-            ground_truth[pitch_idx, time_idcs] = 1
-
-        except ValueError:
-            warnings.warn('Cannot represent ground-truth '
-                          f'for track \'{track}\'.', RuntimeWarning)
-
-        return ground_truth
+        return times, multi_pitch

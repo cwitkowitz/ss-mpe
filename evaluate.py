@@ -6,11 +6,12 @@ from lhvqt import torch_amplitude_to_db
 from utils import *
 
 # Regular imports
-from torch.utils.data import DataLoader
 from scipy.stats import hmean
 from copy import deepcopy
 
 import numpy as np
+import mir_eval
+import librosa
 import sys
 
 
@@ -22,14 +23,15 @@ class MultipitchEvaluator(object):
     TODO
     """
 
-    def __init__(self):
+    def __init__(self, tolerance=0.5):
         """
         TODO
         """
 
+        self.tolerance = tolerance
+
         # Initialize dictionary to track results
         self.results = None
-
         self.reset_results()
 
     def reset_results(self):
@@ -37,12 +39,7 @@ class MultipitchEvaluator(object):
         Reset tracked results to empty dictionary.
         """
 
-        self.results = {
-            'precision' : np.empty(0),
-            'recall' : np.empty(0),
-            'f1-score' : np.empty(0),
-            'accuracy' : np.empty(0)
-        }
+        self.results = {}
 
     def append_results(self, results):
         """
@@ -54,34 +51,50 @@ class MultipitchEvaluator(object):
           TODO
         """
 
-        # Loop through all keys in the array
+        # Loop through all keys
         for key in results.keys():
-            # Add the provided score to the pre-existing array
-            self.results[key] = np.append(self.results[key], results[key])
+            if key in self.results.keys():
+                # Add the provided score to the pre-existing array
+                self.results[key] = np.append(self.results[key], results[key])
+            else:
+                # Initialize a new array for the metric
+                self.results[key] = np.array([results[key]])
 
     def average_results(self):
         """
         TODO.
+
+        Returns
+        ----------
+        mean : TODO
+          TODO
+        std_dev : TODO
+          TODO
         """
 
         # Clone all current scores
-        results = deepcopy(self.results)
+        mean = deepcopy(self.results)
+        std_dev = deepcopy(self.results)
 
-        # Loop through all keys in the array
-        for key in results.keys():
-            # Average entries for the metric
-            results[key] = round(np.mean(results[key]), 5)
+        # Loop through all metrics
+        for key in self.results.keys():
+            # Compute statistics for the metric
+            mean[key] = round(np.mean(mean[key]), 5)
+            std_dev[key] = round(np.std(std_dev[key]), 5)
 
-        return results
+        return mean, std_dev
 
-    @staticmethod
-    def evaluate(multi_pitch_est, multi_pitch_ref):
+    def evaluate(self, times_est, multi_pitch_est, times_ref, multi_pitch_ref):
         """
         TODO.
 
         Parameters
         ----------
+        times_est : TODO
+          TODO
         multi_pitch_est : TODO
+          TODO
+        times_ref : TODO
           TODO
         multi_pitch_ref : TODO
           TODO
@@ -92,34 +105,20 @@ class MultipitchEvaluator(object):
           TODO
         """
 
-        # Flatten the estimated and reference data
-        flattened_multi_pitch_est = multi_pitch_est.round().flatten()
-        flattened_multi_pitch_ref = multi_pitch_ref.round().flatten()
+        # Use mir_eval to compute multi-pitch results at specified tolerance
+        results = mir_eval.multipitch.evaluate(times_ref, multi_pitch_ref,
+                                               times_est, multi_pitch_est,
+                                               window=self.tolerance)
 
-        # Determine the number of correct predictions, where estimated activation lines up with reference
-        num_correct = np.sum(flattened_multi_pitch_est * flattened_multi_pitch_ref, axis=-1)
-
-        # Count the total number of positive activations predicted
-        num_predicted = np.sum(flattened_multi_pitch_est, axis=-1)
-        # Count the total number of positive activations referenced
-        num_ground_truth = np.sum(flattened_multi_pitch_ref, axis=-1)
-
-        # Calculate precision and recall
-        precision = num_correct / (num_predicted + EPSILON)
-        recall = num_correct / (num_ground_truth + EPSILON)
+        # Make keys lowercase and switch to regular dict type
+        results = {k.lower(): results[k] for k in results.keys()}
 
         # Calculate the f1-score using the harmonic mean formula
-        f_measure = hmean([precision + EPSILON, recall + EPSILON]) - EPSILON
+        f_measure = hmean([results['precision'] + EPSILON,
+                           results['recall'] + EPSILON]) - EPSILON
 
-        # Calculate the accuracy of the predictions
-        accuracy = num_correct / (num_predicted + num_ground_truth - num_correct + EPSILON)
-
-        results = {
-            'precision' : precision,
-            'recall' : recall,
-            'f1-score' : f_measure,
-            'accuracy' : accuracy
-        }
+        # Add f1-score to the mir_eval results
+        results.update({'f1-score' : f_measure})
 
         return results
 
@@ -128,44 +127,63 @@ def evaluate(model, hcqt, eval_set, writer=None, i=0, device='cpu'):
     # Initialize a new evaluator for the dataset
     evaluator = MultipitchEvaluator()
 
-    # Initialize a PyTorch dataloader for the data
-    loader = DataLoader(dataset=eval_set,
-                        batch_size=1,
-                        shuffle=False,
-                        num_workers=0,
-                        drop_last=False)
+    # Unwrap the HCQT module from DataParallel to access attributes
+    h = hcqt.module if isinstance(hcqt, torch.nn.DataParallel) else hcqt
+
+    # Determine the MIDI frequency associated with each bin of the input/output
+    midi_freqs = librosa.hz_to_midi(h.fmin) + np.arange(h.n_bins) / (h.bins_per_octave / 12)
 
     # Place model in evaluation mode
     model.eval()
 
     with torch.no_grad():
         # Loop through each testing track
-        for audio, ground_truth in loader:
+        for track in eval_set.tracks:
+            # Extract the audio for this track and add to appropriate device
+            audio = eval_set.get_audio(track).to(device).unsqueeze(0)
+
             # Obtain spectral features in decibels
-            features_dec = torch_amplitude_to_db(hcqt(audio.to(device)))
+            features_dec = torch_amplitude_to_db(hcqt(audio))
             # Obtain amplitude features for the audio
             features_lin = decibels_to_amplitude(features_dec)
             # Obtain log-scale features for the audio
             features_log = rescale_decibels(features_dec)
             # Compute the pitch salience of the features
             salience = torch.sigmoid(model(features_log).squeeze())
-            # Peak-pick and threshold the salience to obtain predictions
-            multi_pitch = np.round(filter_non_peaks(salience.cpu().numpy()))
-            # Bring the ground-truth to the cpu
-            ground_truth = ground_truth.squeeze().cpu()
-            # Compute results for this track
-            results = evaluator.evaluate(multi_pitch, ground_truth.numpy())
+            # Peak-pick and threshold salience to obtain binarized activations
+            activations = np.round(filter_non_peaks(salience.cpu().numpy()))
+
+            # Determine the times associated with predictions
+            times_est = h.get_times(audio)
+            # Convert the activations to frame-level multi-pitch estimates
+            multi_pitch_est = eval_set.activations_to_multi_pitch(activations, midi_freqs)
+
+            if eval_set.has_frame_level_annotations():
+                # Extract the ground-truth multi-pitch annotations for this track
+                times_ref, multi_pitch_ref = eval_set.get_ground_truth(track)
+            else:
+                # Construct the ground-truth multi-pitch annotations for this track
+                times_ref, multi_pitch_ref = eval_set.get_ground_truth(track, times_est)
+
+            # Compute results for this track using mir_eval multi-pitch metrics
+            results = evaluator.evaluate(times_est, multi_pitch_est, times_ref, multi_pitch_ref)
             # Track the computed results
             evaluator.append_results(results)
 
         # Compute the average for all scores
-        average_results = evaluator.average_results()
+        average_results, _ = evaluator.average_results()
 
         if writer is not None:
             # Loop through all computed scores
             for key in average_results.keys():
                 # Log the average score for this dataset
                 writer.add_scalar(f'val-{eval_set.name()}/{key}', average_results[key], i)
+
+            if eval_set.has_frame_level_annotations():
+                # Resample the multi-pitch annotations to align with predicted times
+                multi_pitch_ref = eval_set.resample_multi_pitch(times_ref, multi_pitch_ref, times_est)
+            # Convert the multi-pitch annotations to activations for visualization
+            ground_truth = torch.Tensor(eval_set.multi_pitch_to_activations(multi_pitch_ref, midi_freqs))
 
             # Visualize predictions for the final sample of the evaluation dataset
             writer.add_image(f'val-{eval_set.name()}/log-scaled CQT', features_log.squeeze()[1: 2].flip(-2), i)
