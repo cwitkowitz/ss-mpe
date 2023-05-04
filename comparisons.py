@@ -1,10 +1,9 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-#from NSynth import NSynthValidation
 from Bach10 import Bach10
+from TRIOS import TRIOS
 from Su import Su
-#from TRIOS import TRIOS
 #from MedleyDBPitch import MedleyDB_Pitch
 #from MusicNet import MusicNet
 #from URMP import URMP
@@ -121,11 +120,11 @@ bach10 = Bach10(base_dir=None,
 su = Su(base_dir=None,
         sample_rate=sample_rate)
 
-"""
 # Instantiate TRIOS dataset for evaluation
 trios = TRIOS(base_dir=None,
               sample_rate=sample_rate)
 
+"""
 # Instantiate MusicNet dataset for evaluation
 musicnet = MusicNet(base_dir=None,
                     sample_rate=sample_rate)
@@ -141,15 +140,6 @@ swd = SWD(base_dir=None,
 # Instantiate MedleyDB pitch-tracking subset for evaluation
 medleydb = MedleyDB_Pitch(base_dir=None,
                           sample_rate=sample_rate)
-
-#seed_everything(0)
-
-# Instantiate NSynth dataset for validation
-nsynthvalid = NSynthValidation(base_dir=None,
-                               splits=['valid'],
-                               #n_tracks=150,
-                               #midi_range=[bp_midi_freqs[0], bp_midi_freqs[-1]],
-                               sample_rate=sample_rate)
 """
 
 
@@ -175,8 +165,8 @@ save_path = None
 device = torch.device(f'cuda:{gpu_id}' if torch.cuda.is_available() and gpu_id is not None else 'cpu')
 
 # Add feature extraction and model to the appropriate device
-#hcqt, ss_mpe = hcqt.to(device), ss_mpe.to(device)
 hcqt = hcqt.to(device)
+#ss_mpe = ss_mpe.to(device)
 
 
 def print_and_log(text, path=None):
@@ -194,7 +184,7 @@ def print_and_log(text, path=None):
 
 
 # Loop through all evaluation datasets
-for eval_set in [bach10, su]:
+for eval_set in [bach10, su, trios]:
     # Initialize evaluators for all models
     bp_evaluator = MultipitchEvaluator()
     #ss_evaluator = MultipitchEvaluator()

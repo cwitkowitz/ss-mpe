@@ -219,11 +219,13 @@ class NSynthValidation(EvalSetNoteLevel, NSynth):
           Frame-level multi-pitch annotations in Hertz
         """
 
-        # Obtain nominal pitch in Hertz from the track name
-        pitch = librosa.midi_to_hz(self.get_pitch(track))
+        # Obtain nominal pitch from the track name
+        pitch = np.array([self.get_pitch(track)])
 
-        # Obtain ground-truth as the nominal pitch across time
-        multi_pitch = [np.array([pitch]) if (t >= 0) & (t <= 3)
-                       else np.empty(0) for t in times]
+        # Construct the interval of the note
+        interval = np.array([[0., 3.]])
+
+        # Convert MIDI note to multi-pitch annotations aligned with provided times
+        multi_pitch = self.notes_to_multi_pitch(pitch, interval, times)
 
         return times, multi_pitch

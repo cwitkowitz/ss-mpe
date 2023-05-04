@@ -2,7 +2,7 @@
 
 # My imports
 from utils import stream_url_resource, unzip_and_remove, change_base_dir
-from common import EvalSet
+from common import EvalSetNoteLevel
 
 # Regular imports
 import numpy as np
@@ -11,7 +11,7 @@ import librosa
 import os
 
 
-class TRIOS(EvalSet):
+class TRIOS(EvalSetNoteLevel):
     """
     Implements a wrapper for the TRIOS dataset (https://zenodo.org/record/6797837).
     """
@@ -83,17 +83,21 @@ class TRIOS(EvalSet):
 
     def get_ground_truth(self, track, times):
         """
-        Get the path for a track's ground_truth.
+        Get the ground-truth for a track.
 
         Parameters
         ----------
         track : string
           TRIOS track name
+        times : ndarray (T)
+          Frame times to use when constructing ground-truth
 
         Returns
         ----------
-        ground_truth : TODO
-          TODO
+        times : ndarray (T)
+          Time associated with each frame of annotations
+        multi_pitch : list of ndarray (T x [...])
+          Frame-level multi-pitch annotations in Hertz
         """
 
         # Obtain the paths to the track's ground_truth
@@ -102,32 +106,29 @@ class TRIOS(EvalSet):
         # Obtain an empty array for inserting ground-truth
         ground_truth = super().get_ground_truth(track, times)
 
-        # Loop through files
+        # Initialize arrays to hold note attributes for all instruments
+        onsets, offsets, pitches = np.empty(0), np.empty(0), np.empty(0)
+
+        # Loop through instruments
         for m in midi_paths:
             # Extract the notes from the MIDI file
             notes = pretty_midi.PrettyMIDI(m).instruments[0].notes
             # Determine relevant attributes of each note
-            onsets, offsets, pitches = np.array([(n.start, n.end, n.pitch)
-                                                 for n in notes]).transpose()
+            _onsets, _offsets, _pitches = np.array([(n.start, n.end, n.pitch)
+                                                    for n in notes]).transpose()
 
-            # Convert onsets and offsets to frame indices
-            onsets = librosa.time_to_frames(onsets, sr=self.sample_rate, hop_length=self.hop_length)
-            offsets = librosa.time_to_frames(offsets, sr=self.sample_rate, hop_length=self.hop_length)
+            # Append the note attributes for this instrument
+            onsets = np.append(onsets, _onsets)
+            offsets = np.append(offsets, _offsets)
+            pitches = np.append(pitches, _pitches)
 
-            # Compute durations in frames
-            durations = 1 + offsets - onsets
+        # Combine onsets and offsets to obtain note intervals
+        intervals = np.concatenate(([onsets], [offsets])).T
 
-            # Determine the closest frequency bin for each pitch
-            pitch_idcs = self.res_func_freq(pitches)
-            # Repeat each pitch index for the number of frames it is active
-            pitch_idcs = np.concatenate([[p] * d for p, d in zip(pitch_idcs, durations)])
-            # Create time indices corresponding to the full duration of each note
-            time_idcs = np.concatenate([np.arange(i, i + d) for i, d in zip(onsets, durations)])
+        # Convert MIDI notes to multi-pitch annotations aligned with provided times
+        multi_pitch = self.notes_to_multi_pitch(pitches, intervals, times)
 
-            # Insert pitch activity into the ground-truth
-            ground_truth[pitch_idcs.astype('uint'), time_idcs] = 1
-
-        return ground_truth
+        return times, multi_pitch
 
     @classmethod
     def download(cls, save_dir):

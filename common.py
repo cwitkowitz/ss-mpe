@@ -463,6 +463,44 @@ class EvalSetNoteLevel(EvalSetFrameLevel):
 
         return NotImplementedError
 
+    @staticmethod
+    def notes_to_multi_pitch(pitches, intervals, times):
+        """
+        Convert a collection of notes into a list of active pitches.
+
+        Parameters
+        ----------
+        pitches : ndarray (N)
+          Array of pitches corresponding to notes in MIDI
+        intervals : ndarray (N x 2)
+          Array of onset-offset time pairs corresponding to notes
+        times : ndarray (T)
+          Frame times to use when constructing multi-pitch annotations
+
+        Returns
+        ----------
+        multi_pitch : list of ndarray (T x [...])
+          Array of active pitches (in Hertz) across time
+        """
+
+        # Initialize empty pitch arrays for each frame
+        multi_pitch = [np.empty(0)] * times.shape[-1]
+
+        # Loop through the attributes of each note
+        for p, (on, off) in zip(pitches, intervals):
+            # Obtain indices corresponding to note's pitch activity
+            time_idcs = np.where((times >= on) & (times < off))[0]
+
+            # Convert pitch to Hertz
+            p_hz = librosa.midi_to_hz(p)
+
+            # Loop through relevant frames
+            for t in time_idcs:
+                # Append the new pitch observation to the frame
+                multi_pitch[t] = np.append(multi_pitch[t], p_hz)
+
+        return multi_pitch
+
 
 class ComboSet(TrainSet):
     """
