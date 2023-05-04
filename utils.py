@@ -254,14 +254,23 @@ def filter_non_peaks(_arr):
       Data with non-peaks removed
     """
 
+    # Create an extra row to all for edge peaks
+    extra_row = np.zeros((1, _arr.shape[-1]))
+
+    # Pad the given array with extra rows
+    padded_arr = np.concatenate((extra_row, _arr, extra_row))
+
     # Initialize an array to hold filtered data
-    arr = np.zeros(_arr.shape)
+    arr = np.zeros(padded_arr.shape)
 
     # Determine which indices correspond to peaks
-    peaks = scipy.signal.argrelmax(_arr, axis=-2)
+    peaks = scipy.signal.argrelmax(padded_arr, axis=-2)
 
     # Transfer peaks to new array
-    arr[peaks] = _arr[peaks]
+    arr[peaks] = padded_arr[peaks]
+
+    # Remove padded rows
+    arr = arr[..., 1 : -1, :]
 
     return arr
 
