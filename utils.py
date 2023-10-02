@@ -1,110 +1,11 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
-from tqdm import tqdm
-
 import torch.nn.functional as F
 import numpy as np
-import requests
-import tarfile
-import zipfile
-import shutil
 import random
 import scipy
 import torch
 import math
-import os
-
-
-def stream_url_resource(url, save_path, chunk_size=1024):
-    """
-    Download a file at a URL by streaming it.
-
-    Parameters
-    ----------
-    url : string
-      URL pointing to the file
-    save_path : string
-      Path to the save location (including the file name)
-    chunk_size : int
-      Number of bytes to download at a time
-    """
-
-    # Create an HTTP GET request
-    r = requests.get(url, stream=True)
-
-    # Determine the total number of bytes to be downloaded
-    total_length = int(r.headers.get('content-length'))
-
-    # Open the target file in write mode
-    with open(save_path, 'wb') as file:
-        # Iteratively download chunks of the file,
-        # displaying a progress bar in the console
-        for chunk in tqdm(r.iter_content(chunk_size=chunk_size),
-                          total=int(total_length/chunk_size+1)):
-            # If a chunk was successfully downloaded,
-            if chunk:
-                # Write the chunk to the file
-                file.write(chunk)
-
-
-def unzip_and_remove(zip_path, target=None, tar=False):
-    """
-    Unzip a zip file and remove it.
-
-    Parameters
-    ----------
-    zip_path : string
-      Path to the zip file
-    target : string or None
-      Directory to extract the zip file contents into
-    tar : bool
-      Whether the compressed file is in TAR format
-    """
-
-    print(f'Unzipping {os.path.basename(zip_path)}')
-
-    # Default the save location as the same directory as the zip file
-    if target is None:
-        target = os.path.dirname(zip_path)
-
-    if tar:
-        # Open the tar file in read mode
-        with tarfile.open(zip_path, 'r') as tar_ref:
-            # Extract the contents into the target directory
-            tar_ref.extractall(target)
-    else:
-        # Open the zip file in read mode
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            # Extract the contents into the target directory
-            zip_ref.extractall(target)
-
-    # Delete the zip file
-    os.remove(zip_path)
-
-
-def change_base_dir(new_dir, old_dir):
-    """
-    Change the top-level directory from the path chain of each file.
-
-    Parameters
-    ----------
-    new_dir : string
-      New top-level directory
-    old_dir : string
-      Old top-level directory
-    """
-
-    # Loop through all contents of the old directory
-    for content in os.listdir(old_dir):
-        # Construct the old path to the contents
-        old_path = os.path.join(old_dir, content)
-        # Construct the new path to the contents
-        new_path = os.path.join(new_dir, content)
-        # Move all files and subdirectories recursively
-        shutil.move(old_path, new_path)
-
-    # Remove the (now empty) old top-level directory
-    os.rmdir(old_dir)
 
 
 def seed_everything(seed):
@@ -237,42 +138,6 @@ def rescale_decibels(decibels, negative_infinity_dB=-80):
     scaled = 1 + (decibels / negative_infinity_dB)
 
     return scaled
-
-
-def filter_non_peaks(_arr):
-    """
-    Remove any values that are not peaks along the vertical axis.
-
-    Parameters
-    ----------
-    _arr : ndarray (... x H x W)
-      Original data
-
-    Returns
-    ----------
-    arr : ndarray (... x H x W)
-      Data with non-peaks removed
-    """
-
-    # Create an extra row to all for edge peaks
-    extra_row = np.zeros((1, _arr.shape[-1]))
-
-    # Pad the given array with extra rows
-    padded_arr = np.concatenate((extra_row, _arr, extra_row))
-
-    # Initialize an array to hold filtered data
-    arr = np.zeros(padded_arr.shape)
-
-    # Determine which indices correspond to peaks
-    peaks = scipy.signal.argrelmax(padded_arr, axis=-2)
-
-    # Transfer peaks to new array
-    arr[peaks] = padded_arr[peaks]
-
-    # Remove padded rows
-    arr = arr[..., 1 : -1, :]
-
-    return arr
 
 
 def threshold(_arr, t=0.5):
