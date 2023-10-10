@@ -1,12 +1,13 @@
 torchaudio
 torch
-scipy
-numpy
-librosa
-tensorboard
-tqdm
-sacred
-requests
+# TODO - update following url after eventual merge
+#git+https://github.com/sony/timbre-trap@release
+#cqt_pytorch
 lhvqt>=0.5.3
-pretty_midi
+tensorboard
+sacred
 pandas
+pyyaml
+mido
+jams
+tqdm

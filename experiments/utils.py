@@ -128,7 +128,7 @@ def rescale_decibels(decibels, negative_infinity_dB=-80):
     Returns
     ----------
     scaled : ndarray or Tensor
-      Tensor of values log-scale scaled between 0 and 1
+      Decibel values scaled logarithmically between 0 and 1
     """
 
     # Make sure provided lower boundary is positive

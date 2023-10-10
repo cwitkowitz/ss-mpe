@@ -1,0 +1,1 @@
+from .MagnaTagATune import MagnaTagATune

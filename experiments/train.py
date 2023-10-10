@@ -1,19 +1,22 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from FreeMusicArchive import FreeMusicArchive
-from NSynth import NSynth, NSynthValidation
-from common import ComboSet
-from Bach10 import Bach10
-from TRIOS import TRIOS
-from Su import Su
+from timbre_trap.datasets.MixedMultiPitch import URMP as URMP_Mixtures, Bach10 as Bach10_Mixtures, Su, MusicNet, TRIOS
+from timbre_trap.datasets.SoloMultiPitch import URMP as URMP_Stems, MedleyDB_Pitch, MAESTRO, GuitarSet
+from timbre_trap.datasets.AudioStems import MedleyDB as MedleyDB_Stems
+from timbre_trap.datasets.AudioMixtures import MedleyDB as MedleyDB_Mixtures, FMA
+from timbre_trap.datasets import ComboDataset, constants
+from timbre_trap.models import DataParallel
 
+from ss_mpe.datasets.SoloMultiPitch import NSynth, SWD
+from ss_mpe.datasets.AudioMixtures import MagnaTagATune
+
+from ss_mpe.models.hcqt import LHVQT
+from ss_mpe.models.model import SA_UNet
+from ss_mpe.models.objectives import *
 from lhvqt import torch_amplitude_to_db
-from hcqt import LHVQT
-from model import SAUNet
 
 from evaluate import evaluate
-from objectives import *
 from utils import *
 
 # Regular imports
@@ -29,7 +32,7 @@ import os
 
 
 SYNTH = 1 # (0 FMA | 1 - NSynth)
-CONFIG = 1 # (0 - desktop | 1 - lab)
+CONFIG = 0 # (0 - desktop | 1 - lab)
 EX_NAME = '_'.join(['<EXPERIMENT_NAME>'])
 
 ex = Experiment('Train a model to learn representations for MPE')
@@ -243,7 +246,7 @@ def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
                  batch_norm=False)
 
     # Initialize MPE representation learning model
-    model = SAUNet(n_ch_in=len(harmonics),
+    model = SA_UNet(n_ch_in=len(harmonics),
                    n_bins_in=n_bins,
                    model_complexity=2)
 
