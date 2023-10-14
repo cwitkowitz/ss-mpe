@@ -9,8 +9,9 @@ from timbre_trap.datasets import ComboDataset, constants
 
 from ss_mpe.datasets.SoloMultiPitch import NSynth, SWD
 from ss_mpe.datasets.AudioMixtures import MagnaTagATune
-from ss_mpe.models import DataParallel, TT_Base
+from ss_mpe.datasets import collate_audio_only
 
+from ss_mpe.models import DataParallel, TT_Base
 from ss_mpe.models.objectives import *
 from evaluate import evaluate
 from utils import *
@@ -112,17 +113,17 @@ def config():
     # Number of samples between frames
     hop_length = 256
 
-    # Number of frequency bins per CQT
-    n_bins = 440
+    # First center frequency (MIDI) of geometric progression
+    fmin = librosa.note_to_midi('A0')
 
     # Number of bins in a single octave
     bins_per_octave = 60
 
+    # Number of frequency bins per CQT
+    n_bins = 440
+
     # Harmonics to stack along channel dimension of HCQT
     harmonics = [0.5, 1, 2, 3, 4, 5]
-
-    # First center frequency (MIDI) of geometric progression
-    fmin = librosa.note_to_midi('A0')
 
     ############
     ## OTHERS ##
@@ -152,13 +153,182 @@ def config():
 def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_secs, learning_rate, multipliers,
                 n_epochs_warmup, validation_criteria_set, validation_criteria_metric, validation_criteria_maximize,
                 n_epochs_late_start, n_epochs_decay, n_epochs_cooldown, n_epochs_early_stop, gpu_ids, seed,
-                sample_rate, hop_length, n_bins, bins_per_octave, harmonics, fmin, n_workers, root_dir):
+                sample_rate, hop_length, fmin, bins_per_octave, n_bins, harmonics, n_workers, root_dir):
     # Discard read-only types
     multipliers = dict(multipliers)
     harmonics = list(harmonics)
+    gpu_ids = list(gpu_ids)
 
     # Seed everything with the same seed
     seed_everything(seed)
+
+    # Point to the datasets within the storage drive containing them
+    nsynth_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
+    mnet_base_dir      = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if CONFIG else None
+    mydb_base_dir      = os.path.join('/', 'storageNVME', 'frank', 'MedleyDB') if CONFIG else None
+    magna_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'MagnaTagATune') if CONFIG else None
+    fma_base_dir       = os.path.join('/', 'storageNVME', 'frank', 'FMA') if CONFIG else None
+    mydb_ptch_base_dir = os.path.join('/', 'storageNVME', 'frank', 'MedleyDB-Pitch') if CONFIG else None
+    urmp_base_dir      = os.path.join('/', 'storageNVME', 'frank', 'URMP') if CONFIG else None
+    bch10_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'Bach10') if CONFIG else None
+    gset_base_dir      = os.path.join('/', 'storageNVME', 'frank', 'GuitarSet') if CONFIG else None
+    mstro_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'MAESTRO') if CONFIG else None
+    swd_base_dir       = os.path.join('/', 'storageNVME', 'frank', 'SWD') if CONFIG else None
+    su_base_dir        = os.path.join('/', 'storageNVME', 'frank', 'Su') if CONFIG else None
+    trios_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'TRIOS') if CONFIG else None
+
+    # Initialize the primary PyTorch device
+    device = torch.device(f'cuda:{gpu_ids[0]}'
+                          if torch.cuda.is_available() else 'cpu')
+
+    # Pack together HCQT parameters for readability
+    hcqt_params = {'sample_rate': sample_rate,
+                   'hop_length': hop_length,
+                   'fmin': fmin,
+                   'bins_per_octave': bins_per_octave,
+                   'n_bins': n_bins,
+                   'harmonics': harmonics}
+
+    if checkpoint_path is None:
+        # Initialize autoencoder model and train from scratch
+        model = TT_Base(hcqt_params,
+                        latent_size=128,
+                        model_complexity=2,
+                        skip_connections=False)
+    else:
+        # Load a prexisting model and resume training
+        model = torch.load(checkpoint_path, map_location=device)
+
+        for p, v in model.hcqt_params.items():
+            if v != hcqt_params[p]:
+                # Check for parameter mismatch and warn user
+                warnings.warn(f'Selected value for \'{p}\' does not '
+                              'match saved value...', RuntimeWarning)
+
+    if len(gpu_ids) > 1:
+        # Wrap model for multi-GPU usage
+        model = DataParallel(model, device_ids=gpu_ids)
+
+    # Add model to primary device
+    model = model.to(device)
+
+    # Initialize list to hold all training datasets
+    all_train = list()
+
+    # Set the URMP validation set as was defined in the MT3 paper
+    urmp_val_splits = ['01', '02', '12', '13', '24', '25', '31', '38', '39']
+
+    # Allocate remaining tracks to URMP training set
+    urmp_train_splits = URMP_Mixtures.available_splits()
+
+    for t in urmp_val_splits:
+        # Remove validation track
+        urmp_train_splits.remove(t)
+
+    if DEBUG:
+        # Instantiate NSynth validation split for training
+        nsynth_train = NSynth(base_dir=nsynth_base_dir,
+                              splits=['valid'],
+                              sample_rate=sample_rate,
+                              cqt=model.hcqt,
+                              n_secs=n_secs,
+                              seed=seed)
+        all_train.append(nsynth_train)
+    else:
+        # Instantiate NSynth training split for training
+        nsynth_train = NSynth(base_dir=nsynth_base_dir,
+                              splits=['train'],
+                              sample_rate=sample_rate,
+                              cqt=model.hcqt,
+                              n_secs=n_secs,
+                              seed=seed)
+        all_train.append(nsynth_train)
+
+        # Instantiate MusicNet training split for training
+        mnet_mixes_train = MusicNet(base_dir=mnet_base_dir,
+                                    splits=['train'],
+                                    sample_rate=sample_rate,
+                                    cqt=model.hcqt,
+                                    n_secs=n_secs,
+                                    seed=seed)
+        #all_train.append(mnet_mixes_train)
+
+        # Instantiate FMA (large) dataset for training
+        fma_train = FMA(base_dir=fma_base_dir,
+                        splits=None,
+                        sample_rate=sample_rate,
+                        n_secs=n_secs,
+                        seed=seed)
+        #all_train.append(fma_train)
+
+    # Combine all training datasets
+    all_train = ComboDataset(all_train)
+
+    # Initialize a PyTorch dataloader
+    loader = DataLoader(dataset=all_train,
+                        batch_size=batch_size,
+                        shuffle=True,
+                        num_workers=n_workers,
+                        collate_fn=collate_audio_only,
+                        pin_memory=True,
+                        drop_last=True)
+
+    # Instantiate NSynth validation split for validation
+    nsynth_val = NSynth(base_dir=nsynth_base_dir,
+                        splits=['valid'],
+                        sample_rate=sample_rate,
+                        cqt=model.hcqt,
+                        seed=seed)
+
+    # Instantiate URMP dataset mixtures for validation
+    urmp_mixes_val = URMP_Mixtures(base_dir=urmp_base_dir,
+                                   splits=urmp_val_splits,
+                                   sample_rate=sample_rate,
+                                   cqt=model.hcqt,
+                                   seed=seed)
+
+    # Instantiate TRIOS dataset for validation
+    trios_val = TRIOS(base_dir=trios_base_dir,
+                      splits=None,
+                      sample_rate=sample_rate,
+                      cqt=model.hcqt,
+                      seed=seed)
+
+    # Instantiate NSynth testing split for evaluation
+    nsynth_test = NSynth(base_dir=nsynth_base_dir,
+                         splits=['test'],
+                         sample_rate=sample_rate,
+                         cqt=model.hcqt,
+                         seed=seed)
+
+    # Instantiate Bach10 dataset mixtures for evaluation
+    bch10_test = Bach10_Mixtures(base_dir=bch10_base_dir,
+                                 splits=None,
+                                 sample_rate=sample_rate,
+                                 cqt=model.hcqt,
+                                 seed=seed)
+
+    # Instantiate Su dataset for evaluation
+    su_test = Su(base_dir=su_base_dir,
+                 splits=None,
+                 sample_rate=sample_rate,
+                 cqt=model.hcqt,
+                 seed=seed)
+
+    # Instantiate GuitarSet dataset for evaluation
+    gset_test = GuitarSet(base_dir=gset_base_dir,
+                          splits=['05'],
+                          sample_rate=sample_rate,
+                          cqt=model.hcqt,
+                          seed=seed)
+
+    # Add all validation datasets to a list
+    validation_sets = [nsynth_val, urmp_mixes_val, trios_val, bch10_test, su_test, gset_test]
+
+    # Add all evaluation datasets to a list
+    evaluation_sets = [nsynth_test, urmp_mixes_val, trios_val, bch10_test, su_test, gset_test]
+
+    # TODO - jere
 
     # Determine the sequence length of training samples
     n_frames = int(n_secs * sample_rate / hop_length)
@@ -194,98 +364,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Define probability of mixing two tracks in a batch (superposition loss)
     mix_probability = np.log2(batch_size) / batch_size
 
-    if path_layout:
-        # Point to the storage drives containing each dataset
-        fma_base_dir = os.path.join('/', 'storageNVME', 'frank', 'FreeMusicArchive')
-        nsynth_base_dir = os.path.join('/', 'storageNVME', 'frank', 'NSynth')
-        bach10_base_dir = os.path.join('/', 'storage', 'frank', 'Bach10')
-        su_base_dir = os.path.join('/', 'storage', 'frank', 'Su')
-        trios_base_dir = os.path.join('/', 'storage', 'frank', 'TRIOS')
-    else:
-        # Use the default base directory paths
-        fma_base_dir = None
-        nsynth_base_dir = None
-        bach10_base_dir = None
-        su_base_dir = None
-        trios_base_dir = None
-
-    # Instantiate FreeMusicArchive dataset for training
-    freemusicarchive = FreeMusicArchive(base_dir=fma_base_dir,
-                                        sample_rate=sample_rate,
-                                        n_secs=n_secs,
-                                        seed=seed)
-
-    # Instantiate NSynth dataset for training
-    nsynthtrain = NSynth(base_dir=nsynth_base_dir,
-                         splits=['train'],
-                         sample_rate=sample_rate,
-                         n_secs=n_secs,
-                         seed=seed)
-
-    # Combine all training datasets into one
-    training_data = ComboSet([nsynthtrain]) if SYNTH else ComboSet([freemusicarchive])
-
     # Determine maximum supported MIDI frequency
     fmax = max(fbins_midi[h_idx]).item()
-
-    # Instantiate NSynth dataset for validation
-    nsynthvalid = NSynthValidation(base_dir=nsynth_base_dir,
-                                   splits=['valid'],
-                                   n_tracks=150 if CONFIG else 50,
-                                   midi_range=[fmin, fmax],
-                                   sample_rate=sample_rate)
-    #training_data.datasets[0].tracks = nsynthvalid.tracks
-
-    # Instantiate Bach10 dataset for validation
-    bach10 = Bach10(base_dir=bach10_base_dir,
-                    sample_rate=sample_rate)
-
-    # Instantiate Su dataset for validation
-    su = Su(base_dir=su_base_dir,
-            sample_rate=sample_rate)
-
-    # Instantiate TRIOS dataset for validation
-    trios = TRIOS(base_dir=trios_base_dir,
-                  sample_rate=sample_rate)
-
-    # Initialize a list to hold all validation datasets
-    validation_sets = [nsynthvalid, bach10, su, trios]
-
-    # Initialize a PyTorch dataloader for the data
-    loader = DataLoader(dataset=training_data,
-                        batch_size=batch_size,
-                        shuffle=True,
-                        num_workers=n_workers,
-                        drop_last=True)
-
-    # Initialize the HCQT feature extraction module
-    hcqt = LHVQT(fs=sample_rate,
-                 hop_length=hop_length,
-                 fmin=librosa.midi_to_hz(fmin),
-                 n_bins=n_bins,
-                 bins_per_octave=bins_per_octave,
-                 harmonics=harmonics,
-                 update=False,
-                 to_db=False,
-                 db_to_prob=False,
-                 batch_norm=False)
-
-    # Initialize MPE representation learning model
-    model = SA_UNet(n_ch_in=len(harmonics),
-                   n_bins_in=n_bins,
-                   model_complexity=2)
-
-    # Initialize the primary PyTorch device
-    device = torch.device(f'cuda:{gpu_ids[0]}'
-                          if torch.cuda.is_available() else 'cpu')
-
-    if len(gpu_ids) > 1:
-        # Wrap feature extraction and model for multi-GPU usage
-        hcqt = torch.nn.DataParallel(hcqt, device_ids=gpu_ids)
-        model = torch.nn.DataParallel(model, device_ids=gpu_ids)
-
-    # Add model and feature extraction to primary device
-    hcqt, model = hcqt.to(device), model.to(device)
 
     # Make sure weights are on appropriate device
     harmonic_weights = harmonic_weights.to(device)

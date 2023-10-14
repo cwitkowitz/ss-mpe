@@ -44,6 +44,18 @@ class TT_Base(nn.Module):
                          sample_rate=sample_rate,
                          secs_per_block=secs_per_block)
 
+        # Initialize the HCQT feature extraction module
+        hcqt = HCQT(fs=sample_rate,
+                     hop_length=hop_length,
+                     fmin=librosa.midi_to_hz(fmin),
+                     n_bins=n_bins,
+                     bins_per_octave=bins_per_octave,
+                     harmonics=harmonics,
+                     update=False,
+                     to_db=False,
+                     db_to_prob=False,
+                     batch_norm=False)
+
         self.encoder = Encoder(feature_size=self.sliCQ.n_bins, latent_size=latent_size, model_complexity=model_complexity)
         self.decoder = Decoder(feature_size=self.sliCQ.n_bins, latent_size=latent_size, model_complexity=model_complexity)
 
