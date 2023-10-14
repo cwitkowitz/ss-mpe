@@ -3,19 +3,15 @@
 # My imports
 from timbre_trap.datasets.MixedMultiPitch import URMP as URMP_Mixtures, Bach10 as Bach10_Mixtures, Su, MusicNet, TRIOS
 from timbre_trap.datasets.SoloMultiPitch import URMP as URMP_Stems, MedleyDB_Pitch, MAESTRO, GuitarSet
-from timbre_trap.datasets.AudioStems import MedleyDB as MedleyDB_Stems
 from timbre_trap.datasets.AudioMixtures import MedleyDB as MedleyDB_Mixtures, FMA
+from timbre_trap.datasets.AudioStems import MedleyDB as MedleyDB_Stems
 from timbre_trap.datasets import ComboDataset, constants
-from timbre_trap.models import DataParallel
 
 from ss_mpe.datasets.SoloMultiPitch import NSynth, SWD
 from ss_mpe.datasets.AudioMixtures import MagnaTagATune
+from ss_mpe.models import DataParallel, TT_Base
 
-from ss_mpe.models.hcqt import LHVQT
-from ss_mpe.models.model import SA_UNet
 from ss_mpe.models.objectives import *
-from lhvqt import torch_amplitude_to_db
-
 from evaluate import evaluate
 from utils import *
 
@@ -26,16 +22,18 @@ from torch.utils.data import DataLoader
 from sacred import Experiment
 from tqdm import tqdm
 
+import warnings
 import librosa
 import torch
+import math
 import os
 
 
-SYNTH = 1 # (0 FMA | 1 - NSynth)
+DEBUG = 1 # (0 - off | 1 - on)
 CONFIG = 0 # (0 - desktop | 1 - lab)
 EX_NAME = '_'.join(['<EXPERIMENT_NAME>'])
 
-ex = Experiment('Train a model to learn representations for MPE')
+ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
 
 @ex.config
@@ -44,37 +42,62 @@ def config():
     ## TRAINING HYPERPARAMETERS ##
     ##############################
 
+    # Specify a checkpoint from which to resume training (None to disable)
+    checkpoint_path = None
+
     # Maximum number of training iterations to conduct
-    max_epochs = 50 if SYNTH else 10
+    max_epochs = 500
 
     # Number of iterations between checkpoints
-    checkpoint_interval = 50
+    checkpoint_interval = 250
 
     # Number of samples to gather for a batch
-    #batch_size = (150 if CONFIG else 50) if SYNTH else (24 if CONFIG else 4)
-    batch_size = (150 if CONFIG else 50) if SYNTH else (16 if CONFIG else 4)
+    batch_size = 4 if DEBUG else 16
 
     # Number of seconds of audio per sample
-    n_secs = 4 if SYNTH else 30
+    n_secs = 10
 
-    # Fixed learning rate
+    # Initial learning rate
     learning_rate = 1e-3
 
     # Scaling factors for each loss term
     multipliers = {
-        'power' : 10,
         'support' : 1,
         'harmonic' : 1,
         'sparsity' : 1,
-        'timbre' : 1,
+        'timbre' : 0,
         'geometric' : 0,
-        'superposition' : 0,
-        'scaling' : 0
+        #'superposition' : 0,
+        #'scaling' : 0,
+        #'power' : 0
     }
 
+    # Number of epochs spanning warmup phase (0 to disable)
+    n_epochs_warmup = 10
+
+    # Set validation dataset to compare for learning rate decay and early stopping
+    validation_criteria_set = URMP_Mixtures.name()
+
+    # Set validation metric to compare for learning rate decay and early stopping
+    validation_criteria_metric = 'loss/total'
+
+    # Select whether the validation criteria should be maximized or minimized
+    validation_criteria_maximize = False # (False - minimize | True - maximize)
+
+    # Late starting point (0 to disable)
+    n_epochs_late_start = 0
+
+    # Number of epochs without improvement before reducing learning rate (0 to disable)
+    n_epochs_decay = 20
+
+    # Number of epochs before starting epoch counter for learning rate decay
+    n_epochs_cooldown = 4
+
+    # Number of epochs without improvement before early stopping (None to disable)
+    n_epochs_early_stop = None
+
     # IDs of the GPUs to use, if available
-    #gpu_ids = [0, 1, 2] if CONFIG else [0]
-    gpu_ids = [1, 2] if CONFIG else [0]
+    gpu_ids = [0]
 
     # Random seed for this experiment
     seed = 0
@@ -87,47 +110,49 @@ def config():
     sample_rate = 22050
 
     # Number of samples between frames
-    hop_length = 512
+    hop_length = 256
 
     # Number of frequency bins per CQT
-    n_bins = 216
+    n_bins = 440
 
     # Number of bins in a single octave
-    bins_per_octave = 36
+    bins_per_octave = 60
 
     # Harmonics to stack along channel dimension of HCQT
     harmonics = [0.5, 1, 2, 3, 4, 5]
 
     # First center frequency (MIDI) of geometric progression
-    fmin = librosa.note_to_midi('C1')
+    fmin = librosa.note_to_midi('A0')
 
     ############
     ## OTHERS ##
     ############
 
-    # Switch for managing multiple path layouts (0 - local | 1 - lab)
-    path_layout = 1 if CONFIG else 0
-
     # Number of threads to use for data loading
-    n_workers = (16 if CONFIG else 0) if SYNTH else (8 if CONFIG else 0)
+    n_workers = 0 if DEBUG else 8 * len(gpu_ids)
 
-    if path_layout:
+    # Top-level directory under which to save all experiment files
+    if CONFIG == 1:
         root_dir = os.path.join('/', 'storage', 'frank', 'self-supervised-pitch', EX_NAME)
     else:
-        root_dir = os.path.join('.', 'generated', 'experiments', EX_NAME)
+        root_dir = os.path.join('..', 'generated', 'experiments', EX_NAME)
 
-    # Create the root directory for the experiment files
+    # Create the root directory
     os.makedirs(root_dir, exist_ok=True)
+
+    if DEBUG:
+        # Print a warning message indicating debug mode is active
+        warnings.warn('Running in DEBUG mode...', RuntimeWarning)
 
     # Add a file storage observer for the log directory
     ex.observers.append(FileStorageObserver(root_dir))
 
 
 @ex.automain
-def train_model(max_epochs, checkpoint_interval, batch_size, n_secs,
-                learning_rate, multipliers, gpu_ids, seed, sample_rate,
-                hop_length, n_bins, bins_per_octave, harmonics, fmin,
-                path_layout, n_workers, root_dir):
+def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_secs, learning_rate, multipliers,
+                n_epochs_warmup, validation_criteria_set, validation_criteria_metric, validation_criteria_maximize,
+                n_epochs_late_start, n_epochs_decay, n_epochs_cooldown, n_epochs_early_stop, gpu_ids, seed,
+                sample_rate, hop_length, n_bins, bins_per_octave, harmonics, fmin, n_workers, root_dir):
     # Discard read-only types
     multipliers = dict(multipliers)
     harmonics = list(harmonics)

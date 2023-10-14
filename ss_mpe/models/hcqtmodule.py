@@ -1,14 +1,14 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from lhvqt import LHVQT as _LHVQT
+from lhvqt import LHVQT
 
 # Regular imports
 import numpy as np
 import librosa
 
 
-class LHVQT(_LHVQT):
+class HCQT(LHVQT):
     """
     Wrapper which adds ability to obtain time associated with
     each frame for the LHVQT module and access certain fields.

@@ -8,20 +8,16 @@ import torch.nn.functional as F
 import torch
 
 
-def compute_power_loss(activations, h1_features):
-    # Sum the feature power across all frequency bins
-    power_features = torch.sum(h1_features ** 2, dim=-2)
-
-    # Sum the activation power across all frequency bins
-    power_activations = torch.sum(activations ** 2, dim=-2)
-
-    # Compute power loss as difference between sum of powers
-    power_loss = torch.abs(power_features - power_activations)
-
-    # Average loss across time and batch
-    power_loss = power_loss.mean(-1).mean(-1)
-
-    return power_loss
+__all__ = [
+    'compute_support_loss',
+    'compute_harmonic_loss',
+    'compute_sparsity_loss',
+    'compute_timbre_loss',
+    'compute_geometric_loss',
+    #'compute_superposition_loss',
+    #'compute_scaling_loss',
+    #'compute_power_loss'
+]
 
 
 def compute_support_loss(embeddings, h1_features):
@@ -250,3 +246,19 @@ def compute_scaling_loss(model, features, activations):
     scaling_loss = scaling_loss.sum(-2).mean(-1).mean(-1)
 
     return scaling_loss
+
+
+def compute_power_loss(activations, h1_features):
+    # Sum the feature power across all frequency bins
+    power_features = torch.sum(h1_features ** 2, dim=-2)
+
+    # Sum the activation power across all frequency bins
+    power_activations = torch.sum(activations ** 2, dim=-2)
+
+    # Compute power loss as difference between sum of powers
+    power_loss = torch.abs(power_features - power_activations)
+
+    # Average loss across time and batch
+    power_loss = power_loss.mean(-1).mean(-1)
+
+    return power_loss
