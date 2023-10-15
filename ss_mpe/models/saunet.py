@@ -6,6 +6,9 @@ import torch.nn as nn
 import torch
 
 
+# TODO - update this to match TT_BASE
+
+
 class SA_UNet(nn.Module):
     """
     SA U-Net adapted from https://github.com/christofw/multipitch_architectures (simple_u_net_doubleselfattn).

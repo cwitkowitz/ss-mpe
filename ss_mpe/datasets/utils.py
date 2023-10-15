@@ -29,9 +29,9 @@ def collate_audio_only(batch):
     ----------
     batch : None or dict containing
       tracks : list of string
-        Identifiers for the batched tracks
+        Identifiers for tracks
       audio : Tensor (B x 1 x N)
-        Sampled audio for batched tracks
+        Batch of audio for tracks
     """
 
     for data in batch:

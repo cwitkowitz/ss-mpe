@@ -1,7 +1,7 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from utils import *
+from .hcqtmodule import HCQT
 
 # Regular imports
 import torch.nn.functional as F
@@ -117,6 +117,64 @@ def compute_timbre_loss(model, features, embeddings, fbins_midi, bins_per_octave
     return timbre_loss
 
 
+# TODO - can this function be sped up?
+def translate_batch(batch, shifts, dim=-1, val=0):
+    """
+    TODO
+    """
+
+    # Determine the dimensionality of the batch
+    dimensionality = batch.size()
+
+    # Combine the original tensor with tensor filled with zeros such that no wrapping will occur
+    rolled_batch = torch.cat([batch, val * torch.ones(dimensionality, device=batch.device)], dim=dim)
+
+    # Roll each sample in the batch independently and reconstruct the tensor
+    rolled_batch = torch.cat([x.unsqueeze(0).roll(i, dim) for x, i in zip(rolled_batch, shifts)])
+
+    # Trim the rolled tensor to its original dimensionality
+    translated_batch = rolled_batch.narrow(dim, 0, dimensionality[dim])
+
+    return translated_batch
+
+
+# TODO - can this function be sped up?
+def stretch_batch(batch, stretch_factors):
+    """
+    TODO
+    """
+
+    # Determine height and width of the batch
+    H, W = batch.size(-2), batch.size(-1)
+
+    # Inserted stretched values to a copy of the original tensor
+    stretched_batch = batch.clone()
+
+    # Loop through each sample and stretch factor in the batch
+    for i, (sample, factor) in enumerate(zip(batch, stretch_factors)):
+        # Reshape the sample to B x H x W
+        original = sample.reshape(-1, H, W)
+        # Stretch the sample by the specified amount
+        stretched_sample = F.interpolate(original,
+                                         scale_factor=factor,
+                                         mode='linear',
+                                         align_corners=True)
+
+        # Patch upsampled -∞ values that end up being NaNs (a little hacky)
+        stretched_sample[stretched_sample.isnan()] = -torch.inf
+
+        if factor < 1:
+            # Determine how much padding is necessary
+            pad_amount = W - stretched_sample.size(-1)
+            # Pad the stretched sample to fit original width
+            stretched_sample = F.pad(stretched_sample, (0, pad_amount))
+
+        # Insert the stretched sample back into the batch
+        stretched_batch[i] = stretched_sample[..., :W].view(sample.shape)
+
+    return stretched_batch
+
+
 def compute_geometric_loss(model, features, embeddings, max_seq_idx=250, max_shift_f=12,
                            max_shift_t=25, min_stretch=0.5, max_stretch=2):
     # Determine the number of samples in the batch
@@ -211,7 +269,7 @@ def compute_superposition_loss(hcqt, model, audio, activations, mix_probability=
         mixture_activations = mixture_activations.to(legend.device).view(activations.size())
 
     # Obtain log-scale features for the mixtures
-    mixture_features = rescale_decibels(hcqt(mixtures))
+    mixture_features = HCQT.rescale_decibels(hcqt(mixtures))
 
     # Process the audio mixtures with the model
     mixture_embeddings = model(mixture_features).squeeze()

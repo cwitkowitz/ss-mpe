@@ -1,11 +1,21 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
-import torch.nn.functional as F
-import numpy as np
+import matplotlib.pyplot as plt
 import random
-import scipy
 import torch
 import math
+
+
+__all__ = [
+    'seed_everything',
+    'to_array',
+    'print_and_log',
+    'initialize_figure',
+    'plot_magnitude',
+    'track_gradient_norms',
+    'cosine_anneal',
+    'CosineWarmup',
+]
 
 
 def seed_everything(seed):
@@ -26,6 +36,175 @@ def seed_everything(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     random.seed(seed)
+
+
+def to_array(tensor):
+    """
+    Convert a PyTorch Tensor to a Numpy ndarray.
+
+    Parameters
+    ----------
+    tensor : Tensor
+      Arbitrary tensor data
+
+    Returns
+    ----------
+    arr : ndarray
+      Same data as Numpy ndarray
+    """
+
+    # Move to CPU, detach gradient, and convert to ndarray
+    arr = tensor.cpu().detach().numpy()
+
+    return arr
+
+
+def print_and_log(text, path=None):
+    """
+    Print a string to the console and optionally log it to a specified file.
+
+    Parameters
+    ----------
+    text : str
+      Text to print/log
+    path : str (None to bypass)
+      Path to file to write text
+    """
+
+    # Print text to the console
+    print(text)
+
+    if path is not None:
+        with open(path, 'a') as f:
+            # Append the text to the file
+            print(text, file=f)
+
+
+def initialize_figure(figsize=(9, 3), interactive=False):
+    """
+    Create a new figure and display it.
+
+    Parameters
+    ----------
+    figsize : tuple (x, y) or None (Optional)
+      Size of plot window in inches - if unspecified set to default
+    interactive : bool
+      Whether to set turn on matplotlib interactive mode
+
+    Returns
+    ----------
+    fig : matplotlib Figure object
+      A handle for the created figure
+    """
+
+    if interactive and not plt.isinteractive():
+        # Make sure pyplot is in interactive mode
+        plt.ion()
+
+    # Create a new figure with the specified size
+    fig = plt.figure(figsize=figsize, tight_layout=True)
+
+    if not interactive:
+        # Open the figure manually if interactive mode is off
+        plt.show(block=False)
+
+    return fig
+
+
+def plot_magnitude(magnitude, extent=None, fig=None, save_path=None):
+    """
+    Plot magnitude coefficients within range [0, 1].
+
+    Parameters
+    ----------
+    magnitude : ndarray (F x T)
+      Magnitude coefficients [0, 1]
+      F - number of frequency bins
+      T - number of frames
+    extent : list [l, r, b, t] or None (Optional)
+      Boundaries of horizontal and vertical axis
+    fig : matplotlib Figure object
+      Preexisting figure to use for plotting
+    save_path : string or None (Optional)
+      Save the figure to this path
+
+    Returns
+    ----------
+    fig : matplotlib Figure object
+      A handle for the figure used to plot the TFR
+    """
+
+    if fig is None:
+        # Initialize a new figure if one was not given
+        fig = initialize_figure(interactive=False)
+
+    # Obtain a handle for the figure's current axis
+    ax = fig.gca()
+
+    if extent is not None:
+        # Swap position of bottom and top
+        extent = [extent[0], extent[1],
+                  extent[3], extent[2]]
+
+    # Plot magnitude as an image
+    ax.imshow(magnitude, vmin=0, vmax=1, extent=extent)
+    # Flip the axis for ascending pitch
+    ax.invert_yaxis()
+    # Make sure the image fills the figure
+    ax.set_aspect('auto')
+
+    if extent is not None:
+        # Add axis labels
+        ax.set_ylabel('Frequency (MIDI)')
+        ax.set_xlabel('Time (s)')
+    else:
+        # Hide the axes
+        ax.axis('off')
+
+    if save_path is not None:
+        # Save the figure
+        fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
+
+    return fig
+
+
+def track_gradient_norms(module, writer=None, i=0, prefix='gradients'):
+    """
+    Compute the cumulative gradient norm of a network across all layers.
+
+    Parameters
+    ----------
+    module : torch.nn.Module
+      Network containing gradients to track
+    writer : SummaryWriter
+      Results logger for tensorboard
+    i : int
+      Current iteration for logging
+    prefix : str
+      Tag prefix for logging
+
+    Returns
+    ----------
+    cumulative_norm : float
+      Summed norms across all layers
+    """
+
+    # Initialize the cumulative norm
+    cumulative_norm = 0.
+
+    for layer, values in module.named_parameters():
+        if values.grad is not None:
+            # Compute the L2 norm of the gradients
+            grad_norm = values.grad.norm(2).item()
+
+            if writer is not None:
+                # Log the norm of the gradients for this layer
+                writer.add_scalar(f'{prefix}/{layer}', grad_norm, i)
+
+            # Accumulate the norm of the gradients
+            cumulative_norm += grad_norm
+
+    return cumulative_norm
 
 
 def cosine_anneal(i, n_steps, start=0, floor=0.):
@@ -61,163 +240,53 @@ def cosine_anneal(i, n_steps, start=0, floor=0.):
     return scaling
 
 
-def normalize(_arr):
+class CosineWarmup(torch.optim.lr_scheduler.LRScheduler):
     """
-    Normalize an array such that values fall within the range [-1, 1].
-
-    Parameters
-    ----------
-    _arr : ndarray
-      Original data
-
-    Returns
-    ----------
-    arr : ndarray
-      Normalized data
+    A simple wrapper to implement reverse cosine annealing as a PyTorch LRScheduler.
     """
 
-    # Identify the element with the highest magnitude
-    max = np.max(np.abs(_arr))
+    def __init__(self, optimizer, n_steps, last_epoch=-1, verbose=False):
+        """
+        Initialize the scheduler and set the duration of warmup.
 
-    if max > 0:
-        # Divide by this value
-        arr = _arr / max
+        Parameters
+        ----------
+        See LRScheduler class...
+        """
 
-    return arr
+        self.n_steps = max(1, n_steps)
 
+        super().__init__(optimizer, last_epoch, verbose)
 
-def decibels_to_amplitude(decibels, negative_infinity_dB=-80):
-    """
-    Convert a tensor of decibel values to amplitudes between 0 and 1.
+    def is_active(self):
+        """
+        Helper to determine when to stop stepping.
+        """
 
-    Parameters
-    ----------
-    decibels : ndarray or Tensor
-      Tensor of decibel values with a ceiling of 0
-    negative_infinity_dB : float
-      Decibel cutoff beyond which is considered negative infinity
+        active = self.last_epoch < self.n_steps
 
-    Returns
-    ----------
-    gain : ndarray or Tensor
-      Tensor of values linearly scaled between 0 and 1
-    """
+        return active
 
-    # Make sure provided lower boundary is negative
-    negative_infinity_dB = -abs(negative_infinity_dB)
+    def get_lr(self):
+        """
+        Obtain scheduler learning rates.
+        """
 
-    # Convert decibels to a gain between 0 and 1
-    gain = 10 ** (decibels / 20)
-    # Set gain of values below -∞ to 0
-    gain[decibels <= negative_infinity_dB] = 0
+        # Simply use closed form expression
+        lr = self._get_closed_form_lr()
 
-    return gain
+        return lr
 
+    def _get_closed_form_lr(self):
+        """
+        Compute the learning rates for the current step.
+        """
 
-def rescale_decibels(decibels, negative_infinity_dB=-80):
-    """
-    Log-scale a tensor of decibel values between 0 and 1.
+        # Clamp the current step at the chosen number of steps
+        curr_step = max(0, min(self.last_epoch, self.n_steps))
+        # Compute scaling corresponding to current step
+        scaling = 1 - 0.5 * (1 + math.cos(curr_step * math.pi / self.n_steps))
+        # Apply the scaling to each learning rate
+        lr = [scaling * base_lr for base_lr in self.base_lrs]
 
-    Parameters
-    ----------
-    decibels : ndarray or Tensor
-      Tensor of decibel values with a ceiling of 0
-    negative_infinity_dB : float
-      Decibel cutoff beyond which is considered negative infinity
-
-    Returns
-    ----------
-    scaled : ndarray or Tensor
-      Decibel values scaled logarithmically between 0 and 1
-    """
-
-    # Make sure provided lower boundary is positive
-    negative_infinity_dB = abs(negative_infinity_dB)
-
-    # Scale decibels to be between 0 and 1
-    scaled = 1 + (decibels / negative_infinity_dB)
-
-    return scaled
-
-
-def threshold(_arr, t=0.5):
-    """
-    Binarize data based on a given threshold.
-
-    Parameters
-    ----------
-    _arr : ndarray
-      Original data
-    t : float [0, 1]
-      Threshold value
-
-    Returns
-    ----------
-    arr : ndarray
-      Binarized data
-    """
-
-    # Initialize an array to hold binarized data
-    arr = np.zeros(_arr.shape)
-    # Set values above threshold to one
-    arr[_arr >= t] = 1
-
-    return arr
-
-
-# TODO - can this function be sped up?
-def translate_batch(batch, shifts, dim=-1, val=0):
-    """
-    TODO
-    """
-
-    # Determine the dimensionality of the batch
-    dimensionality = batch.size()
-
-    # Combine the original tensor with tensor filled with zeros such that no wrapping will occur
-    rolled_batch = torch.cat([batch, val * torch.ones(dimensionality, device=batch.device)], dim=dim)
-
-    # Roll each sample in the batch independently and reconstruct the tensor
-    rolled_batch = torch.cat([x.unsqueeze(0).roll(i, dim) for x, i in zip(rolled_batch, shifts)])
-
-    # Trim the rolled tensor to its original dimensionality
-    translated_batch = rolled_batch.narrow(dim, 0, dimensionality[dim])
-
-    return translated_batch
-
-
-# TODO - can this function be sped up?
-def stretch_batch(batch, stretch_factors):
-    """
-    TODO
-    """
-
-    # Determine height and width of the batch
-    H, W = batch.size(-2), batch.size(-1)
-
-    # Inserted stretched values to a copy of the original tensor
-    stretched_batch = batch.clone()
-
-    # Loop through each sample and stretch factor in the batch
-    for i, (sample, factor) in enumerate(zip(batch, stretch_factors)):
-        # Reshape the sample to B x H x W
-        original = sample.reshape(-1, H, W)
-        # Stretch the sample by the specified amount
-        stretched_sample = F.interpolate(original,
-                                         scale_factor=factor,
-                                         mode='linear',
-                                         align_corners=True)
-
-        # Patch upsampled -∞ values that end up being NaNs (a little hacky)
-        stretched_sample[stretched_sample.isnan()] = -torch.inf
-
-        if factor < 1:
-            # Determine how much padding is necessary
-            pad_amount = W - stretched_sample.size(-1)
-            # Pad the stretched sample to fit original width
-            stretched_sample = F.pad(stretched_sample, (0, pad_amount))
-
-        # Insert the stretched sample back into the batch
-        stretched_batch[i] = stretched_sample[..., :W].view(sample.shape)
-
-    return stretched_batch
+        return lr

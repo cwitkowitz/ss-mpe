@@ -12,23 +12,17 @@ import torch
 
 class TT_Base(nn.Module):
     """
-    Implements a 2D convolutional U-Net architecture based loosely on SoundStream.
+    Implements base model from Timbre-Trap (https://arxiv.org/abs/2309.15717).
     """
 
-    def __init__(self, sample_rate, n_octaves, bins_per_octave, secs_per_block=3, latent_size=None, model_complexity=1, skip_connections=False):
+    def __init__(self, hcqt_params, latent_size=None, model_complexity=1, skip_connections=False):
         """
         Initialize the full autoencoder.
 
         Parameters
         ----------
-        sample_rate : int
-          Expected sample rate of input
-        n_octaves : int
-          Number of octaves below Nyquist frequency to represent
-        bins_per_octave : int
-          Number of frequency bins within each octave
-        secs_per_block : float
-          Number of seconds to process at once with sliCQ
+        hcqt_params : dict
+          Parameters for feature extraction module
         latent_size : int or None (Optional)
           Dimensionality of latent space
         model_complexity : int
@@ -39,25 +33,30 @@ class TT_Base(nn.Module):
 
         nn.Module.__init__(self)
 
-        self.sliCQ = CQT(n_octaves=n_octaves,
-                         bins_per_octave=bins_per_octave,
-                         sample_rate=sample_rate,
-                         secs_per_block=secs_per_block)
+        self.hcqt = HCQT(**hcqt_params)
 
-        # Initialize the HCQT feature extraction module
-        hcqt = HCQT(fs=sample_rate,
-                     hop_length=hop_length,
-                     fmin=librosa.midi_to_hz(fmin),
-                     n_bins=n_bins,
-                     bins_per_octave=bins_per_octave,
-                     harmonics=harmonics,
-                     update=False,
-                     to_db=False,
-                     db_to_prob=False,
-                     batch_norm=False)
+        self.encoder = Encoder(feature_size=self.hcqt.n_bins, latent_size=latent_size, model_complexity=model_complexity)
+        self.decoder = Decoder(feature_size=self.hcqt.n_bins, latent_size=latent_size, model_complexity=model_complexity)
 
-        self.encoder = Encoder(feature_size=self.sliCQ.n_bins, latent_size=latent_size, model_complexity=model_complexity)
-        self.decoder = Decoder(feature_size=self.sliCQ.n_bins, latent_size=latent_size, model_complexity=model_complexity)
+        n_harmonics = len(hcqt_params['harmonics'])
+
+        convin_out_channels = self.encoder.convin[0].out_channels
+        convout_in_channels = self.decoder.convout.in_channels
+
+        self.encoder.convin = nn.Sequential(
+            nn.Conv2d(n_harmonics, convin_out_channels, kernel_size=3, padding='same'),
+            nn.ELU(inplace=True)
+        )
+
+        self.decoder.convout = nn.Conv2d(convout_in_channels, 1, kernel_size=3, padding='same')
+
+        latent_channels = self.decoder.convin[0].out_channels
+        latent_kernel = self.decoder.convin[0].kernel_size
+
+        self.decoder.convin = nn.Sequential(
+            nn.ConvTranspose2d(latent_size, latent_channels, kernel_size=latent_kernel),
+            nn.ELU(inplace=True)
+        )
 
         if skip_connections:
             # Start by adding encoder features with identity weighting
@@ -65,33 +64,6 @@ class TT_Base(nn.Module):
         else:
             # No skip connections
             self.skip_weights = None
-
-    def encode(self, audio):
-        """
-        Encode a batch of raw audio into latent codes.
-
-        Parameters
-        ----------
-        audio : Tensor (B x 1 x T)
-          Batch of input raw audio
-
-        Returns
-        ----------
-        latents : Tensor (B x D_lat x T)
-          Batch of latent codes
-        embeddings : list of [Tensor (B x C x H x T)]
-          Embeddings produced by encoder at each level
-        losses : dict containing
-          ...
-        """
-
-        # Compute CQT spectral features
-        coefficients = self.sliCQ(audio)
-
-        # Encode features into latent vectors
-        latents, embeddings, losses = self.encoder(coefficients)
-
-        return latents, embeddings, losses
 
     def apply_skip_connections(self, embeddings):
         """
@@ -117,89 +89,58 @@ class TT_Base(nn.Module):
 
         return embeddings
 
-    def decode(self, latents, embeddings=None, transcribe=False):
-        """
-        Decode a batch of latent codes into logits representing real/imaginary coefficients.
-
-        Parameters
-        ----------
-        latents : Tensor (B x D_lat x T)
-          Batch of latent codes
-        embeddings : list of [Tensor (B x C x H x T)] or None (no skip connections)
-          Embeddings produced by encoder at each level
-        transcribe : bool
-          Switch for performing transcription vs. reconstruction
-
-        Returns
-        ----------
-        coefficients : Tensor (B x 2 x F X T)
-          Batch of output logits [-∞, ∞]
-        """
-
-        # Create binary values to indicate function decoder should perform
-        indicator = (not transcribe) * torch.ones_like(latents[..., :1, :])
-
-        # Concatenate indicator to final dimension of latents
-        latents = torch.cat((latents, indicator), dim=-2)
-
-        # Decode latent vectors into real/imaginary coefficients
-        coefficients = self.decoder(latents, embeddings)
-
-        return coefficients
-
-    def forward(self, audio, consistency=False):
+    def forward(self, features):
         """
         Perform all model functions efficiently (for training/evaluation).
 
         Parameters
         ----------
-        audio : Tensor (B x 1 x T)
-          Batch of input raw audio
-        consistency : bool
-          Whether to perform computations for consistency loss
+        features : Tensor (B x H x F x T)
+          Batch of HCQT spectral features
 
         Returns
         ----------
-        reconstruction : Tensor (B x 2 x F X T)
-          Batch of reconstructed spectral coefficients
+        output : Tensor (B x F X T)
+          Batch of (implicit) pitch salience logits
         latents : Tensor (B x D_lat x T)
           Batch of latent codes
-        transcription : Tensor (B x 2 x F X T)
-          Batch of transcription spectral coefficients
-        transcription_rec : Tensor (B x 2 x F X T)
-          Batch of reconstructed spectral coefficients for transcription coefficients input
-        transcription_scr : Tensor (B x 2 x F X T)
-          Batch of transcription spectral coefficients for transcription coefficients input
         losses : dict containing
           ...
         """
 
-        # Encode raw audio into latent vectors
-        latents, embeddings, losses = self.encode(audio)
+        # Process features with the encoder
+        latents, embeddings, losses = self.encoder(features)
 
-        # Apply skip connections if they are turned on
+        # Apply skip connections if applicable
         embeddings = self.apply_skip_connections(embeddings)
 
-        # Decode latent vectors into spectral coefficients
-        reconstruction = self.decode(latents, embeddings)
+        # Process latents with the decoder
+        output = self.decoder(latents, embeddings)
 
-        # Estimate pitch using transcription switch
-        transcription = self.decode(latents, embeddings, True)
+        # Collapse channel dimension
+        output = output.squeeze(-3)
 
-        if consistency:
-            # Encode transcription coefficients for samples with ground-truth
-            latents_trn, embeddings_trn, _ = self.encoder(transcription)
+        return output, latents, losses
 
-            # Apply skip connections if they are turned on
-            embeddings_trn = self.apply_skip_connections(embeddings_trn)
+    def transcribe(self, audio):
+        """
+        Helper function to transcribe audio directly.
 
-            # Attempt to reconstruct transcription spectral coefficients
-            transcription_rec = self.decode(latents_trn, embeddings_trn)
+        Parameters
+        ----------
+        audio : Tensor (B x 1 x N)
+          Batch of input raw audio
 
-            # Attempt to transcribe audio pertaining to transcription coefficients
-            transcription_scr = self.decode(latents_trn, embeddings_trn, True)
-        else:
-            # Return null for both sets of coefficients
-            transcription_rec, transcription_scr = None, None
+        Returns
+        ----------
+        salience : Tensor (B x F X T)
+          Batch of pitch salience activations
+        """
 
-        return reconstruction, latents, transcription, transcription_rec, transcription_scr, losses
+        # Compute HCQT features (dB) and re-scale to probability-like
+        features = self.hcqt.to_decibels(self.hcqt(audio), rescale=True)
+
+        # Process features and convert to activations
+        salience = torch.sigmoid(self(features)[0])
+
+        return salience

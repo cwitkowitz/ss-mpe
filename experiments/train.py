@@ -23,6 +23,7 @@ from torch.utils.data import DataLoader
 from sacred import Experiment
 from tqdm import tqdm
 
+import numpy as np
 import warnings
 import librosa
 import torch
@@ -328,12 +329,59 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Add all evaluation datasets to a list
     evaluation_sets = [nsynth_test, urmp_mixes_val, trios_val, bch10_test, su_test, gset_test]
 
-    # TODO - jere
+    # Initialize an optimizer for the model parameters
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
-    # Determine the sequence length of training samples
-    n_frames = int(n_secs * sample_rate / hop_length)
+    # Determine the amount of batches in one epoch
+    epoch_steps = len(loader)
 
-    # Determine index of first harmonic (support/content loss)
+    # Compute number of validation checkpoints corresponding to learning rate decay cooldown and window
+    n_checkpoints_cooldown = math.ceil(n_epochs_cooldown * epoch_steps / checkpoint_interval)
+    n_checkpoints_decay = math.ceil(n_epochs_decay * epoch_steps / checkpoint_interval)
+
+    if n_epochs_early_stop is not None:
+        # Compute number of validation checkpoints corresponding to early stopping window
+        n_checkpoints_early_stop = math.ceil(n_epochs_early_stop * epoch_steps / checkpoint_interval)
+    else:
+        # Early stopping is disabled
+        n_checkpoints_early_stop = None
+
+    # Warmup global learning rate over a fixed number of steps according to a cosine function
+    warmup_scheduler = CosineWarmup(optimizer, n_steps=n_epochs_warmup * epoch_steps)
+
+    # Decay global learning rate by a factor of 1/2 after validation performance has plateaued
+    decay_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,
+                                                                 mode='max' if validation_criteria_maximize else 'min',
+                                                                 factor=0.5,
+                                                                 patience=n_checkpoints_decay,
+                                                                 threshold=2E-3,
+                                                                 cooldown=n_checkpoints_cooldown)
+
+    # Enable anomaly detection to debug any NaNs
+    torch.autograd.set_detect_anomaly(True)
+
+    # Construct the path to the directory for saving models
+    log_dir = os.path.join(root_dir, 'models')
+
+    # Initialize a writer to log results
+    writer = SummaryWriter(log_dir)
+
+    # Number of batches that have been processed
+    batch_count = 0
+
+    # Keep track of the model with the best validation results
+    best_model_checkpoint = None
+
+    # Keep track of the best model's results for comparison
+    best_results = None
+
+    # Counter for number of checkpoints since previous best results
+    n_checkpoints_elapsed = 0
+
+    # Flag to indicate early stopping criteria has been met
+    early_stop_criteria = False
+
+    # Determine index of first harmonic (support loss)
     h_idx = harmonics.index(1)
 
     # Create weighting for harmonics (harmonic loss)
@@ -344,6 +392,11 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     harmonic_weights /= torch.sum(harmonic_weights)
     # Add frequency and time dimensions for broadcasting
     harmonic_weights = harmonic_weights.unsqueeze(-1).unsqueeze(-1)
+    # Make sure weights are on appropriate device
+    harmonic_weights = harmonic_weights.to(device)
+
+    # Determine the sequence length of training samples
+    n_frames = int(n_secs * sample_rate / hop_length)
 
     # Define the maximum position index (geometric-invariance loss)
     max_position = 4 * n_frames
@@ -361,144 +414,134 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Determine center MIDI frequency of each bin in the HCQT (timbre-invariance loss)
     fbins_midi = fmins_midi + torch.arange(n_bins) / (bins_per_octave / 12)
 
-    # Define probability of mixing two tracks in a batch (superposition loss)
-    mix_probability = np.log2(batch_size) / batch_size
-
-    # Determine maximum supported MIDI frequency
-    fmax = max(fbins_midi[h_idx]).item()
-
-    # Make sure weights are on appropriate device
-    harmonic_weights = harmonic_weights.to(device)
-
-    # Initialize an optimizer for the model parameters
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-
-    # Construct the path to the directory for saving models
-    log_dir = os.path.join(root_dir, 'models')
-
-    # Initialize a writer to log results
-    writer = SummaryWriter(log_dir)
-
-    # Number of batches that have been processed
-    batch_count = 0
-
-    # Determine the amount of batches in one epoch
-    epoch_steps = len(loader)
-
     # Loop through epochs
     for i in range(max_epochs):
-        # Loop through batches
-        for audio in tqdm(loader, desc=f'Epoch {i + 1}'):
-            # Add audio to the appropriate device
-            audio = audio.to(device)
-
-            with torch.autocast(device_type=f'cuda'):
-                # Obtain spectral features in decibels
-                features_dec = torch_amplitude_to_db(hcqt(audio))
-                # Convert decibels to linear gain between 0 and 1
-                features_lin = decibels_to_amplitude(features_dec)
-                # Scale decibels to be between 0 and 1
-                features_log = rescale_decibels(features_dec)
-
-                # Compute pitch salience embeddings
-                embeddings = model(features_log).squeeze()
-
-                # Convert logits to activations (implicit pitch salience)
-                salience = torch.sigmoid(embeddings)
-
-                # Obtain pseudo-ground-truth as features at first harmonic
-                pseudo_ground_truth_lin = features_lin[:, h_idx]
-                pseudo_ground_truth_log = features_log[:, h_idx]
-
-                # Compute a weighted sum of the features to obtain a rough salience estimate
-                pseudo_salience_lin = torch.sum(features_lin * harmonic_weights, dim=-3)
-                pseudo_salience_log = torch.sum(features_log * harmonic_weights, dim=-3)
-                #pseudo_salience = torch.Tensor(filter_non_peaks(pseudo_salience.cpu().numpy())).to(device)
-
-                # Compute the power loss for this batch
-                power_loss = compute_power_loss(salience, pseudo_ground_truth_log)
-
-                # Log the power loss for this batch
-                writer.add_scalar('train/loss/power', power_loss, batch_count)
-
-                # Compute the support loss with respect to the first harmonic for this batch
-                support_loss = compute_support_loss(embeddings, pseudo_ground_truth_log)
-
-                # Log the support loss for this batch
-                writer.add_scalar('train/loss/support', support_loss, batch_count)
-
-                # Compute the harmonic loss with respect to the weighted harmonic sum for this batch
-                harmonic_loss = compute_harmonic_loss(embeddings, pseudo_salience_log)
-
-                # Log the harmonic loss for this batch
-                writer.add_scalar('train/loss/harmonic', harmonic_loss, batch_count)
-
-                # Compute the sparsity loss for this batch
-                sparsity_loss = compute_sparsity_loss(salience)
-
-                # Log the sparsity loss for this batch
-                writer.add_scalar('train/loss/sparsity', sparsity_loss, batch_count)
-
-                # Compute the timbre-invariance loss for this batch
-                timbre_loss = compute_timbre_loss(model, features_log, embeddings, fbins_midi, bins_per_octave)
-
-                # Log the timbre-invariance loss for this batch
-                writer.add_scalar('train/loss/timbre', timbre_loss, batch_count)
-
-                # Compute the geometric-invariance loss for this batch
-                #geometric_loss = compute_geometric_loss(model, features_log, embeddings, max_seq_idx=max_position,
-                #                                        max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
-                #                                        min_stretch=min_stretch_time, max_stretch=max_stretch_time)
-
-                # Log the geometric-invariance loss for this batch
-                #writer.add_scalar('train/loss/geometric', geometric_loss, batch_count)
-
-                # Compute the superposition loss for this batch
-                #superposition_loss = compute_superposition_loss(hcqt, model, audio, salience, mix_probability)
-
-                # Log the superposition loss for this batch
-                #writer.add_scalar('train/loss/superposition', superposition_loss, batch_count)
-
-                # Compute the scaling loss for this batch
-                #scaling_loss = compute_scaling_loss(model, features_log, salience)
-
-                # Log the scaling loss for this batch
-                #writer.add_scalar('train/loss/scaling', scaling_loss, batch_count)
-
-                # Compute the total loss for this batch
-                loss = multipliers['power'] * power_loss + \
-                       multipliers['support'] * support_loss * cosine_anneal(batch_count, epoch_steps, floor=0.) + \
-                       multipliers['harmonic'] * harmonic_loss * cosine_anneal(batch_count, epoch_steps, floor=0.) + \
-                       multipliers['sparsity'] * sparsity_loss * (1 - cosine_anneal(batch_count, epoch_steps, floor=0.)) + \
-                       multipliers['timbre'] * timbre_loss
-                       #multipliers['geometric'] * geometric_loss + \
-                       #multipliers['superposition'] * superposition_loss + \
-                       #multipliers['scaling'] * scaling_loss
-
-                # Log the total loss for this batch
-                writer.add_scalar('train/loss/total', loss, batch_count)
-
-                # Zero the accumulated gradients
-                optimizer.zero_grad()
-                # Compute gradients based on total loss
-                loss.backward()
-                # Perform an optimization step
-                optimizer.step()
-
+        # Loop through batches of audio
+        for data in tqdm(loader, desc=f'Epoch {i + 1}'):
             # Increment the batch counter
             batch_count += 1
 
-            if batch_count % checkpoint_interval == 0:
-                for val_set in validation_sets:
-                    # Validate the model with each validation dataset
-                    results = evaluate(model=model,
-                                       hcqt=hcqt,
-                                       eval_set=val_set,
-                                       writer=writer,
-                                       i=batch_count,
-                                       device=device)
+            if warmup_scheduler.is_active():
+                # Step the learning rate warmup scheduler
+                warmup_scheduler.step()
 
-                # Place model back in training mode
+            # Extract audio and add to appropriate device
+            audio = data[constants.KEY_AUDIO].to(device)
+
+            # Log the current learning rate for this batch
+            writer.add_scalar('train/loss/learning_rate', optimizer.param_groups[0]['lr'], batch_count)
+
+            # Compute features for audio
+            features = model.hcqt(audio)
+
+            # Convert raw HCQT spectral features to decibels [-80, 0] dB
+            features_dec = model.hcqt.to_decibels(features, rescale=False)
+            # Convert decibels to linear gain [0, 1]
+            features_lin = model.hcqt.decibels_to_amplitude(features_dec)
+            # Scale decibels to represent probability-like values [0, 1]
+            features_log = model.hcqt.rescale_decibels(features_dec)
+
+            # Obtain pseudo-ground-truth first harmonic spectral features
+            pseudo_ground_truth_lin = features_lin[:, h_idx]
+            pseudo_ground_truth_log = features_log[:, h_idx]
+
+            # Compute a weighted sum of features to obtain a rough salience estimate
+            pseudo_salience_lin = torch.sum(features_lin * harmonic_weights, dim=-3)
+            pseudo_salience_log = torch.sum(features_log * harmonic_weights, dim=-3)
+            #pseudo_salience = torch.from_numpy(filter_non_peaks(to_array(pseudo_salience_log))).to(device)
+
+            with torch.autocast(device_type=f'cuda'):
+                # Process features to obtain logits
+                logits, _, losses = model(features_log)
+
+                # Convert to (implicit) pitch salience activations
+                estimate = torch.sigmoid(logits)
+
+                # Compute support loss w.r.t. first harmonic for the batch
+                support_loss = compute_support_loss(logits, pseudo_ground_truth_log)
+                # Log the support loss for this batch
+                writer.add_scalar('train/loss/support', support_loss.item(), batch_count)
+
+                # Compute harmonic loss w.r.t. weighted harmonic sum for the batch
+                harmonic_loss = compute_harmonic_loss(logits, pseudo_salience_log)
+                # Log the harmonic loss for this batch
+                writer.add_scalar('train/loss/harmonic', harmonic_loss.item(), batch_count)
+
+                # Compute sparsity loss for the batch
+                sparsity_loss = compute_sparsity_loss(estimate)
+                # Log the sparsity loss for this batch
+                writer.add_scalar('train/loss/sparsity', sparsity_loss.item(), batch_count)
+
+                """
+                # Compute timbre-invariance loss for the batch
+                timbre_loss = compute_timbre_loss(model, features_log, logits, fbins_midi, bins_per_octave)
+                # Log the timbre-invariance loss for this batch
+                writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
+
+                # Compute geometric-invariance loss for the batch
+                geometric_loss = compute_geometric_loss(model, features_log, logits, max_seq_idx=max_position,
+                                                        max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
+                                                        min_stretch=min_stretch_time, max_stretch=max_stretch_time)
+                # Log the geometric-invariance loss for this batch
+                writer.add_scalar('train/loss/geometric', geometric_loss.item(), batch_count)
+                """
+
+                # Compute the total loss for this batch
+                total_loss = multipliers['support'] * support_loss + \
+                             multipliers['harmonic'] * harmonic_loss + \
+                             multipliers['sparsity'] * sparsity_loss# + \
+                             #multipliers['timbre'] * timbre_loss + \
+                             #multipliers['geometric'] * geometric_loss
+
+                if i >= n_epochs_late_start:
+                    # Currently no late-state losses
+                    pass
+
+                for key_loss, val_loss in losses.items():
+                    # Log the model loss for this batch
+                    writer.add_scalar(f'train/loss/{key_loss}', val_loss.item(), batch_count)
+                    # Add the model loss to the total loss
+                    total_loss += multipliers.get(key_loss, 1) * val_loss
+
+                # Log the total loss for this batch
+                writer.add_scalar('train/loss/total', total_loss.item(), batch_count)
+
+                # Zero the accumulated gradients
+                optimizer.zero_grad()
+                # Compute gradients using total loss
+                total_loss.backward()
+
+                # Track the gradient norm of each layer in the encoder
+                cum_norm_encoder = track_gradient_norms(model.encoder)
+                # Log the cumulative gradient norm of the encoder for this batch
+                writer.add_scalar('train/cum_norm/encoder', cum_norm_encoder, batch_count)
+
+                # Track the gradient norm of each layer in the decoder
+                cum_norm_decoder = track_gradient_norms(model.decoder)
+                # Log the cumulative gradient norm of the decoder for this batch
+                writer.add_scalar('train/cum_norm/decoder', cum_norm_decoder, batch_count)
+
+                # Apply gradient clipping for training stability
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
+
+                # Perform an optimization step
+                optimizer.step()
+
+            if batch_count % checkpoint_interval == 0:
+                # Initialize dictionary to hold all validation results
+                validation_results = dict()
+
+                for val_set in validation_sets:
+                    # Validate the model checkpoint on each validation dataset
+                    validation_results[val_set.name()] = evaluate(model=model,
+                                                                  eval_set=val_set,
+                                                                  multipliers=multipliers,
+                                                                  writer=writer,
+                                                                  i=batch_count,
+                                                                  device=device)
+
+                # Make sure model is on correct device and switch to training mode
+                model = model.to(device)
                 model.train()
 
                 # Construct a path to save the model checkpoint
@@ -511,4 +554,58 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     # Save the model as is
                     torch.save(model, model_path)
 
-                # TODO - add stopping criterion here
+                if decay_scheduler.patience and not warmup_scheduler.is_active() and i >= n_epochs_late_start:
+                    # Step the learning rate decay scheduler by logging the validation metric for the checkpoint
+                    decay_scheduler.step(validation_results[validation_criteria_set][validation_criteria_metric])
+
+                # Extract the result on the specified metric from the validation results for comparison
+                current_score = validation_results[validation_criteria_set][validation_criteria_metric]
+
+                if best_results is not None:
+                    # Extract the currently tracked best result on the specified metric for comparison
+                    best_score = best_results[validation_criteria_set][validation_criteria_metric]
+
+                if best_results is None or \
+                        (validation_criteria_maximize and current_score > best_score) or \
+                        (not validation_criteria_maximize and current_score < best_score):
+                    # Set current checkpoint as best
+                    best_model_checkpoint = batch_count
+                    # Update best results
+                    best_results = validation_results
+                    # Reset number of checkpoints
+                    n_checkpoints_elapsed = 0
+                else:
+                    # Increment number of checkpoints
+                    n_checkpoints_elapsed += 1
+
+                if n_checkpoints_early_stop is not None and n_checkpoints_elapsed >= n_checkpoints_early_stop:
+                    # Early stop criteria has been reached
+                    early_stop_criteria = True
+
+                    break
+
+        if early_stop_criteria:
+            # Stop training
+            break
+
+    print(f'Achieved best results at {best_model_checkpoint} iterations...')
+
+    for val_set in validation_sets:
+        # Log the results at the best checkpoint for each validation dataset in metrics.json
+        ex.log_scalar(f'Validation Results ({val_set.name()})', best_results[val_set.name()], best_model_checkpoint)
+
+    # Construct a path to the best model checkpoint
+    best_model_path = os.path.join(log_dir, f'model-{best_model_checkpoint}.pt')
+    # Load the best model and make sure it is in evaluation mode
+    best_model = torch.load(best_model_path, map_location=device)
+    best_model.eval()
+
+    for eval_set in evaluation_sets:
+        # Evaluate the model using testing split
+        final_results = evaluate(model=best_model,
+                                 eval_set=eval_set,
+                                 multipliers=multipliers,
+                                 device=device)
+
+        # Log the evaluation results for this dataset in metrics.json
+        ex.log_scalar(f'Evaluation Results ({eval_set.name()})', final_results, best_model_checkpoint)
