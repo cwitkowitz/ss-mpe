@@ -34,6 +34,7 @@ class TT_Base(nn.Module):
         nn.Module.__init__(self)
 
         self.hcqt_params = hcqt_params.copy()
+
         hcqt_params.pop('weights')
         self.hcqt = HCQT(**hcqt_params)
 

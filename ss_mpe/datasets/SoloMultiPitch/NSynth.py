@@ -19,16 +19,19 @@ class NSynth(AMTDataset):
     (https://magenta.tensorflow.org/datasets/nsynth).
     """
 
-    def __init__(self, midi_range=librosa.hz_to_midi([MIN_FREQ, MAX_FREQ]), **kwargs):
+    def __init__(self, n_tracks=None, midi_range=librosa.hz_to_midi([MIN_FREQ, MAX_FREQ]), **kwargs):
         """
-        Introduce a parameter to filter out tracks with unsupported frequencies.
+        Introduce extra parameters for evaluation.
 
         Parameters
         ----------
+        n_tracks : int
+          Number of tracks to retain within instance
         midi_range : bool
           Supported range of (MIDI) frequencies
         """
 
+        self.n_tracks = n_tracks
         self.midi_range = midi_range
 
         super().__init__(**kwargs)
@@ -70,8 +73,8 @@ class NSynth(AMTDataset):
             # Read JSON metadata
             metadata = json.load(f)
 
-        # Extract sorted track names
-        tracks = sorted(list(metadata.keys()))
+        # Extract track names
+        tracks = list(metadata.keys())
 
         # Append name of split to all track names
         tracks = [os.path.join(split, t) for t in tracks]
@@ -81,6 +84,13 @@ class NSynth(AMTDataset):
             tracks = [t for t in tracks if
                       (self.get_pitch(t) >= self.midi_range[0]) &
                       (self.get_pitch(t) <= self.midi_range[1])]
+
+        if self.n_tracks is not None:
+            # Reduce tracks to specified amount
+            tracks = tracks[:self.n_tracks]
+
+        # Sort track list
+        tracks = sorted(tracks)
 
         return tracks
 

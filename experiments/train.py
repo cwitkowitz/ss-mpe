@@ -291,6 +291,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Instantiate NSynth validation split for validation
     nsynth_val = NSynth(base_dir=nsynth_base_dir,
                         splits=['valid'],
+                        n_tracks=200,
                         sample_rate=sample_rate,
                         cqt=model.hcqt,
                         seed=seed)

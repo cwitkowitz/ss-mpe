@@ -231,6 +231,7 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu'):
             features_log_h = features_log_h.unsqueeze(-3)
 
             # Remove batch dimension from inputs
+            transcription = transcription.squeeze(0)
             features_log_1 = features_log_1.squeeze(0)
             features_log_h = features_log_h.squeeze(0)
 
