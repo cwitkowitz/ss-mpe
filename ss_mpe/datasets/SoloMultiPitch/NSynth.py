@@ -5,8 +5,10 @@ from timbre_trap.datasets.utils import stream_url_resource, unzip_and_remove
 from timbre_trap.datasets import AMTDataset
 
 # Regular imports
+from mir_eval.multipitch import MIN_FREQ, MAX_FREQ
+
 import numpy as np
-import torch
+import librosa
 import json
 import os
 
@@ -16,6 +18,20 @@ class NSynth(AMTDataset):
     Implements a wrapper for the NSynth dataset
     (https://magenta.tensorflow.org/datasets/nsynth).
     """
+
+    def __init__(self, midi_range=librosa.hz_to_midi([MIN_FREQ, MAX_FREQ]), **kwargs):
+        """
+        Introduce a parameter to filter out tracks with unsupported frequencies.
+
+        Parameters
+        ----------
+        midi_range : bool
+          Supported range of (MIDI) frequencies
+        """
+
+        self.midi_range = midi_range
+
+        super().__init__(**kwargs)
 
     @staticmethod
     def available_splits():
@@ -60,6 +76,12 @@ class NSynth(AMTDataset):
         # Append name of split to all track names
         tracks = [os.path.join(split, t) for t in tracks]
 
+        if self.midi_range is not None:
+            # Ignore tracks with out-of-bounds pitches
+            tracks = [t for t in tracks if
+                      (self.get_pitch(t) >= self.midi_range[0]) &
+                      (self.get_pitch(t) <= self.midi_range[1])]
+
         return tracks
 
     def get_audio_path(self, track):
@@ -92,6 +114,26 @@ class NSynth(AMTDataset):
 
         return NotImplementedError
 
+    def get_pitch(self, track):
+        """
+        Determine the pitch associated with an NSynth track.
+
+        Parameters
+        ----------
+        track : string
+          NSynth track name
+
+        Returns
+        ----------
+        pitch : int
+          Pitch of the note sample in the track
+        """
+
+        # Extract nominal pitch from name
+        pitch = int(track.split('-')[-2])
+
+        return pitch
+
     def get_ground_truth(self, track):
         """
         Construct the ground-truth for the specified track.
@@ -109,8 +151,8 @@ class NSynth(AMTDataset):
           Array of corresponding onset-offset time pair
         """
 
-        # Extract nominal pitch from track
-        pitch = int(track.split('-')[-2])
+        # Extract nominal pitch
+        pitch = self.get_pitch(track)
 
         # Load the track's audio
         audio = self.get_audio(track).squeeze()

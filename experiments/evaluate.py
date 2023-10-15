@@ -1,8 +1,9 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from lhvqt import torch_amplitude_to_db
-
+from timbre_trap.datasets import NoteDataset, constants
+from ss_mpe.models import filter_non_peaks, threshold
+from ss_mpe.models.objectives import *
 from utils import *
 
 # Regular imports
@@ -12,6 +13,7 @@ from copy import deepcopy
 import numpy as np
 import mir_eval
 import librosa
+import torch
 import sys
 
 
@@ -20,12 +22,17 @@ EPSILON = sys.float_info.epsilon
 
 class MultipitchEvaluator(object):
     """
-    TODO
+    A simple tracker to store results and compute statistics across an entire test set.
     """
 
     def __init__(self, tolerance=0.5):
         """
-        TODO
+        Initialize the tracker.
+
+        Parameters
+        ----------
+        tolerance : float
+          Semitone tolerance for correct predictions
         """
 
         self.tolerance = tolerance
@@ -43,12 +50,12 @@ class MultipitchEvaluator(object):
 
     def append_results(self, results):
         """
-        TODO.
+        Append the results for a test sample.
 
         Parameters
         ----------
-        results : TODO
-          TODO
+        results : dict of {str : float} entries
+          Numerical results for a single sample
         """
 
         # Loop through all keys
@@ -62,14 +69,14 @@ class MultipitchEvaluator(object):
 
     def average_results(self):
         """
-        TODO.
+        Compute the mean and standard deviation for each metric across currently tracked results.
 
         Returns
         ----------
-        mean : TODO
-          TODO
-        std_dev : TODO
-          TODO
+        mean : dict of {str : float} entries
+          Average scores across currently tracked results
+        std_dev : dict of {str : float} entries
+          Standard deviation of scores across currently tracked results
         """
 
         # Clone all current scores
@@ -86,23 +93,23 @@ class MultipitchEvaluator(object):
 
     def evaluate(self, times_est, multi_pitch_est, times_ref, multi_pitch_ref):
         """
-        TODO.
+        Compute MPE results for a set of predictions using mir_eval.
 
         Parameters
         ----------
-        times_est : TODO
-          TODO
-        multi_pitch_est : TODO
-          TODO
-        times_ref : TODO
-          TODO
-        multi_pitch_ref : TODO
-          TODO
+        times_est : ndarray (T)
+          Times corresponding to multi-pitch estimates
+        multi_pitch_est : list of ndarray (T x [...])
+          Frame-level multi-pitch estimates
+        times_ref : ndarray (K)
+          Times corresponding to ground-truth multi-pitch
+        multi_pitch_ref : list of ndarray (K x [...])
+          Frame-level multi-pitch ground-truth
 
         Returns
         ----------
-        results : TODO
-          TODO
+        results : dict of {str : float} entries
+          Numerical MPE results for a set of predictions
         """
 
         # Use mir_eval to compute multi-pitch results at specified tolerance
@@ -120,55 +127,93 @@ class MultipitchEvaluator(object):
         # Add f1-score to the mir_eval results
         results.update({'f1-score' : f_measure})
 
+        for k in deepcopy(results).keys():
+            # Prepend tag to indicate MPE metric
+            results[f'mpe/{k}'] = results.pop(k)
+
         return results
 
 
-def evaluate(model, hcqt, eval_set, writer=None, i=0, device='cpu'):
+def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu'):
     # Initialize a new evaluator for the dataset
     evaluator = MultipitchEvaluator()
 
-    # Unwrap the HCQT module from DataParallel to access attributes
-    h = hcqt.module if isinstance(hcqt, torch.nn.DataParallel) else hcqt
-
-    # Determine the MIDI frequency associated with each bin of the input/output
-    midi_freqs = librosa.hz_to_midi(h.fmin) + np.arange(h.n_bins) / (h.bins_per_octave / 12)
-
-    # Place model in evaluation mode
+    # Add model to selected device and switch to evaluation mode
+    model = model.to(device)
     model.eval()
 
     with torch.no_grad():
-        # Loop through each testing track
-        for track in eval_set.tracks:
-            # Extract the audio for this track and add to appropriate device
-            audio = eval_set.get_audio(track).to(device).unsqueeze(0)
+        # Loop through tracks
+        for data in eval_set:
+            # Determine which track is being processed
+            track = data[constants.KEY_TRACK]
+            # Extract audio and add to the appropriate device
+            audio = data[constants.KEY_AUDIO].to(device).unsqueeze(0)
+            # Extract ground-truth targets as a Tensor
+            ground_truth = torch.Tensor(data[constants.KEY_GROUND_TRUTH])
 
-            # Obtain spectral features in decibels
-            features_dec = torch_amplitude_to_db(hcqt(audio))
-            # Obtain amplitude features for the audio
-            features_lin = decibels_to_amplitude(features_dec)
-            # Obtain log-scale features for the audio
-            features_log = rescale_decibels(features_dec)
-            # Compute the pitch salience of the features
-            salience = torch.sigmoid(model(features_log).squeeze())
-            # Peak-pick and threshold salience to obtain binarized activations
-            activations = np.round(filter_non_peaks(salience.cpu().numpy()))
+            if isinstance(eval_set, NoteDataset):
+                # Extract frame times of ground-truth targets as reference
+                times_ref = data[constants.KEY_TIMES]
+                # Obtain the ground-truth note annotations
+                pitches, intervals = eval_set.get_ground_truth(track)
+                # Convert note pitches to Hertz
+                pitches = librosa.midi_to_hz(pitches)
+                # Convert the note annotations to multi-pitch annotations
+                multi_pitch_ref = eval_set.notes_to_multi_pitch(pitches, intervals, times_ref)
+            else:
+                # Obtain the ground-truth multi-pitch annotations
+                times_ref, multi_pitch_ref = eval_set.get_ground_truth(track)
+
+            # Compute full set of spectral features
+            features = model.get_all_features(audio)
+
+            # Extract relevant feature sets
+            features_log   = features['dec']
+            features_log_1 = features['dec_1']
+            features_log_h = features['dec_h']
+
+            # Process features to obtain logits
+            logits, _, losses = model(features_log)
+            # Convert to (implicit) pitch salience activations
+            transcription = torch.sigmoid(logits)
 
             # Determine the times associated with predictions
-            times_est = h.get_times(audio)
-            # Convert the activations to frame-level multi-pitch estimates
-            multi_pitch_est = eval_set.activations_to_multi_pitch(activations, midi_freqs)
+            times_est = model.hcqt.get_times(model.hcqt.get_expected_frames(audio.size(-1)))
+            # Perform peak-picking and thresholding on the activations
+            activations = threshold(filter_non_peaks(to_array(transcription)), 0.5).squeeze(0)
 
-            if eval_set.has_frame_level_annotations():
-                # Extract the ground-truth multi-pitch annotations for this track
-                times_ref, multi_pitch_ref = eval_set.get_ground_truth(track)
-            else:
-                # Construct the ground-truth multi-pitch annotations for this track
-                times_ref, multi_pitch_ref = eval_set.get_ground_truth(track, times_est)
+            # Convert the activations to frame-level multi-pitch estimates
+            multi_pitch_est = eval_set.activations_to_multi_pitch(activations, model.hcqt.midi_freqs)
 
             # Compute results for this track using mir_eval multi-pitch metrics
             results = evaluator.evaluate(times_est, multi_pitch_est, times_ref, multi_pitch_ref)
-            # Track the computed results
+            # Store the computed results
             evaluator.append_results(results)
+
+            # Compute support loss w.r.t. first harmonic for the batch
+            support_loss = compute_support_loss(logits, features_log_1)
+            # Compute harmonic loss w.r.t. weighted harmonic sum for the batch
+            harmonic_loss = compute_harmonic_loss(logits, features_log_h)
+            # Compute sparsity loss for the batch
+            sparsity_loss = compute_sparsity_loss(transcription)
+
+            # Compute the total loss for the track
+            total_loss = multipliers['support'] * support_loss + \
+                         multipliers['harmonic'] * harmonic_loss + \
+                         multipliers['sparsity'] * sparsity_loss
+
+            for key_loss, val_loss in losses.items():
+                # Store the model loss for the track
+                evaluator.append_results({f'loss/{key_loss}' : val_loss.item()})
+                # Add the model loss to the total loss
+                total_loss += multipliers.get(key_loss, 1) * val_loss
+
+            # Store all losses for the track
+            evaluator.append_results({'loss/support' : support_loss.item(),
+                                      'loss/harmonic' : harmonic_loss.item(),
+                                      'loss/sparsity' : sparsity_loss.item(),
+                                      'loss/total' : total_loss.item()})
 
         # Compute the average for all scores
         average_results, _ = evaluator.average_results()
@@ -177,18 +222,22 @@ def evaluate(model, hcqt, eval_set, writer=None, i=0, device='cpu'):
             # Loop through all computed scores
             for key in average_results.keys():
                 # Log the average score for this dataset
-                writer.add_scalar(f'val-{eval_set.name()}/{key}', average_results[key], i)
+                writer.add_scalar(f'{eval_set.name()}/{key}', average_results[key], i)
 
-            if eval_set.has_frame_level_annotations():
-                # Resample the multi-pitch annotations to align with predicted times
-                multi_pitch_ref = eval_set.resample_multi_pitch(times_ref, multi_pitch_ref, times_est)
-            # Convert the multi-pitch annotations to activations for visualization
-            ground_truth = torch.Tensor(eval_set.multi_pitch_to_activations(multi_pitch_ref, midi_freqs))
+            # Add channel dimension to input/outputs
+            ground_truth = ground_truth.unsqueeze(-3)
+            transcription = transcription.unsqueeze(-3)
+            features_log_1 = features_log_1.unsqueeze(-3)
+            features_log_h = features_log_h.unsqueeze(-3)
+
+            # Remove batch dimension from inputs
+            features_log_1 = features_log_1.squeeze(0)
+            features_log_h = features_log_h.squeeze(0)
 
             # Visualize predictions for the final sample of the evaluation dataset
-            writer.add_image(f'val-{eval_set.name()}/log-scaled CQT', features_log.squeeze()[1: 2].flip(-2), i)
-            writer.add_image(f'val-{eval_set.name()}/amplitude CQT', features_lin.squeeze()[1: 2].flip(-2), i)
-            writer.add_image(f'val-{eval_set.name()}/pitch salience', salience.unsqueeze(0).flip(-2), i)
-            writer.add_image(f'val-{eval_set.name()}/ground-truth', ground_truth.unsqueeze(0).flip(-2), i)
+            writer.add_image(f'val-{eval_set.name()}/ground-truth', ground_truth.flip(-2), i)
+            writer.add_image(f'val-{eval_set.name()}/transcription', transcription.flip(-2), i)
+            writer.add_image(f'val-{eval_set.name()}/CQT (dB)', features_log_1.flip(-2), i)
+            writer.add_image(f'val-{eval_set.name()}/W.Avg. HCQT', features_log_h.flip(-2), i)
 
     return average_results

@@ -31,7 +31,7 @@ import math
 import os
 
 
-DEBUG = 1 # (0 - off | 1 - on)
+DEBUG = 0 # (0 - off | 1 - on)
 CONFIG = 0 # (0 - desktop | 1 - lab)
 EX_NAME = '_'.join(['<EXPERIMENT_NAME>'])
 
@@ -182,13 +182,25 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     device = torch.device(f'cuda:{gpu_ids[0]}'
                           if torch.cuda.is_available() else 'cpu')
 
+    # Create weighting for harmonics (harmonic loss)
+    harmonic_weights = 1 / torch.Tensor(harmonics) ** 2
+    # Apply zero weight to sub-harmonics (harmonic loss)
+    harmonic_weights[harmonic_weights > 1] = 0
+    # Normalize the harmonic weights
+    harmonic_weights /= torch.sum(harmonic_weights)
+    # Add frequency and time dimensions for broadcasting
+    harmonic_weights = harmonic_weights.unsqueeze(-1).unsqueeze(-1)
+    # Make sure weights are on appropriate device
+    harmonic_weights = harmonic_weights.to(device)
+
     # Pack together HCQT parameters for readability
     hcqt_params = {'sample_rate': sample_rate,
                    'hop_length': hop_length,
                    'fmin': fmin,
                    'bins_per_octave': bins_per_octave,
                    'n_bins': n_bins,
-                   'harmonics': harmonics}
+                   'harmonics': harmonics,
+                   'weights' : harmonic_weights}
 
     if checkpoint_path is None:
         # Initialize autoencoder model and train from scratch
@@ -230,6 +242,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         # Instantiate NSynth validation split for training
         nsynth_train = NSynth(base_dir=nsynth_base_dir,
                               splits=['valid'],
+                              midi_range=None,
                               sample_rate=sample_rate,
                               cqt=model.hcqt,
                               n_secs=n_secs,
@@ -239,6 +252,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         # Instantiate NSynth training split for training
         nsynth_train = NSynth(base_dir=nsynth_base_dir,
                               splits=['train'],
+                              midi_range=None,
                               sample_rate=sample_rate,
                               cqt=model.hcqt,
                               n_secs=n_secs,
@@ -381,20 +395,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Flag to indicate early stopping criteria has been met
     early_stop_criteria = False
 
-    # Determine index of first harmonic (support loss)
-    h_idx = harmonics.index(1)
-
-    # Create weighting for harmonics (harmonic loss)
-    harmonic_weights = 1 / torch.Tensor(harmonics) ** 2
-    # Apply zero weight to sub-harmonics (harmonic loss)
-    harmonic_weights[harmonic_weights > 1] = 0
-    # Normalize the harmonic weights
-    harmonic_weights /= torch.sum(harmonic_weights)
-    # Add frequency and time dimensions for broadcasting
-    harmonic_weights = harmonic_weights.unsqueeze(-1).unsqueeze(-1)
-    # Make sure weights are on appropriate device
-    harmonic_weights = harmonic_weights.to(device)
-
     # Determine the sequence length of training samples
     n_frames = int(n_secs * sample_rate / hop_length)
 
@@ -431,39 +431,27 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             # Log the current learning rate for this batch
             writer.add_scalar('train/loss/learning_rate', optimizer.param_groups[0]['lr'], batch_count)
 
-            # Compute features for audio
-            features = model.hcqt(audio)
+            # Compute full set of spectral features
+            features = model.get_all_features(audio)
 
-            # Convert raw HCQT spectral features to decibels [-80, 0] dB
-            features_dec = model.hcqt.to_decibels(features, rescale=False)
-            # Convert decibels to linear gain [0, 1]
-            features_lin = model.hcqt.decibels_to_amplitude(features_dec)
-            # Scale decibels to represent probability-like values [0, 1]
-            features_log = model.hcqt.rescale_decibels(features_dec)
-
-            # Obtain pseudo-ground-truth first harmonic spectral features
-            pseudo_ground_truth_lin = features_lin[:, h_idx]
-            pseudo_ground_truth_log = features_log[:, h_idx]
-
-            # Compute a weighted sum of features to obtain a rough salience estimate
-            pseudo_salience_lin = torch.sum(features_lin * harmonic_weights, dim=-3)
-            pseudo_salience_log = torch.sum(features_log * harmonic_weights, dim=-3)
-            #pseudo_salience = torch.from_numpy(filter_non_peaks(to_array(pseudo_salience_log))).to(device)
+            # Extract relevant feature sets
+            features_log   = features['dec']
+            features_log_1 = features['dec_1']
+            features_log_h = features['dec_h']
 
             with torch.autocast(device_type=f'cuda'):
                 # Process features to obtain logits
                 logits, _, losses = model(features_log)
-
                 # Convert to (implicit) pitch salience activations
                 estimate = torch.sigmoid(logits)
 
                 # Compute support loss w.r.t. first harmonic for the batch
-                support_loss = compute_support_loss(logits, pseudo_ground_truth_log)
+                support_loss = compute_support_loss(logits, features_log_1)
                 # Log the support loss for this batch
                 writer.add_scalar('train/loss/support', support_loss.item(), batch_count)
 
                 # Compute harmonic loss w.r.t. weighted harmonic sum for the batch
-                harmonic_loss = compute_harmonic_loss(logits, pseudo_salience_log)
+                harmonic_loss = compute_harmonic_loss(logits, features_log_h)
                 # Log the harmonic loss for this batch
                 writer.add_scalar('train/loss/harmonic', harmonic_loss.item(), batch_count)
 

@@ -33,6 +33,8 @@ class TT_Base(nn.Module):
 
         nn.Module.__init__(self)
 
+        self.hcqt_params = hcqt_params.copy()
+        hcqt_params.pop('weights')
         self.hcqt = HCQT(**hcqt_params)
 
         self.encoder = Encoder(feature_size=self.hcqt.n_bins, latent_size=latent_size, model_complexity=model_complexity)
@@ -64,6 +66,57 @@ class TT_Base(nn.Module):
         else:
             # No skip connections
             self.skip_weights = None
+
+    def get_all_features(self, audio):
+        """
+        Compute all possible features.
+
+        Parameters
+        ----------
+        audio : Tensor (B x 1 x N)
+          Batch of input raw audio
+
+        Returns
+        ----------
+        features : dict
+          Various sets of spectral features
+        """
+
+        # Compute features for audio
+        features_amp = self.hcqt(audio)
+
+        # Convert raw HCQT spectral features to decibels [-80, 0] dB
+        features_dec = self.hcqt.to_decibels(features_amp, rescale=False)
+        # Convert decibels to linear probability-like values [0, 1]
+        features_lin = self.hcqt.decibels_to_amplitude(features_dec)
+        # Scale decibels to represent probability-like values [0, 1]
+        features_log = self.hcqt.rescale_decibels(features_dec)
+
+        # Extract relevant parameters
+        harmonics = self.hcqt_params['harmonics']
+        harmonic_weights = self.hcqt_params['weights']
+
+        # Determine first harmonic index
+        h_idx = harmonics.index(1)
+
+        # Obtain first harmonic spectral features
+        features_lin_1 = features_lin[:, h_idx]
+        features_log_1 = features_log[:, h_idx]
+
+        # Compute a weighted sum of features to obtain a rough salience estimate
+        features_lin_h = torch.sum(features_lin * harmonic_weights, dim=-3)
+        features_log_h = torch.sum(features_log * harmonic_weights, dim=-3)
+
+        features = {
+            'amp'   : features_lin,
+            'dec'   : features_log,
+            'amp_1' : features_lin_1,
+            'dec_1' : features_log_1,
+            'amp_h' : features_lin_h,
+            'dec_h' : features_log_h
+        }
+
+        return features
 
     def apply_skip_connections(self, embeddings):
         """
