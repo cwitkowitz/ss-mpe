@@ -1,6 +1,6 @@
-from timbre_trap.models import DataParallel
 from timbre_trap.models.utils import *
 from .objectives import *
+from .utils import *
 
 from .hcqtmodule import HCQT
 from .saunet import SA_UNet

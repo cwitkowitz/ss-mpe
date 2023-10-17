@@ -13,6 +13,7 @@ from ss_mpe.datasets import collate_audio_only
 
 from ss_mpe.models import DataParallel, TT_Base
 from ss_mpe.models.objectives import *
+from ss_mpe.models.utils import *
 from evaluate import evaluate
 from utils import *
 
@@ -433,6 +434,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             writer.add_scalar('train/loss/learning_rate', optimizer.param_groups[0]['lr'], batch_count)
 
             # Compute full set of spectral features
+            # TODO - compute features inside of forward?
             features = model.get_all_features(audio)
 
             # Extract relevant feature sets
@@ -446,6 +448,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 # Convert to (implicit) pitch salience activations
                 estimate = torch.sigmoid(logits)
 
+                # TODO - compute losses inside of forward?
                 # Compute support loss w.r.t. first harmonic for the batch
                 support_loss = compute_support_loss(logits, features_log_1)
                 # Log the support loss for this batch
