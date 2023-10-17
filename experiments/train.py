@@ -75,7 +75,7 @@ def config():
     }
 
     # Number of epochs spanning warmup phase (0 to disable)
-    n_epochs_warmup = 10
+    n_epochs_warmup = 1
 
     # Set validation dataset to compare for learning rate decay and early stopping
     validation_criteria_set = URMP_Mixtures.name()
@@ -90,10 +90,10 @@ def config():
     n_epochs_late_start = 0
 
     # Number of epochs without improvement before reducing learning rate (0 to disable)
-    n_epochs_decay = 20
+    n_epochs_decay = 1
 
     # Number of epochs before starting epoch counter for learning rate decay
-    n_epochs_cooldown = 4
+    n_epochs_cooldown = 0
 
     # Number of epochs without improvement before early stopping (None to disable)
     n_epochs_early_stop = None
@@ -166,17 +166,17 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Point to the datasets within the storage drive containing them
     nsynth_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
     mnet_base_dir      = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if CONFIG else None
-    mydb_base_dir      = os.path.join('/', 'storageNVME', 'frank', 'MedleyDB') if CONFIG else None
+    mydb_base_dir      = os.path.join('/', 'storage', 'frank', 'MedleyDB') if CONFIG else None
     magna_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'MagnaTagATune') if CONFIG else None
     fma_base_dir       = os.path.join('/', 'storageNVME', 'frank', 'FMA') if CONFIG else None
-    mydb_ptch_base_dir = os.path.join('/', 'storageNVME', 'frank', 'MedleyDB-Pitch') if CONFIG else None
-    urmp_base_dir      = os.path.join('/', 'storageNVME', 'frank', 'URMP') if CONFIG else None
-    bch10_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'Bach10') if CONFIG else None
-    gset_base_dir      = os.path.join('/', 'storageNVME', 'frank', 'GuitarSet') if CONFIG else None
-    mstro_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'MAESTRO') if CONFIG else None
-    swd_base_dir       = os.path.join('/', 'storageNVME', 'frank', 'SWD') if CONFIG else None
-    su_base_dir        = os.path.join('/', 'storageNVME', 'frank', 'Su') if CONFIG else None
-    trios_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'TRIOS') if CONFIG else None
+    mydb_ptch_base_dir = os.path.join('/', 'storage', 'frank', 'MedleyDB-Pitch') if CONFIG else None
+    urmp_base_dir      = os.path.join('/', 'storage', 'frank', 'URMP') if CONFIG else None
+    bch10_base_dir     = os.path.join('/', 'storage', 'frank', 'Bach10') if CONFIG else None
+    gset_base_dir      = os.path.join('/', 'storage', 'frank', 'GuitarSet') if CONFIG else None
+    mstro_base_dir     = os.path.join('/', 'storage', 'frank', 'MAESTRO') if CONFIG else None
+    swd_base_dir       = os.path.join('/', 'storage', 'frank', 'SWD') if CONFIG else None
+    su_base_dir        = os.path.join('/', 'storage', 'frank', 'Su') if CONFIG else None
+    trios_base_dir     = os.path.join('/', 'storage', 'frank', 'TRIOS') if CONFIG else None
 
     # Initialize the primary PyTorch device
     device = torch.device(f'cuda:{gpu_ids[0]}'

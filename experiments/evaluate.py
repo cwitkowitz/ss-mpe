@@ -236,9 +236,9 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu'):
             features_log_h = features_log_h.squeeze(0)
 
             # Visualize predictions for the final sample of the evaluation dataset
-            writer.add_image(f'val-{eval_set.name()}/ground-truth', ground_truth.flip(-2), i)
-            writer.add_image(f'val-{eval_set.name()}/transcription', transcription.flip(-2), i)
-            writer.add_image(f'val-{eval_set.name()}/CQT (dB)', features_log_1.flip(-2), i)
-            writer.add_image(f'val-{eval_set.name()}/W.Avg. HCQT', features_log_h.flip(-2), i)
+            writer.add_image(f'{eval_set.name()}/ground-truth', ground_truth.flip(-2), i)
+            writer.add_image(f'{eval_set.name()}/transcription', transcription.flip(-2), i)
+            writer.add_image(f'{eval_set.name()}/CQT (dB)', features_log_1.flip(-2), i)
+            writer.add_image(f'{eval_set.name()}/W.Avg. HCQT', features_log_h.flip(-2), i)
 
     return average_results
