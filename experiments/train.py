@@ -164,7 +164,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Seed everything with the same seed
     seed_everything(seed)
 
-    # Point to the datasets within the storage drive containing them
+    # Point to the datasets within the storage drive containing them or use the default location
     nsynth_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
     mnet_base_dir      = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if CONFIG else None
     mydb_base_dir      = os.path.join('/', 'storage', 'frank', 'MedleyDB') if CONFIG else None

@@ -1,39 +1,48 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from Bach10 import Bach10
-from TRIOS import TRIOS
-from Su import Su
-#from MedleyDBPitch import MedleyDB_Pitch
-#from MusicNet import MusicNet
-#from URMP import URMP
-#from SWD import SWD
+from timbre_trap.datasets.MixedMultiPitch import URMP, Bach10, Su, TRIOS
+from timbre_trap.datasets.SoloMultiPitch import GuitarSet
+from timbre_trap.datasets.NoteDataset import NoteDataset
 
-from lhvqt import torch_amplitude_to_db
-from hcqt import LHVQT
-
+from timbre_trap.models.utils import filter_non_peaks, threshold
+from timbre_trap.datasets.utils import constants
 from evaluate import MultipitchEvaluator
 from utils import *
 
 # Regular imports
 from tqdm import tqdm
 
+import numpy as np
 import librosa
 import torch
 import os
 
 
-# Choose the GPU on which to perform evaluation
-gpu_id = None
+# Name of the model to evaluate
+#ex_name = '<EXPERIMENT_DIR>'
+ex_name = 'BasicLosses'
 
 # Choose the model checkpoint to compare
-checkpoint = 0
+#checkpoint = 0
+checkpoint = 9000
 
-# Construct the path to the top-level directory of the experiment
-experiment_dir = os.path.join('.', 'generated', 'experiments', '<EXPERIMENT_DIR>')
+# Choose the GPU on which to perform evaluation
+#gpu_id = None
+gpu_id = 1
 
 # Flag to print results for each track separately
+#verbose = True
 verbose = False
+
+# File layout of system (0 - desktop | 1 - lab)
+path_layout = 0
+
+# Construct the path to the top-level directory of the experiment
+if path_layout == 1:
+    experiment_dir = os.path.join('/', 'storage', 'frank', 'self-supervised-pitch', ex_name)
+else:
+    experiment_dir = os.path.join('..', 'generated', 'experiments', ex_name)
 
 
 ########################
@@ -43,254 +52,256 @@ verbose = False
 # Number of samples per second of audio
 sample_rate = 22050
 
-# Number of samples between frames
-hop_length = 512
-
-# Number of frequency bins per CQT
-n_bins = 216
-
-# Number of bins in a single octave
-bins_per_octave = 36
-
-# Harmonics to stack along channel dimension of HCQT
-harmonics = [0.5, 1, 2, 3, 4, 5]
-
-# First center frequency (MIDI) of geometric progression
-fmin = librosa.note_to_midi('C1')
-
-# Initialize the HCQT feature extraction module
-hcqt = LHVQT(fs=sample_rate,
-             hop_length=hop_length,
-             fmin=librosa.midi_to_hz(fmin),
-             n_bins=n_bins,
-             bins_per_octave=bins_per_octave,
-             harmonics=harmonics,
-             update=False,
-             to_db=False,
-             db_to_prob=False,
-             batch_norm=False)
-
-# Create weighting for harmonics (harmonic loss)
-harmonic_weights = 1 / torch.Tensor(harmonics) ** 2
-# Apply zero weight to sub-harmonics (harmonic loss)
-harmonic_weights[harmonic_weights > 1] = 0
-# Normalize the harmonic weights
-harmonic_weights /= torch.sum(harmonic_weights)
-# Add frequency and time dimensions for broadcasting
-harmonic_weights = harmonic_weights.unsqueeze(-1).unsqueeze(-1)
-
 
 ############
 ## MODELS ##
 ############
 
-from basic_pitch.note_creation import model_frames_to_time
-from basic_pitch import ICASSP_2022_MODEL_PATH
-from basic_pitch.inference import predict
-import tensorflow as tf
-
-# Load the BasicPitch model checkpoint corresponding to paper
-basic_pitch = tf.saved_model.load(str(ICASSP_2022_MODEL_PATH))
-# Determine the MIDI frequency associated with each bin of Basic Pitch predictions
-bp_midi_freqs = librosa.note_to_midi('A0') + np.arange(264) / (bins_per_octave / 12)
+# Initialize a device pointer for loading the models
+device = torch.device(f'cuda:{gpu_id}' if torch.cuda.is_available() and gpu_id is not None else 'cpu')
 
 # Construct the path to the model checkpoint to evaluate
 model_path = os.path.join(experiment_dir, 'models', f'model-{checkpoint}.pt')
 
 # Load a checkpoint of the SS-MPE model
-#ss_mpe = torch.load(model_path, map_location='cpu')
-#ss_mpe.eval()
+ss_mpe = torch.load(model_path, map_location=device)
+ss_mpe.eval()
 
-# Determine the MIDI frequency associated with each bin of predictions
-ss_midi_freqs = fmin + np.arange(n_bins) / (bins_per_octave / 12)
 
-# Determine which channel of the features corresponds to the first harmonic
-h_idx = harmonics.index(1)
+"""
+from basic_pitch.note_creation import model_frames_to_time
+from basic_pitch import ICASSP_2022_MODEL_PATH
+from basic_pitch.inference import predict as bp_predict
+import tensorflow as tf
+
+# Number of bins in a single octave
+bp_bins_per_octave = 36
+# Load the BasicPitch model checkpoint corresponding to paper
+basic_pitch = tf.saved_model.load(str(ICASSP_2022_MODEL_PATH))
+# Determine the MIDI frequency associated with each bin of Basic Pitch predictions
+bp_midi_freqs = librosa.note_to_midi('A0') + np.arange(264) / (bp_bins_per_octave / 12)
+"""
+
+
+# TODO - deep salience
+
+
+# TODO - include models from https://ieeexplore.ieee.org/abstract/document/9865174?
 
 
 ##############
 ## DATASETS ##
 ##############
 
-# Instantiate Bach10 dataset for evaluation
-bach10 = Bach10(base_dir=None,
-                sample_rate=sample_rate)
+# Point to the datasets within the storage drive containing them or use the default location
+urmp_base_dir  = os.path.join('/', 'storage', 'frank', 'URMP') if path_layout else None
+bch10_base_dir = os.path.join('/', 'storage', 'frank', 'Bach10') if path_layout else None
+gset_base_dir  = os.path.join('/', 'storage', 'frank', 'GuitarSet') if path_layout else None
+su_base_dir    = os.path.join('/', 'storage', 'frank', 'Su') if path_layout else None
+trios_base_dir = os.path.join('/', 'storage', 'frank', 'TRIOS') if path_layout else None
 
-# Instantiate Su dataset for evaluation
-su = Su(base_dir=None,
-        sample_rate=sample_rate)
+# Set the URMP validation set as was defined in the MT3 paper
+urmp_val_splits = ['01', '02', '12', '13', '24', '25', '31', '38', '39']
+# Instantiate URMP dataset mixtures for evaluation
+urmp_test = URMP(base_dir=urmp_base_dir,
+                 splits=urmp_val_splits,
+                 sample_rate=sample_rate,
+                 cqt=ss_mpe.hcqt)
 
 # Instantiate TRIOS dataset for evaluation
-trios = TRIOS(base_dir=None,
-              sample_rate=sample_rate)
+trios_test = TRIOS(base_dir=trios_base_dir,
+                   splits=None,
+                   sample_rate=sample_rate,
+                   cqt=ss_mpe.hcqt)
 
-"""
-# Instantiate MusicNet dataset for evaluation
-musicnet = MusicNet(base_dir=None,
-                    sample_rate=sample_rate)
+# Instantiate Bach10 dataset mixtures for evaluation
+bch10_test = Bach10(base_dir=bch10_base_dir,
+                    splits=None,
+                    sample_rate=sample_rate,
+                    cqt=ss_mpe.hcqt)
 
-# Instantiate URMP dataset for evaluation
-urmp = URMP(base_dir=None,
-            sample_rate=sample_rate)
+# Instantiate Su dataset for evaluation
+su_test = Su(base_dir=su_base_dir,
+             splits=None,
+             sample_rate=sample_rate,
+             cqt=ss_mpe.hcqt)
 
-# Instantiate SWD dataset for evaluation
-swd = SWD(base_dir=None,
-          sample_rate=sample_rate)
-
-# Instantiate MedleyDB pitch-tracking subset for evaluation
-medleydb = MedleyDB_Pitch(base_dir=None,
-                          sample_rate=sample_rate)
-"""
+# Instantiate GuitarSet dataset for evaluation
+gset_test = GuitarSet(base_dir=gset_base_dir,
+                      splits=['05'],
+                      sample_rate=sample_rate,
+                      cqt=ss_mpe.hcqt,)
 
 
 ################
 ## EVALUATION ##
 ################
 
-# Construct the path to the directory under which to save results
-#save_dir = os.path.join(experiment_dir, 'comparisons')
+# Construct a path to the directory under which to save comparisons
+save_dir = os.path.join(experiment_dir, 'comparisons')
 
-# Make sure the results directory exists
-#os.makedirs(save_dir, exist_ok=True)
+# Make sure the comparison directory exists
+os.makedirs(save_dir, exist_ok=True)
 
-# Construct a path to a file for saving results
-#save_path = os.path.join(save_dir, f'checkpoint-{checkpoint}.txt')
-save_path = None
+# Construct a path to the file to save the comparison results
+save_path = os.path.join(save_dir, f'checkpoint-{checkpoint}.txt')
 
-#if os.path.exists(save_path):
-#    # Reset the file if it already exists
-#    os.remove(save_path)
+if os.path.exists(save_path):
+    # Reset the file if it already exists
+    os.remove(save_path)
 
-# Initialize a device pointer for loading the models
-device = torch.device(f'cuda:{gpu_id}' if torch.cuda.is_available() and gpu_id is not None else 'cpu')
-
-# Add feature extraction and model to the appropriate device
-hcqt = hcqt.to(device)
-#ss_mpe = ss_mpe.to(device)
-
-
-def print_and_log(text, path=None):
-    """
-    TODO
-    """
-
-    # Print text to the console
-    print(text)
-
-    if path is not None:
-        with open(path, 'a') as f:
-            # Append the text to the file
-            print(text, file=f)
-
-
-# Loop through all evaluation datasets
-for eval_set in [bach10, su, trios]:
-    # Initialize evaluators for all models
+# Loop through validation and evaluation datasets
+for eval_set in [urmp_test, trios_test, bch10_test, su_test, gset_test]:
+    # Initialize evaluators for each algorithm/model
+    ln1_evaluator = MultipitchEvaluator()
+    lg1_evaluator = MultipitchEvaluator()
+    lnh_evaluator = MultipitchEvaluator()
+    lgh_evaluator = MultipitchEvaluator()
+    ss_evaluator = MultipitchEvaluator()
     bp_evaluator = MultipitchEvaluator()
-    #ss_evaluator = MultipitchEvaluator()
-    ln_evaluator = MultipitchEvaluator()
-    lg_evaluator = MultipitchEvaluator()
-    hm_ln_evaluator = MultipitchEvaluator()
-    hm_lg_evaluator = MultipitchEvaluator()
 
     print_and_log(f'Results for {eval_set.name()}:', save_path)
 
+    # Frequencies associated with ground-truth
+    gt_midi_freqs = eval_set.cqt.midi_freqs
+
     # Loop through all tracks in the test set
-    for i, track in enumerate(tqdm(eval_set.tracks)):
-        # Extract the audio for this track and add to appropriate device
-        audio = eval_set.get_audio(track).to(device).unsqueeze(0)
-        # Obtain the times associated with each frame of features
-        times_est = hcqt.get_times(audio)
+    for i, data in enumerate(tqdm(eval_set)):
+        # Determine which track is being processed
+        track = data[constants.KEY_TRACK]
+        # Extract audio and add to the appropriate device
+        audio = data[constants.KEY_AUDIO].to(device).unsqueeze(0)
 
-        if eval_set.has_frame_level_annotations():
-            # Extract the ground-truth multi-pitch annotations for this track
-            times_ref, multi_pitch_ref = eval_set.get_ground_truth(track)
+        if isinstance(eval_set, NoteDataset):
+            # Extract frame times of ground-truth targets as reference
+            times_ref = data[constants.KEY_TIMES]
+            # Obtain the ground-truth note annotations
+            pitches, intervals = eval_set.get_ground_truth(track)
+            # Convert note pitches to Hertz
+            pitches = librosa.midi_to_hz(pitches)
+            # Convert the note annotations to multi-pitch annotations
+            multi_pitch_ref = eval_set.notes_to_multi_pitch(pitches, intervals, times_ref)
         else:
-            # Construct the ground-truth multi-pitch annotations for this track
-            times_ref, multi_pitch_ref = eval_set.get_ground_truth(track, times_est)
+            # Obtain the ground-truth multi-pitch annotations
+            times_ref, multi_pitch_ref = eval_set.get_ground_truth(track)
 
+        if verbose:
+            # Print a header for the individual track's results
+            print_and_log(f'\tResults for track \'{track}\' ({eval_set.name()}):', save_path)
+
+        # Determine the times associated with predictions
+        times_est = eval_set.cqt.get_times(eval_set.cqt.get_expected_frames(audio.size(-1)))
+
+        # Compute full set of spectral features
+        features = ss_mpe.get_all_features(audio)
+
+        # Extract relevant feature sets
+        features_lin_1 = features['amp_1']
+        features_log_1 = features['dec_1']
+        features_lin_h = features['amp_h']
+        features_log_h = features['dec_h']
+
+        # Peak-pick and threshold the linear-scaled magnitude
+        ln1_activations = threshold(filter_non_peaks(to_array(features_lin_1)), 0.3)
+        # Convert the raw-feature activations to frame-level multi-pitch estimates
+        ln1_multi_pitch = eval_set.activations_to_multi_pitch(ln1_activations, gt_midi_freqs)
+        # Compute results for predictions from the linear-scaled CQT features
+        ln1_results = ln1_evaluator.evaluate(times_est, ln1_multi_pitch, times_ref, multi_pitch_ref)
+        # Store results for this track
+        ln1_evaluator.append_results(ln1_results)
+
+        if verbose:
+            # Print results for the individual track
+            print_and_log(f'\t\t-(lin-cqt-1): {ln1_results}', save_path)
+
+
+        # Peak-pick and threshold the log-scaled magnitude
+        lg1_activations = threshold(filter_non_peaks(to_array(features_log_1)), 0.8)
+        # Convert the raw-feature activations to frame-level multi-pitch estimates
+        lg1_multi_pitch = eval_set.activations_to_multi_pitch(lg1_activations, gt_midi_freqs)
+        # Compute results for predictions from the log-scaled CQT features
+        lg1_results = lg1_evaluator.evaluate(times_est, lg1_multi_pitch, times_ref, multi_pitch_ref)
+        # Store results for this track
+        lg1_evaluator.append_results(lg1_results)
+
+        if verbose:
+            # Print results for the individual track
+            print_and_log(f'\t\t-(log-cqt-1): {lg1_results}', save_path)
+
+        # Peak-pick and threshold the weighted harmonic average linear-scaled magnitude
+        lnh_activations = threshold(filter_non_peaks(to_array(features_lin_h)), 0.3)
+        # Convert the raw-feature activations to frame-level multi-pitch estimates
+        lnh_multi_pitch = eval_set.activations_to_multi_pitch(lnh_activations, gt_midi_freqs)
+        # Compute results for predictions from the linear-scaled CQT features
+        lnh_results = lnh_evaluator.evaluate(times_est, lnh_multi_pitch, times_ref, multi_pitch_ref)
+        # Store results for this track
+        lnh_evaluator.append_results(lnh_results)
+
+        if verbose:
+            # Print results for the individual track
+            print_and_log(f'\t\t-(lin-cqt-h): {lnh_results}', save_path)
+
+
+        # Peak-pick and threshold the weighted harmonic average log-scaled magnitude
+        lgh_activations = threshold(filter_non_peaks(to_array(features_log_h)), 0.5)
+        # Convert the raw-feature activations to frame-level multi-pitch estimates
+        lgh_multi_pitch = eval_set.activations_to_multi_pitch(lgh_activations, gt_midi_freqs)
+        # Compute results for predictions from the log-scaled CQT features
+        lgh_results = lgh_evaluator.evaluate(times_est, lgh_multi_pitch, times_ref, multi_pitch_ref)
+        # Store results for this track
+        lgh_evaluator.append_results(lgh_results)
+
+        if verbose:
+            # Print results for the individual track
+            print_and_log(f'\t\t-(log-cqt-h): {lgh_results}', save_path)
+
+
+        # Transcribe the audio using the SS-MPE model
+        ss_activations = to_array(ss_mpe.transcribe(audio).squeeze())
+        # Peak-pick and threshold the SS-MPE activations
+        ss_activations = threshold(filter_non_peaks(ss_activations), 0.5)
+        # Convert the SS-MPE activations to frame-level multi-pitch estimates
+        ss_multi_pitch = eval_set.activations_to_multi_pitch(ss_activations, gt_midi_freqs)
+        # Compute results for predictions from the SS-MPE methodology
+        ss_results = ss_evaluator.evaluate(times_est, ss_multi_pitch, times_ref, multi_pitch_ref)
+        # Store results for this track
+        ss_evaluator.append_results(ss_results)
+
+        if verbose:
+            # Print results for the individual track
+            print_and_log(f'\t\t-(ss-mpe): {ss_results}', save_path)
+
+
+        """
         # Obtain a path for the track's audio
         audio_path = eval_set.get_audio_path(track)
         # Obtain predictions from the BasicPitch model
-        model_output, _, _ = predict(audio_path, basic_pitch)
+        model_output, _, _ = bp_predict(audio_path, basic_pitch)
         # Extract the pitch salience predictions
         bp_salience = model_output['contour'].T
         # Determine times associated with each frame of predictions
         bp_times = model_frames_to_time(bp_salience.shape[-1])
-
         # Apply peak-picking and thresholding on the raw salience
         bp_salience = threshold(filter_non_peaks(bp_salience), 0.27)
-
         # Convert the activations to frame-level multi-pitch estimates
         bp_multi_pitch = eval_set.activations_to_multi_pitch(bp_salience, bp_midi_freqs)
-
         # Compute results for BasicPitch predictions
         bp_results = bp_evaluator.evaluate(bp_times, bp_multi_pitch, times_ref, multi_pitch_ref)
-
-        with torch.no_grad():
-            # Obtain spectral features in decibels
-            features_dec = torch_amplitude_to_db(hcqt(audio))
-            # Convert decibels to linear gain between 0 and 1
-            features_lin = decibels_to_amplitude(features_dec)
-            # Scale decibels to be between 0 and 1
-            features_log = rescale_decibels(features_dec)
-            # Obtain predictions from the self-supervised model
-            #ss_salience = torch.sigmoid(ss_mpe(features_log).squeeze())
-
-        # Peak-pick and threshold salience to obtain binarized activations
-        #ss_salience = np.round(filter_non_peaks(ss_salience.cpu().numpy()))
-        # Convert the activations to frame-level multi-pitch estimates
-        #ss_multi_pitch = eval_set.activations_to_multi_pitch(ss_salience, ss_midi_freqs)
-
-        # Compute results for self-supervised predictions
-        #ss_results = ss_evaluator.evaluate(times_est, ss_multi_pitch, times_ref, multi_pitch_ref)
-
-        # Obtain salience as the first harmonic of the CQT features
-        ln_salience = features_lin.squeeze()[h_idx].cpu().numpy()
-        lg_salience = features_log.squeeze()[h_idx].cpu().numpy()
-        hm_ln_salience = torch.sum(features_lin.squeeze() * harmonic_weights, dim=-3).cpu().numpy()
-        hm_lg_salience = torch.sum(features_log.squeeze() * harmonic_weights, dim=-3).cpu().numpy()
-
-        # Apply peak-picking to log-scale features
-        lg_salience = filter_non_peaks(lg_salience)
-        hm_lg_salience = filter_non_peaks(hm_lg_salience)
-
-        # Convert saliences to frame-level multi-pitch estimates
-        ln_multi_pitch = eval_set.activations_to_multi_pitch(ln_salience, ss_midi_freqs)
-        lg_multi_pitch = eval_set.activations_to_multi_pitch(lg_salience, ss_midi_freqs)
-        hm_ln_multi_pitch = eval_set.activations_to_multi_pitch(hm_ln_salience, ss_midi_freqs)
-        hm_lg_multi_pitch = eval_set.activations_to_multi_pitch(hm_lg_salience, ss_midi_freqs)
-
-        # Determine performance floor when using raw CQT features as predictions
-        ln_results = ln_evaluator.evaluate(times_est, ln_multi_pitch, times_ref, multi_pitch_ref)
-        lg_results = lg_evaluator.evaluate(times_est, lg_multi_pitch, times_ref, multi_pitch_ref)
-        hm_ln_results = hm_ln_evaluator.evaluate(times_est, hm_ln_multi_pitch, times_ref, multi_pitch_ref)
-        hm_lg_results = hm_lg_evaluator.evaluate(times_est, hm_lg_multi_pitch, times_ref, multi_pitch_ref)
+        # Store results for this track
+        bp_evaluator.append_results(bp_results)
 
         if verbose:
             # Print results for the individual track
-            print_and_log(f'\tResults for track \'{track}\' ({eval_set.name()}):', save_path)
-            print_and_log(f'\t- BasicPitch: {bp_results}', save_path)
-            #print_and_log(f'\t- Self-Supervised: {ss_results}', save_path)
-            print_and_log(f'\t- Amplitude CQT: {ln_results}', save_path)
-            print_and_log(f'\t- Log-Scaled CQT: {lg_results}', save_path)
-            print_and_log(f'\t- H-Weighted (Lin) CQT: {hm_ln_results}', save_path)
-            print_and_log(f'\t- H-Weighted (Log) CQT: {hm_lg_results}', save_path)
-            print_and_log('', save_path)
+            print_and_log(f'\t\t-(bsc-ptc): {bp_results}', save_path)
+        """
 
-        # Track results with the respective evaluator
-        bp_evaluator.append_results(bp_results)
-        #ss_evaluator.append_results(ss_results)
-        ln_evaluator.append_results(ln_results)
-        lg_evaluator.append_results(lg_results)
-        hm_ln_evaluator.append_results(hm_ln_results)
-        hm_lg_evaluator.append_results(hm_lg_results)
+    # Print a header for average results across all tracks of the dataset
+    print_and_log(f'\tAverage Results ({eval_set.name()}):', save_path)
 
-    # Print average results for each evaluator
-    print_and_log(f'BasicPitch: {bp_evaluator.average_results()[0]}', save_path)
-    #print_and_log(f'Self-Supervised: {ss_evaluator.average_results()[0]}', save_path)
-    print_and_log(f'Amplitude CQT: {ln_evaluator.average_results()[0]}', save_path)
-    print_and_log(f'Log-Scaled CQT {lg_evaluator.average_results()[0]}', save_path)
-    print_and_log(f'H-Weighted (Lin) CQT {hm_ln_evaluator.average_results()[0]}', save_path)
-    print_and_log(f'H-Weighted (Log) CQT {hm_lg_evaluator.average_results()[0]}', save_path)
-    print_and_log('', save_path)
+    # Print average results
+    print_and_log(f'\t\t-(lin-cqt-1): {ln1_evaluator.average_results()[0]}', save_path)
+    print_and_log(f'\t\t-(log-cqt-1): {lg1_evaluator.average_results()[0]}', save_path)
+    print_and_log(f'\t\t-(lin-cqt-h): {lnh_evaluator.average_results()[0]}', save_path)
+    print_and_log(f'\t\t-(log-cqt-h): {lgh_evaluator.average_results()[0]}', save_path)
+    print_and_log(f'\t\t-(ss-mpe): {ss_evaluator.average_results()[0]}', save_path)
+    #print_and_log(f'\t\t-(bsc-ptc): {bp_evaluator.average_results()[0]}', save_path)
