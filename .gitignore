@@ -7,3 +7,5 @@
 
 *.egg
 *.egg-info
+
+*deep_salience

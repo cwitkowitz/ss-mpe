@@ -5,8 +5,8 @@ from timbre_trap.datasets.MixedMultiPitch import URMP, Bach10, Su, TRIOS
 from timbre_trap.datasets.SoloMultiPitch import GuitarSet
 from timbre_trap.datasets.NoteDataset import NoteDataset
 
+from timbre_trap.datasets.utils import stream_url_resource, constants
 from timbre_trap.models.utils import filter_non_peaks, threshold
-from timbre_trap.datasets.utils import constants
 from evaluate import MultipitchEvaluator
 from utils import *
 
@@ -68,10 +68,9 @@ ss_mpe = torch.load(model_path, map_location=device)
 ss_mpe.eval()
 
 
-"""
 from basic_pitch.note_creation import model_frames_to_time
 from basic_pitch import ICASSP_2022_MODEL_PATH
-from basic_pitch.inference import predict as bp_predict
+from basic_pitch.inference import predict
 import tensorflow as tf
 
 # Number of bins in a single octave
@@ -80,10 +79,60 @@ bp_bins_per_octave = 36
 basic_pitch = tf.saved_model.load(str(ICASSP_2022_MODEL_PATH))
 # Determine the MIDI frequency associated with each bin of Basic Pitch predictions
 bp_midi_freqs = librosa.note_to_midi('A0') + np.arange(264) / (bp_bins_per_octave / 12)
-"""
 
 
-# TODO - deep salience
+# Specify the names of the files to download from GitHub
+script_name, weights_name = 'predict_on_audio.py', 'multif0.h5'
+# Obtain the path to the models directory
+models_dir = os.path.join('..', 'ss_mpe', 'models')
+# Construct a path to a top-level directory for DeepSalience
+deep_salience_dir = os.path.join(models_dir, 'deep_salience')
+# Create the necessary file hierarchy if it doesn't exist
+os.makedirs(os.path.join(deep_salience_dir, 'weights'), exist_ok=True)
+# Construct paths for the downloaded files
+script_path = os.path.join(deep_salience_dir, script_name)
+weights_path = os.path.join(deep_salience_dir, 'weights', weights_name)
+try:
+    # Attempt to import the DeepSalience inference code
+    from ss_mpe.models.deep_salience.predict_on_audio import (model_def,
+                                                              compute_hcqt,
+                                                              get_single_test_prediction,
+                                                              get_multif0)
+except ModuleNotFoundError:
+    # Point to the top-level directory containing files to download
+    url_dir = 'https://raw.githubusercontent.com/rabitt/ismir2017-deepsalience/master/predict'
+    # Construct the URLs of the files to download
+    script_url, weights_url = f'{url_dir}/{script_name}', f'{url_dir}/weights/{weights_name}'
+    # Download the script and weights files
+    stream_url_resource(script_url, script_path)
+    stream_url_resource(weights_url, weights_path)
+
+    # Open the inference script for reading/writing
+    with open(script_path, 'r+') as f:
+        # Read all the code lines
+        lines = f.readlines()  # Get a list of all lines
+        # Reset file pointer
+        f.seek(0)
+        # Update lines of code
+        lines[11] = 'from keras.layers import Input, Lambda, Conv2D, BatchNormalization\n'
+        lines[69] = '\t\tBINS_PER_OCTAVE*N_OCTAVES, fmin=FMIN, bins_per_octave=BINS_PER_OCTAVE\n'
+        # Remove outdated imports
+        lines.pop(12)
+        lines.pop(12)
+        # Stop processing file
+        f.truncate()
+        # Overwrite the code
+        f.writelines(lines)
+
+    # Retry the original import
+    from ss_mpe.models.deep_salience.predict_on_audio import (model_def,
+                                                              compute_hcqt,
+                                                              get_single_test_prediction,
+                                                              get_multif0)
+# Initialize DeepSalience
+deep_salience = model_def()
+# Load the weights from the paper
+deep_salience.load_weights(weights_path)
 
 
 # TODO - include models from https://ieeexplore.ieee.org/abstract/document/9865174?
@@ -159,6 +208,7 @@ for eval_set in [urmp_test, trios_test, bch10_test, su_test, gset_test]:
     lgh_evaluator = MultipitchEvaluator()
     ss_evaluator = MultipitchEvaluator()
     bp_evaluator = MultipitchEvaluator()
+    ds_evaluator = MultipitchEvaluator()
 
     print_and_log(f'Results for {eval_set.name()}:', save_path)
 
@@ -272,11 +322,10 @@ for eval_set in [urmp_test, trios_test, bch10_test, su_test, gset_test]:
             print_and_log(f'\t\t-(ss-mpe): {ss_results}', save_path)
 
 
-        """
         # Obtain a path for the track's audio
         audio_path = eval_set.get_audio_path(track)
         # Obtain predictions from the BasicPitch model
-        model_output, _, _ = bp_predict(audio_path, basic_pitch)
+        model_output, _, _ = predict(audio_path, basic_pitch)
         # Extract the pitch salience predictions
         bp_salience = model_output['contour'].T
         # Determine times associated with each frame of predictions
@@ -293,7 +342,22 @@ for eval_set in [urmp_test, trios_test, bch10_test, su_test, gset_test]:
         if verbose:
             # Print results for the individual track
             print_and_log(f'\t\t-(bsc-ptc): {bp_results}', save_path)
-        """
+
+
+        # Compute features for DeepSalience model
+        hcqt, freq_grid, time_grid = compute_hcqt(audio_path)
+        # Obtain predictions from the DeepSalience model
+        ds_salience = get_single_test_prediction(deep_salience, hcqt)
+        # Convert the activations to frame-level multi-pitch estimates
+        ds_times, ds_multi_pitch = get_multif0(ds_salience, freq_grid, time_grid, thresh=0.3)
+        # Compute results for DeepSalience predictions
+        ds_results = ds_evaluator.evaluate(ds_times, ds_multi_pitch, times_ref, multi_pitch_ref)
+        # Store results for this track
+        ds_evaluator.append_results(ds_results)
+
+        if verbose:
+            # Print results for the individual track
+            print_and_log(f'\t\t-(dp-slnc): {ds_results}', save_path)
 
     # Print a header for average results across all tracks of the dataset
     print_and_log(f'\tAverage Results ({eval_set.name()}):', save_path)
@@ -304,4 +368,5 @@ for eval_set in [urmp_test, trios_test, bch10_test, su_test, gset_test]:
     print_and_log(f'\t\t-(lin-cqt-h): {lnh_evaluator.average_results()[0]}', save_path)
     print_and_log(f'\t\t-(log-cqt-h): {lgh_evaluator.average_results()[0]}', save_path)
     print_and_log(f'\t\t-(ss-mpe): {ss_evaluator.average_results()[0]}', save_path)
-    #print_and_log(f'\t\t-(bsc-ptc): {bp_evaluator.average_results()[0]}', save_path)
+    print_and_log(f'\t\t-(bsc-ptc): {bp_evaluator.average_results()[0]}', save_path)
+    print_and_log(f'\t\t-(dp-slnc): {ds_evaluator.average_results()[0]}', save_path)

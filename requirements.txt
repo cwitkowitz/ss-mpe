@@ -3,6 +3,7 @@ torch
 # TODO - update following url after eventual merge
 #git+https://github.com/sony/timbre-trap@release
 #cqt_pytorch
+#basic-pitch
 lhvqt>=0.5.3
 tensorboard
 sacred
