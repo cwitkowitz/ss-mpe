@@ -3,14 +3,14 @@
 # My imports
 from timbre_trap.models import Encoder, Decoder
 
-from . import HCQT
+from . import SS_MPE
 
 # Regular imports
 import torch.nn as nn
 import torch
 
 
-class TT_Base(nn.Module):
+class TT_Base(SS_MPE):
     """
     Implements base model from Timbre-Trap (https://arxiv.org/abs/2309.15717).
     """
@@ -21,8 +21,8 @@ class TT_Base(nn.Module):
 
         Parameters
         ----------
-        hcqt_params : dict
-          Parameters for feature extraction module
+        See SS_MPE class for others...
+
         latent_size : int or None (Optional)
           Dimensionality of latent space
         model_complexity : int
@@ -31,17 +31,13 @@ class TT_Base(nn.Module):
           Whether to include skip connections between encoder and decoder
         """
 
-        nn.Module.__init__(self)
+        super().__init__(hcqt_params)
 
-        self.hcqt_params = hcqt_params.copy()
+        # Extract HCQT parameters to infer dimensionality of input features
+        n_bins, n_harmonics = hcqt_params['n_bins'], len(hcqt_params['harmonics'])
 
-        hcqt_params.pop('weights')
-        self.hcqt = HCQT(**hcqt_params)
-
-        self.encoder = Encoder(feature_size=self.hcqt.n_bins, latent_size=latent_size, model_complexity=model_complexity)
-        self.decoder = Decoder(feature_size=self.hcqt.n_bins, latent_size=latent_size, model_complexity=model_complexity)
-
-        n_harmonics = len(hcqt_params['harmonics'])
+        self.encoder = Encoder(feature_size=n_bins, latent_size=latent_size, model_complexity=model_complexity)
+        self.decoder = Decoder(feature_size=n_bins, latent_size=latent_size, model_complexity=model_complexity)
 
         convin_out_channels = self.encoder.convin[0].out_channels
         convout_in_channels = self.decoder.convout.in_channels
@@ -67,57 +63,6 @@ class TT_Base(nn.Module):
         else:
             # No skip connections
             self.skip_weights = None
-
-    def get_all_features(self, audio):
-        """
-        Compute all possible features.
-
-        Parameters
-        ----------
-        audio : Tensor (B x 1 x N)
-          Batch of input raw audio
-
-        Returns
-        ----------
-        features : dict
-          Various sets of spectral features
-        """
-
-        # Compute features for audio
-        features_amp = self.hcqt(audio)
-
-        # Convert raw HCQT spectral features to decibels [-80, 0] dB
-        features_dec = self.hcqt.to_decibels(features_amp, rescale=False)
-        # Convert decibels to linear probability-like values [0, 1]
-        features_lin = self.hcqt.decibels_to_amplitude(features_dec)
-        # Scale decibels to represent probability-like values [0, 1]
-        features_log = self.hcqt.rescale_decibels(features_dec)
-
-        # Extract relevant parameters
-        harmonics = self.hcqt_params['harmonics']
-        harmonic_weights = self.hcqt_params['weights']
-
-        # Determine first harmonic index
-        h_idx = harmonics.index(1)
-
-        # Obtain first harmonic spectral features
-        features_lin_1 = features_lin[:, h_idx]
-        features_log_1 = features_log[:, h_idx]
-
-        # Compute a weighted sum of features to obtain a rough salience estimate
-        features_lin_h = torch.sum(features_lin * harmonic_weights, dim=-3)
-        features_log_h = torch.sum(features_log * harmonic_weights, dim=-3)
-
-        features = {
-            'amp'   : features_lin,
-            'dec'   : features_log,
-            'amp_1' : features_lin_1,
-            'dec_1' : features_log_1,
-            'amp_h' : features_lin_h,
-            'dec_h' : features_log_h
-        }
-
-        return features
 
     def apply_skip_connections(self, embeddings):
         """
@@ -145,7 +90,7 @@ class TT_Base(nn.Module):
 
     def forward(self, features):
         """
-        Perform all model functions efficiently (for training/evaluation).
+        Process spectral features to obtain pitch salience logits (for training/evaluation).
 
         Parameters
         ----------
@@ -175,26 +120,3 @@ class TT_Base(nn.Module):
         output = output.squeeze(-3)
 
         return output, latents, losses
-
-    def transcribe(self, audio):
-        """
-        Helper function to transcribe audio directly.
-
-        Parameters
-        ----------
-        audio : Tensor (B x 1 x N)
-          Batch of input raw audio
-
-        Returns
-        ----------
-        salience : Tensor (B x F X T)
-          Batch of pitch salience activations
-        """
-
-        # Compute HCQT features (dB) and re-scale to probability-like
-        features = self.hcqt.to_decibels(self.hcqt(audio), rescale=True)
-
-        # Process features and convert to activations
-        salience = torch.sigmoid(self(features)[0])
-
-        return salience
