@@ -1,12 +1,11 @@
-generated
+*generated/
 
 *__pycache__/
 .idea
 
+*.DS_Store
+
 *.egg
 *.egg-info
 
-build
-dist
-
-*.DS_Store
+*deep_salience

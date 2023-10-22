@@ -1,25 +1,25 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from utils import stream_url_resource, unzip_and_remove
-from common import EvalSet
+from timbre_trap.datasets.utils import stream_url_resource, unzip_and_remove
+from timbre_trap.datasets import AMTDataset
 
 # Regular imports
 import pandas as pd
 import numpy as np
-import librosa
 import os
 
 
-class SWD(EvalSet):
+class SWD(AMTDataset):
     """
-    Implements a wrapper for the SWD dataset (https://zenodo.org/record/5139893).
+    Implements a wrapper for the SWD dataset
+    (https://zenodo.org/record/5139893).
     """
 
     @staticmethod
     def get_splits_by_song():
         """
-        Obtain a list of pre-defined dataset splits.
+        Return a list of indices corresponding to each song in the cycle.
 
         Returns
         ----------
@@ -27,14 +27,12 @@ class SWD(EvalSet):
           Partitions of dataset based on the 24 songs of the cycle
         """
 
-        splits = 1 + np.arange(24)
-
-        return splits
+        return NotImplementedError
 
     @staticmethod
     def get_splits_by_performance():
         """
-        Obtain a list of pre-defined dataset splits.
+        Return a list of individual performances of the cycle.
 
         Returns
         ----------
@@ -50,12 +48,12 @@ class SWD(EvalSet):
     @staticmethod
     def available_splits():
         """
-        Obtain a list of pre-defined dataset splits.
+        Obtain a list of available (pre-defined) dataset splits.
 
         Returns
         ----------
         splits : list of strings
-          Partitions of dataset
+          Individual performances of 24-song cycle
         """
 
         splits = SWD.get_splits_by_performance()
@@ -64,25 +62,24 @@ class SWD(EvalSet):
 
     def get_tracks(self, split):
         """
-        Get the names of the tracks in the dataset with audio available.
+        Get the names of the tracks in the dataset.
 
         Parameters
         ----------
-        split : string (unused)
-          TODO
+        split : string
+          String indicating dataset partition (song or performance)
 
         Returns
         ----------
         tracks : list of strings
-          TODO
+          Names of tracks belonging to the split
         """
 
-        # Construct a path to the audio contained in the dataset
+        # Construct a path to the directory containing all audio
         audio_dir = os.path.join(self.base_dir, '01_RawData', 'audio_wav')
 
         # Obtain names of tracks corresponding to the specified performance
-        tracks = sorted([os.path.splitext(t)[0] for t in os.listdir(audio_dir)
-                         if split in t])
+        tracks = sorted([os.path.splitext(t)[0] for t in os.listdir(audio_dir) if split in t])
 
         return tracks
 
@@ -98,7 +95,7 @@ class SWD(EvalSet):
         Returns
         ----------
         wav_path : string
-          Path to the specified track's audio
+          Path to audio for the specified track
         """
 
         # Get the path to the audio
@@ -108,7 +105,7 @@ class SWD(EvalSet):
 
     def get_ground_truth_path(self, track):
         """
-        Get the path to a track's ground truth.
+        Get the path to a track's ground-truth.
 
         Parameters
         ----------
@@ -118,7 +115,7 @@ class SWD(EvalSet):
         Returns
         ----------
         csv_path : string
-          TODO
+          Path to ground-truth for the specified track
         """
 
         # Get the path to the ground-truth note annotations
@@ -126,9 +123,9 @@ class SWD(EvalSet):
 
         return csv_path
 
-    def get_ground_truth(self, track, times):
+    def get_ground_truth(self, track):
         """
-        Get the path for a track's ground_truth.
+        Extract the ground-truth for the specified track.
 
         Parameters
         ----------
@@ -137,8 +134,10 @@ class SWD(EvalSet):
 
         Returns
         ----------
-        ground_truth : TODO
-          TODO
+        pitches : ndarray (L)
+          Array of note pitches
+        intervals : ndarray (L x 2)
+          Array of corresponding onset-offset time pairs
         """
 
         # Obtain the path to the track's ground_truth
@@ -147,33 +146,13 @@ class SWD(EvalSet):
         # Load tabulated note data from the csv file
         note_entries = pd.read_csv(csv_path, sep=';').to_numpy()
 
-        # Unpack the relevant note attributes
-        onsets, offsets, pitches = note_entries[:, (0, 1, 2)].T
+        # Unpack the relevant note attributes and convert them to floats
+        onsets, offsets, pitches = note_entries[:, (0, 1, 2)].T.astype(float)
 
-        # Obtain an empty array for inserting ground-truth
-        ground_truth = super().get_ground_truth(track, times)
+        # Combine onsets and offsets to obtain intervals
+        intervals = np.concatenate(([onsets], [offsets])).T
 
-        # Convert onsets and offsets to frame indices
-        onsets = librosa.time_to_frames(onsets, sr=self.sample_rate, hop_length=self.hop_length)
-        offsets = librosa.time_to_frames(offsets, sr=self.sample_rate, hop_length=self.hop_length)
-
-        # Clip offsets occurring after number of frames of audio
-        offsets = np.clip(offsets, a_min=0, a_max=len(times) - 1)
-
-        # Compute durations in frames
-        durations = 1 + offsets - onsets
-
-        # Determine the closest frequency bin for each pitch
-        pitch_idcs = self.res_func_freq(pitches.astype('uint'))
-        # Repeat each pitch index for the number of frames it is active
-        pitch_idcs = np.concatenate([[p] * d for p, d in zip(pitch_idcs, durations)])
-        # Create time indices corresponding to the full duration of each note
-        time_idcs = np.concatenate([np.arange(i, i + d) for i, d in zip(onsets, durations)])
-
-        # Insert pitch activity into the ground-truth
-        ground_truth[pitch_idcs.astype('uint'), time_idcs] = 1
-
-        return ground_truth
+        return pitches, intervals
 
     @classmethod
     def download(cls, save_dir):

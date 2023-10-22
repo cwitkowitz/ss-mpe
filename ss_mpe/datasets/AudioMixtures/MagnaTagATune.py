@@ -1,27 +1,28 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from utils import stream_url_resource, unzip_and_remove
-from common import TrainSet
+from timbre_trap.datasets.utils import stream_url_resource, unzip_and_remove
+from timbre_trap.datasets import AudioDataset
 
 # Regular imports
 import os
 
 
-class MagnaTagATune(TrainSet):
+class MagnaTagATune(AudioDataset):
     """
-    Implements a wrapper for the MagnaTagATune dataset (https://mirg.city.ac.uk/codeapps/the-magnatagatune-dataset).
+    Implements a wrapper for the MagnaTagATune dataset
+    (https://mirg.city.ac.uk/codeapps/the-magnatagatune-dataset).
     """
 
     @staticmethod
     def available_splits():
         """
-        Obtain a list of pre-defined dataset splits.
+        Obtain a list of available (pre-defined) dataset splits.
 
         Returns
         ----------
         splits : list of strings
-          Top-level directories
+          Top-level directories from download
         """
 
         splits = ['0', '1', '2', '3', '4', '5',
@@ -32,26 +33,28 @@ class MagnaTagATune(TrainSet):
 
     def get_tracks(self, split):
         """
-        Get the track names associated with dataset partitions.
+        Get the names of the tracks in the dataset.
 
         Parameters
         ----------
         split : string
-          TODO
+          Top-level directory
 
         Returns
         ----------
         tracks : list of strings
-          TODO
+          List containing the songs under the selected directory
         """
 
         # Construct a path to the dataset split
-        split_path = os.path.join(self.base_dir, split)
+        split_dir = os.path.join(self.base_dir, split)
 
-        # Combine the parent directory of the split with each file
-        tracks = sorted([os.path.join(split, os.path.splitext(f)[0])
-                         for f in os.listdir(split_path)
-                         if os.path.getsize(os.path.join(split_path, f)) > 0])
+        # Ignore tracks corresponding to empty files
+        valid_files = [f for f in os.listdir(split_dir)
+                       if os.path.getsize(os.path.join(split_dir, f)) > 0]
+
+        # Obtain a sorted list of all valid tracks within the split directory
+        tracks = sorted([os.path.join(split, os.path.splitext(f)[0]) for f in valid_files])
 
         return tracks
 
@@ -67,10 +70,10 @@ class MagnaTagATune(TrainSet):
         Returns
         ----------
         mp3_path : string
-          Path to the specified track's audio
+          Path to audio for the specified track
         """
 
-        # Break apart partition and track name
+        # Break apart split and track name
         split, name = os.path.split(track)
 
         # Get the path to the MP3 file
