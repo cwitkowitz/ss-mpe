@@ -132,15 +132,19 @@ class SS_MPE(nn.Module):
           Path for saving model
         """
 
-        # Do not save HCQT module
+        # Pop HCQT module
+        hcqt = self.hcqt
         self.hcqt = None
 
         if isinstance(self, torch.nn.DataParallel):
-            # Unwrap and save the model
+            # Unwrap and save the core model
             torch.save(self.module, save_path)
         else:
-            # Save the model as is
+            # Save the core model
             torch.save(self, save_path)
+
+        # Restore HCQT module
+        self.hcqt = hcqt
 
     @staticmethod
     def load(model_path, device='cpu'):
