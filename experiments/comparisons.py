@@ -8,6 +8,7 @@ from timbre_trap.datasets.NoteDataset import NoteDataset
 from timbre_trap.datasets.utils import stream_url_resource, constants
 from timbre_trap.models.utils import filter_non_peaks, threshold
 from evaluate import MultipitchEvaluator
+from ss_mpe.models import SS_MPE
 from utils import *
 
 # Regular imports
@@ -20,16 +21,13 @@ import os
 
 
 # Name of the model to evaluate
-#ex_name = '<EXPERIMENT_DIR>'
-ex_name = 'BasicLosses'
+ex_name = '<EXPERIMENT_DIR>'
 
 # Choose the model checkpoint to compare
-#checkpoint = 0
-checkpoint = 9000
+checkpoint = 0
 
 # Choose the GPU on which to perform evaluation
-#gpu_id = None
-gpu_id = 1
+gpu_id = None
 
 # Flag to print results for each track separately
 #verbose = True
@@ -64,7 +62,7 @@ device = torch.device(f'cuda:{gpu_id}' if torch.cuda.is_available() and gpu_id i
 model_path = os.path.join(experiment_dir, 'models', f'model-{checkpoint}.pt')
 
 # Load a checkpoint of the SS-MPE model
-ss_mpe = torch.load(model_path, map_location=device)
+ss_mpe = SS_MPE.load(model_path, device=device)
 ss_mpe.eval()
 
 

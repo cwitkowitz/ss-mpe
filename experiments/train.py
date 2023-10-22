@@ -11,7 +11,7 @@ from ss_mpe.datasets.SoloMultiPitch import NSynth, SWD
 from ss_mpe.datasets.AudioMixtures import MagnaTagATune
 from ss_mpe.datasets import collate_audio_only
 
-from ss_mpe.models import DataParallel, TT_Base
+from ss_mpe.models import DataParallel, SS_MPE, TT_Base
 from ss_mpe.models.objectives import *
 from ss_mpe.models.utils import *
 from evaluate import evaluate
@@ -210,13 +210,18 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                         model_complexity=2,
                         skip_connections=False)
     else:
-        # Load a prexisting model and resume training
-        model = torch.load(checkpoint_path, map_location=device)
+        # Load weights of the specified model checkpoint
+        model = SS_MPE.load(checkpoint_path, device=device)
 
-        for p, v in model.hcqt_params.items():
-            if v != hcqt_params[p]:
-                # Check for parameter mismatch and warn user
-                warnings.warn(f'Selected value for \'{p}\' does not '
+        for k, v in model.hcqt_params.items():
+            # Get HCQT parameter
+            p = hcqt_params[k]
+            # Check if type is PyTorch Tensor
+            isTensor = type(p) is torch.Tensor
+            # Check for mismatch between parameters
+            if not (v.equal(p) if isTensor else v == p):
+                # Warn user of mismatch between specified/loaded parameters
+                warnings.warn(f'Selected value for \'{k}\' does not '
                               'match saved value...', RuntimeWarning)
 
     if len(gpu_ids) > 1:
@@ -520,6 +525,11 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 optimizer.step()
 
             if batch_count % checkpoint_interval == 0:
+                # Construct a path to save the model checkpoint
+                model_path = os.path.join(log_dir, f'model-{batch_count}.pt')
+                # Save model checkpoint
+                model.save(model_path)
+
                 # Initialize dictionary to hold all validation results
                 validation_results = dict()
 
@@ -535,16 +545,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 # Make sure model is on correct device and switch to training mode
                 model = model.to(device)
                 model.train()
-
-                # Construct a path to save the model checkpoint
-                model_path = os.path.join(log_dir, f'model-{batch_count}.pt')
-
-                if isinstance(model, torch.nn.DataParallel):
-                    # Unwrap and save the model
-                    torch.save(model.module, model_path)
-                else:
-                    # Save the model as is
-                    torch.save(model, model_path)
 
                 if decay_scheduler.patience and not warmup_scheduler.is_active() and i >= n_epochs_late_start:
                     # Step the learning rate decay scheduler by logging the validation metric for the checkpoint
@@ -588,8 +588,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     # Construct a path to the best model checkpoint
     best_model_path = os.path.join(log_dir, f'model-{best_model_checkpoint}.pt')
-    # Load the best model and make sure it is in evaluation mode
-    best_model = torch.load(best_model_path, map_location=device)
+    # Load best model and make sure it is in evaluation mode
+    best_model = SS_MPE.load(best_model_path, device=device)
     best_model.eval()
 
     for eval_set in evaluation_sets:
