@@ -200,6 +200,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                    'fmin': fmin,
                    'bins_per_octave': bins_per_octave,
                    'n_bins': n_bins,
+                   'gamma': None,
                    'harmonics': harmonics,
                    'weights' : harmonic_weights}
 
@@ -378,8 +379,13 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                                                  threshold=2E-3,
                                                                  cooldown=n_checkpoints_cooldown)
 
-    # Enable anomaly detection to debug any NaNs
-    torch.autograd.set_detect_anomaly(True)
+    # Enable anomaly detection to debug any NaNs (can increase overhead)
+    #torch.autograd.set_detect_anomaly(True)
+
+    # Enable cuDNN auto-tuner to optimize CUDA kernel (should improve
+    # performance, but adds initial overhead to find the best kernel)
+    # TODO - disable before evaluation loop?
+    torch.backends.cudnn.benchmark = True
 
     # Construct the path to the directory for saving models
     log_dir = os.path.join(root_dir, 'models')
@@ -423,8 +429,11 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     # Loop through epochs
     for i in range(max_epochs):
+        t = get_current_time()
         # Loop through batches of audio
         for data in tqdm(loader, desc=f'Epoch {i + 1}'):
+            print_time_difference(t, 'Load Batch', device=device)
+            t = get_current_time()
             # Increment the batch counter
             batch_count += 1
 
@@ -437,6 +446,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
             # Log the current learning rate for this batch
             writer.add_scalar('train/loss/learning_rate', optimizer.param_groups[0]['lr'], batch_count)
+            print_time_difference(t, 'Step/Audio', device=device)
+            t = get_current_time()
 
             # Compute full set of spectral features
             # TODO - compute features inside of forward?
@@ -446,12 +457,16 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             features_log   = features['dec']
             features_log_1 = features['dec_1']
             features_log_h = features['dec_h']
+            print_time_difference(t, 'Features', device=device)
+            t = get_current_time()
 
             with torch.autocast(device_type=f'cuda'):
                 # Process features to obtain logits
                 logits, _, losses = model(features_log)
                 # Convert to (implicit) pitch salience activations
                 estimate = torch.sigmoid(logits)
+                print_time_difference(t, 'Model', device=device)
+                t = get_current_time()
 
                 # TODO - compute losses inside of forward?
                 # Compute support loss w.r.t. first harmonic for the batch
@@ -502,11 +517,17 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 # Log the total loss for this batch
                 writer.add_scalar('train/loss/total', total_loss.item(), batch_count)
+                print_time_difference(t, 'Losses', device=device)
+                t = get_current_time()
 
                 # Zero the accumulated gradients
                 optimizer.zero_grad()
+                print_time_difference(t, 'Zero Grad', device=device)
+                t = get_current_time()
                 # Compute gradients using total loss
                 total_loss.backward()
+                print_time_difference(t, 'Backward', device=device)
+                t = get_current_time()
 
                 # Track the gradient norm of each layer in the encoder
                 cum_norm_encoder = track_gradient_norms(model.encoder)
@@ -520,9 +541,12 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 # Apply gradient clipping for training stability
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
+                print_time_difference(t, 'Track Grad', device=device)
+                t = get_current_time()
 
                 # Perform an optimization step
                 optimizer.step()
+                print_time_difference(t, 'Step', device=device)
 
             if batch_count % checkpoint_interval == 0:
                 # Construct a path to save the model checkpoint
@@ -575,6 +599,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     early_stop_criteria = True
 
                     break
+            t = get_current_time()
 
         if early_stop_criteria:
             # Stop training
