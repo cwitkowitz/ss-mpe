@@ -485,12 +485,12 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 # Log the sparsity loss for this batch
                 writer.add_scalar('train/loss/sparsity', sparsity_loss.item(), batch_count)
 
-                """
                 # Compute timbre-invariance loss for the batch
                 timbre_loss = compute_timbre_loss(model, features_log, logits, fbins_midi, bins_per_octave)
                 # Log the timbre-invariance loss for this batch
                 writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
 
+                """
                 # Compute geometric-invariance loss for the batch
                 geometric_loss = compute_geometric_loss(model, features_log, logits, max_seq_idx=max_position,
                                                         max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
@@ -502,8 +502,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 # Compute the total loss for this batch
                 total_loss = multipliers['support'] * support_loss + \
                              multipliers['harmonic'] * harmonic_loss + \
-                             multipliers['sparsity'] * sparsity_loss# + \
-                             #multipliers['timbre'] * timbre_loss + \
+                             multipliers['sparsity'] * sparsity_loss + \
+                             multipliers['timbre'] * timbre_loss# + \
                              #multipliers['geometric'] * geometric_loss
 
                 if i >= n_epochs_late_start:

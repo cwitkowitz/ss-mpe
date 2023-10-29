@@ -25,7 +25,8 @@ def compute_support_loss(embeddings, h1_features):
     pos_weight = torch.tensor(0)
 
     # Compute support loss as BCE of activations with respect to features (negative activations only)
-    support_loss = F.binary_cross_entropy_with_logits(embeddings, h1_features, reduction='none', pos_weight=pos_weight)
+    #support_loss = F.binary_cross_entropy_with_logits(embeddings, h1_features, reduction='none', pos_weight=pos_weight)
+    support_loss = F.mse_loss(torch.sigmoid(embeddings), h1_features, reduction='none')
 
     # Sum across frequency bins and average across time and batch
     support_loss = support_loss.sum(-2).mean(-1).mean(-1)
@@ -38,7 +39,8 @@ def compute_harmonic_loss(embeddings, salience):
     neg_weight = torch.tensor(0)
 
     # Compute harmonic loss as BCE of activations with respect to salience estimate (positive activations only)
-    harmonic_loss = F.binary_cross_entropy_with_logits(-embeddings, (1 - salience), reduction='none', pos_weight=neg_weight)
+    #harmonic_loss = F.binary_cross_entropy_with_logits(-embeddings, (1 - salience), reduction='none', pos_weight=neg_weight)
+    harmonic_loss = F.mse_loss(torch.sigmoid(embeddings), salience, reduction='none')
 
     # Sum across frequency bins and average across time and batch
     harmonic_loss = harmonic_loss.sum(-2).mean(-1).mean(-1)
@@ -99,16 +101,18 @@ def compute_timbre_loss(model, features, embeddings, fbins_midi, bins_per_octave
         equalization_features = torch.clip(equalization * features, min=0, max=1)
 
     # Process the equalized features with the model
-    equalization_embeddings = model(equalization_features).squeeze()
+    equalization_embeddings = model(equalization_features)[0].squeeze()
 
     # Convert both sets of logits to activations (implicit pitch salience)
     original_salience, equalization_salience = torch.sigmoid(embeddings), torch.sigmoid(equalization_embeddings)
 
     # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original activations
-    timbre_loss_eq = F.binary_cross_entropy_with_logits(equalization_embeddings, original_salience.detach(), reduction='none')
+    #timbre_loss_eq = F.binary_cross_entropy_with_logits(equalization_embeddings, original_salience.detach(), reduction='none')
+    timbre_loss_eq = F.mse_loss(equalization_salience, original_salience.detach(), reduction='none')
 
     # Compute timbre loss as BCE of embeddings computed from original features with respect to equalization activations
-    timbre_loss_og = F.binary_cross_entropy_with_logits(embeddings, equalization_salience.detach(), reduction='none')
+    #timbre_loss_og = F.binary_cross_entropy_with_logits(embeddings, equalization_salience.detach(), reduction='none')
+    timbre_loss_og = F.mse_loss(original_salience, equalization_salience.detach(), reduction='none')
 
     # Sum across frequency bins and average across time and batch for both variations of timbre loss
     #timbre_loss = (timbre_loss_eq.sum(-2).mean(-1).mean(-1) + timbre_loss_og.sum(-2).mean(-1).mean(-1)) / 2
