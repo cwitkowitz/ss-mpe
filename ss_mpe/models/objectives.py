@@ -25,8 +25,8 @@ def compute_support_loss(embeddings, h1_features):
     pos_weight = torch.tensor(0)
 
     # Compute support loss as BCE of activations with respect to features (negative activations only)
-    #support_loss = F.binary_cross_entropy_with_logits(embeddings, h1_features, reduction='none', pos_weight=pos_weight)
-    support_loss = F.mse_loss(torch.sigmoid(embeddings), h1_features, reduction='none')
+    support_loss = F.binary_cross_entropy_with_logits(embeddings, h1_features, reduction='none', pos_weight=pos_weight)
+    #support_loss = F.mse_loss(torch.sigmoid(embeddings), h1_features, reduction='none')
 
     # Sum across frequency bins and average across time and batch
     support_loss = support_loss.sum(-2).mean(-1).mean(-1)
@@ -39,8 +39,8 @@ def compute_harmonic_loss(embeddings, salience):
     neg_weight = torch.tensor(0)
 
     # Compute harmonic loss as BCE of activations with respect to salience estimate (positive activations only)
-    #harmonic_loss = F.binary_cross_entropy_with_logits(-embeddings, (1 - salience), reduction='none', pos_weight=neg_weight)
-    harmonic_loss = F.mse_loss(torch.sigmoid(embeddings), salience, reduction='none')
+    harmonic_loss = F.binary_cross_entropy_with_logits(-embeddings, (1 - salience), reduction='none', pos_weight=neg_weight)
+    #harmonic_loss = F.mse_loss(torch.sigmoid(embeddings), salience, reduction='none')
 
     # Sum across frequency bins and average across time and batch
     harmonic_loss = harmonic_loss.sum(-2).mean(-1).mean(-1)
@@ -59,7 +59,7 @@ def compute_sparsity_loss(activations):
 
 
 # TODO - can initial logic be simplified at all?
-def compute_timbre_loss(model, features, embeddings, fbins_midi, bins_per_octave, points_per_octave=2):
+def compute_timbre_loss(model, features, embeddings, fbins_midi, bins_per_octave, points_per_octave=2, t=0.10):
     # Determine the number of samples in the batch
     B, H, K, _ = features.size()
 
@@ -81,8 +81,8 @@ def compute_timbre_loss(model, features, embeddings, fbins_midi, bins_per_octave
     # Cover the full octave for proper interpolation
     out_size = n_octaves * bins_per_octave
 
-    # Sample a random stretch factor for each sample in the batch
-    equalization_curves = 1 + torch.randn(size=(B, 1, n_points), device=features.device) * 0.10
+    # Sample a random equalization curve factor for each sample in the batch
+    equalization_curves = 1 + torch.randn(size=(B, 1, n_points), device=features.device) * t
     # Upsample the equalization curve to the number of frequency bins via linear interpolation
     equalization_curves = F.interpolate(equalization_curves,
                                         size=out_size,
@@ -108,15 +108,20 @@ def compute_timbre_loss(model, features, embeddings, fbins_midi, bins_per_octave
 
     # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original activations
     #timbre_loss_eq = F.binary_cross_entropy_with_logits(equalization_embeddings, original_salience.detach(), reduction='none')
-    timbre_loss_eq = F.mse_loss(equalization_salience, original_salience.detach(), reduction='none')
+    #timbre_loss_eq = F.mse_loss(equalization_salience, original_salience.detach(), reduction='none')
+    #timbre_loss_eq = F.mse_loss(equalization_embeddings, embeddings.detach(), reduction='none')
+    timbre_loss_eq = F.mse_loss(equalization_embeddings, embeddings, reduction='none')
 
     # Compute timbre loss as BCE of embeddings computed from original features with respect to equalization activations
     #timbre_loss_og = F.binary_cross_entropy_with_logits(embeddings, equalization_salience.detach(), reduction='none')
-    timbre_loss_og = F.mse_loss(original_salience, equalization_salience.detach(), reduction='none')
+    #timbre_loss_og = F.mse_loss(original_salience, equalization_salience.detach(), reduction='none')
+    #timbre_loss_og = F.mse_loss(embeddings, equalization_embeddings.detach(), reduction='none')
+    #timbre_loss_og = F.mse_loss(embeddings, equalization_embeddings, reduction='none')
 
     # Sum across frequency bins and average across time and batch for both variations of timbre loss
     #timbre_loss = (timbre_loss_eq.sum(-2).mean(-1).mean(-1) + timbre_loss_og.sum(-2).mean(-1).mean(-1)) / 2
-    timbre_loss = (timbre_loss_eq + timbre_loss_og).sum(-2).mean(-1).mean(-1)
+    #timbre_loss = (timbre_loss_eq + timbre_loss_og).sum(-2).mean(-1).mean(-1)
+    timbre_loss = timbre_loss_eq.sum(-2).mean(-1).mean(-1)
 
     return timbre_loss
 
