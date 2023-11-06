@@ -12,6 +12,8 @@ __all__ = [
     'compute_support_loss',
     'compute_harmonic_loss',
     'compute_sparsity_loss',
+    'sample_random_equalization',
+    'sample_parabolic_equalization',
     'compute_timbre_loss',
     'compute_geometric_loss',
     #'compute_superposition_loss',
@@ -58,6 +60,80 @@ def compute_sparsity_loss(activations):
     return sparsity_loss
 
 
+def sample_random_equalization(n_points, batch_size=1, n_bins=None, std_dev=0.10, device='cpu'):
+    """
+    Uniformly sample multiplicative equalization factors and upsample to cover whole frequency spectrum.
+
+    Parameters
+    ----------
+    n_points : int
+      Number of peaks/troughs to sample
+    batch_size : int
+      Number of curves to sample
+    n_bins : int or None (optional)
+      Final number of frequency bins
+    std_dev : float
+      Standard deviation of boost/cut
+    device : string
+      Device on which to initialize curves
+
+    Returns
+    ----------
+    curves : Tensor (B x F)
+      Sampled equalization curves
+    """
+
+    # Sample a random equalization curve factor for each sample in batch
+    curves = 1 + torch.randn(size=(batch_size, 1, n_points), device=device) * std_dev
+
+    if n_bins is not None:
+        # Upsample equalization curves to number of frequency bins via linear interpolation
+        curves = F.interpolate(curves, size=n_bins, mode='linear', align_corners=True)
+
+    # Remove channel dimension
+    curves = curves.squeeze(-2)
+
+    return curves
+
+
+def sample_parabolic_equalization(n_bins, batch_size=1, pointiness=1, device=None):
+    """
+    Randomly sample parabolic equalization curves covering whole frequency spectrum.
+
+    Parameters
+    ----------
+    n_bins : int
+      Number of frequency bins
+    batch_size : int
+      Number of curves to sample
+    device : string
+      Device on which to initialize curves
+
+    Returns
+    ----------
+    curves : Tensor (B x F)
+      Sampled equalization curves
+    """
+
+    # Randomly sample parametric parabolic functions
+    alpha, beta = torch.rand(size=(2, batch_size, 1), device=device)
+    # Scale parameters to appropriate ranges
+    #alpha, beta = 1 + 9 * alpha, beta * (n_bins - 1)
+    alpha, beta = alpha / (n_bins - 1) ** 2, beta * (n_bins - 1)
+
+    # Create a Tensor of indices for frequency bins of each curve
+    idcs = torch.arange(n_bins, device=device).repeat((batch_size, 1))
+
+    # Compute parabolic equalization curves
+    #curves = 1 - 5E-5 * alpha * (idcs - beta) ** 2
+    curves = 1 - pointiness * alpha * (idcs - beta) ** 2
+
+    #import matplotlib.pyplot as plt
+    #plt.plot(curves.cpu().detach().numpy().T)
+
+    return curves
+
+
 # TODO - can initial logic be simplified at all?
 def compute_timbre_loss(model, features, embeddings, fbins_midi, bins_per_octave, points_per_octave=2, t=0.10):
     # Determine the number of samples in the batch
@@ -81,13 +157,9 @@ def compute_timbre_loss(model, features, embeddings, fbins_midi, bins_per_octave
     # Cover the full octave for proper interpolation
     out_size = n_octaves * bins_per_octave
 
-    # Sample a random equalization curve factor for each sample in the batch
-    equalization_curves = 1 + torch.randn(size=(B, 1, n_points), device=features.device) * t
-    # Upsample the equalization curve to the number of frequency bins via linear interpolation
-    equalization_curves = F.interpolate(equalization_curves,
-                                        size=out_size,
-                                        mode='linear',
-                                        align_corners=True).squeeze()
+    # Sample a random equalization curve for each sample in batch
+    equalization_curves = sample_random_equalization(n_points, B, out_size, t, features.device)
+    #equalization_curves = sample_parabolic_equalization(out_size, B, 1, features.device)
 
     # Determine which bins correspond to which equalization
     nearest_bins = torch.round(bins_per_semitone * (fbins_midi - fbins_midi.min())).long()
@@ -110,7 +182,8 @@ def compute_timbre_loss(model, features, embeddings, fbins_midi, bins_per_octave
     #timbre_loss_eq = F.binary_cross_entropy_with_logits(equalization_embeddings, original_salience.detach(), reduction='none')
     #timbre_loss_eq = F.mse_loss(equalization_salience, original_salience.detach(), reduction='none')
     #timbre_loss_eq = F.mse_loss(equalization_embeddings, embeddings.detach(), reduction='none')
-    timbre_loss_eq = F.mse_loss(equalization_embeddings, embeddings, reduction='none')
+    #timbre_loss_eq = F.mse_loss(equalization_embeddings, embeddings, reduction='none')
+    timbre_loss_eq = F.binary_cross_entropy_with_logits(equalization_embeddings, original_salience, reduction='none')
 
     # Compute timbre loss as BCE of embeddings computed from original features with respect to equalization activations
     #timbre_loss_og = F.binary_cross_entropy_with_logits(embeddings, equalization_salience.detach(), reduction='none')
