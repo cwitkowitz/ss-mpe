@@ -14,6 +14,7 @@ __all__ = [
     'compute_sparsity_loss',
     'sample_random_equalization',
     'sample_parabolic_equalization',
+    'sample_gaussian_equalization',
     'compute_timbre_loss',
     'compute_geometric_loss',
     #'compute_superposition_loss',
@@ -106,6 +107,8 @@ def sample_parabolic_equalization(n_bins, batch_size=1, pointiness=1, device=Non
       Number of frequency bins
     batch_size : int
       Number of curves to sample
+    pointiness : float
+      Multiplier to shrink parabolic opening
     device : string
       Device on which to initialize curves
 
@@ -118,23 +121,61 @@ def sample_parabolic_equalization(n_bins, batch_size=1, pointiness=1, device=Non
     # Randomly sample parametric parabolic functions
     alpha, beta = torch.rand(size=(2, batch_size, 1), device=device)
     # Scale parameters to appropriate ranges
-    #alpha, beta = 1 + 9 * alpha, beta * (n_bins - 1)
     alpha, beta = alpha / (n_bins - 1) ** 2, beta * (n_bins - 1)
 
     # Create a Tensor of indices for frequency bins of each curve
     idcs = torch.arange(n_bins, device=device).repeat((batch_size, 1))
 
     # Compute parabolic equalization curves
-    #curves = 1 - 5E-5 * alpha * (idcs - beta) ** 2
     curves = 1 - pointiness * alpha * (idcs - beta) ** 2
 
-    #import matplotlib.pyplot as plt
-    #plt.plot(curves.cpu().detach().numpy().T)
+    return curves
+
+
+def sample_gaussian_equalization(n_bins, batch_size=1, max_A=0.25, max_std_dev=None, device=None):
+    """
+    Randomly sample Gaussian equalization curves covering whole frequency spectrum.
+
+    Parameters
+    ----------
+    n_bins : int
+      Number of frequency bins
+    batch_size : int
+      Number of curves to sample
+    max_std_dev : float or None (optional)
+      Maximum standard deviation of sampled Gaussians
+    max_A : float
+      Maximum amplitude of sampled Gaussians
+    device : string
+      Device on which to initialize curves
+
+    Returns
+    ----------
+    curves : Tensor (B x F)
+      Sampled equalization curves
+    """
+
+    if max_std_dev is None:
+        # Default to 10% of frequency bins
+        max_std_dev = 0.10 * n_bins
+
+    # Randomly sample parametric Gaussian functions
+    A, mu, sigma = torch.rand(size=(3, batch_size, 1), device=device)
+    # Scale parameters to appropriate ranges
+    A, mu, sigma = max_A * (A * 2 - 1), mu * (n_bins - 1), sigma * max_std_dev
+
+    # Create a Tensor of indices for frequency bins of each curve
+    idcs = torch.arange(n_bins, device=device).repeat((batch_size, 1))
+
+    # Compute Gaussian equalization curves
+    curves = 1 + A * torch.exp(-0.5 * (idcs - mu) ** 2 / sigma ** 2)
 
     return curves
 
 
 # TODO - can initial logic be simplified at all?
+# TODO - some parameters can be removed due to accessibility of hcqt through model
+#        -> eq_fn, eq_kwargs -> eq_fn(n_bins, **eq_kwargs)
 def compute_timbre_loss(model, features, embeddings, fbins_midi, bins_per_octave, points_per_octave=2, t=0.10):
     # Determine the number of samples in the batch
     B, H, K, _ = features.size()
@@ -159,7 +200,8 @@ def compute_timbre_loss(model, features, embeddings, fbins_midi, bins_per_octave
 
     # Sample a random equalization curve for each sample in batch
     equalization_curves = sample_random_equalization(n_points, B, out_size, t, features.device)
-    #equalization_curves = sample_parabolic_equalization(out_size, B, 1, features.device)
+    #equalization_curves = sample_parabolic_equalization(out_size, B, 5, features.device)
+    #equalization_curves = sample_gaussian_equalization(out_size, B, 0.25, bins_per_octave, features.device)
 
     # Determine which bins correspond to which equalization
     nearest_bins = torch.round(bins_per_semitone * (fbins_midi - fbins_midi.min())).long()
