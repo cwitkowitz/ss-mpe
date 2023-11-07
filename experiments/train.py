@@ -5,7 +5,7 @@ from timbre_trap.datasets.MixedMultiPitch import URMP as URMP_Mixtures, Bach10 a
 from timbre_trap.datasets.SoloMultiPitch import URMP as URMP_Stems, MedleyDB_Pitch, MAESTRO, GuitarSet
 from timbre_trap.datasets.AudioMixtures import MedleyDB as MedleyDB_Mixtures, FMA
 from timbre_trap.datasets.AudioStems import MedleyDB as MedleyDB_Stems
-from timbre_trap.datasets import ComboDataset, constants
+from timbre_trap.datasets import ComboDataset, constants, StemMixingDataset
 
 from ss_mpe.datasets.SoloMultiPitch import NSynth, SWD
 from ss_mpe.datasets.AudioMixtures import MagnaTagATune
@@ -247,24 +247,32 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     if DEBUG:
         # Instantiate NSynth validation split for training
-        nsynth_train = NSynth(base_dir=nsynth_base_dir,
-                              splits=['valid'],
-                              midi_range=None,
-                              sample_rate=sample_rate,
-                              cqt=model.hcqt,
-                              n_secs=n_secs,
-                              seed=seed)
-        all_train.append(nsynth_train)
+        nsynth_stems_train = NSynth(base_dir=nsynth_base_dir,
+                                    splits=['valid'],
+                                    midi_range=None,
+                                    sample_rate=sample_rate,
+                                    cqt=model.hcqt,
+                                    n_secs=n_secs,
+                                    seed=seed)
+        all_train.append(nsynth_stems_train)
     else:
         # Instantiate NSynth training split for training
-        nsynth_train = NSynth(base_dir=nsynth_base_dir,
-                              splits=['train'],
-                              midi_range=None,
-                              sample_rate=sample_rate,
-                              cqt=model.hcqt,
-                              n_secs=n_secs,
-                              seed=seed)
-        all_train.append(nsynth_train)
+        nsynth_stems_train = NSynth(base_dir=nsynth_base_dir,
+                                    splits=['train'],
+                                    midi_range=None,
+                                    sample_rate=sample_rate,
+                                    cqt=model.hcqt,
+                                    n_secs=n_secs,
+                                    seed=seed)
+        all_train.append(nsynth_stems_train)
+
+        # Instantiate NSynth mixing wrapper for training
+        nsynth_mixes_train = StemMixingDataset([nsynth_stems_train],
+                                               len(nsynth_stems_train),
+                                               n_min=1,
+                                               n_max=5,
+                                               seed=seed)
+        #all_train.append(nsynth_mixes_train)
 
         # Instantiate MusicNet training split for training
         mnet_mixes_train = MusicNet(base_dir=mnet_base_dir,
