@@ -51,8 +51,11 @@ class HCQT(LHVQT):
         self.hop_length = hop_length
         self.n_bins = n_bins
 
+        # Minimum MIDI frequency of each harmonic
+        fmins = fmin + 12 * np.log2([harmonics]).T
+
         # Determine center frequency (MIDI) associated with each bin of module
-        self.midi_freqs = fmin + np.arange(self.n_bins) / (bins_per_octave / 12)
+        self.midi_freqs = fmins + np.arange(self.n_bins) / (bins_per_octave / 12)
 
     @staticmethod
     def to_decibels(magnitude, rescale=True):
@@ -190,3 +193,21 @@ class HCQT(LHVQT):
         times = np.arange(n_frames) * self.hop_length / self.sample_rate
 
         return times
+
+    def get_midi_freqs(self):
+        """
+        Obtain the MIDI frequencies associated with the 1st harmonic.
+
+        Returns
+        ----------
+        midi_freqs : ndarray (F)
+          Center frequency of each bin
+        """
+
+        # Determine first harmonic index
+        h_idx = self.harmonics.index(1)
+
+        # Extract pre-computed frequencies
+        midi_freqs = self.midi_freqs[h_idx]
+
+        return midi_freqs

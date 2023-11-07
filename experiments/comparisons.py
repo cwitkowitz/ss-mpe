@@ -211,7 +211,7 @@ for eval_set in [urmp_test, trios_test, bch10_test, su_test, gset_test]:
     print_and_log(f'Results for {eval_set.name()}:', save_path)
 
     # Frequencies associated with ground-truth
-    gt_midi_freqs = eval_set.cqt.midi_freqs
+    gt_midi_freqs = eval_set.cqt.get_midi_freqs()
 
     # Loop through all tracks in the test set
     for i, data in enumerate(tqdm(eval_set)):

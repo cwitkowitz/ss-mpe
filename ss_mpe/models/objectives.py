@@ -61,18 +61,18 @@ def compute_sparsity_loss(activations):
     return sparsity_loss
 
 
-def sample_random_equalization(n_points, batch_size=1, n_bins=None, std_dev=0.10, device='cpu'):
+def sample_random_equalization(n_bins, batch_size=1, n_points=None, std_dev=0.10, device='cpu'):
     """
     Uniformly sample multiplicative equalization factors and upsample to cover whole frequency spectrum.
 
     Parameters
     ----------
-    n_points : int
-      Number of peaks/troughs to sample
+    n_bins : int
+      Final number of frequency bins
     batch_size : int
       Number of curves to sample
-    n_bins : int or None (optional)
-      Final number of frequency bins
+    n_points : int or None (optional)
+      Number of peaks/troughs to sample
     std_dev : float
       Standard deviation of boost/cut
     device : string
@@ -84,10 +84,14 @@ def sample_random_equalization(n_points, batch_size=1, n_bins=None, std_dev=0.10
       Sampled equalization curves
     """
 
+    if n_points is None:
+        # Default to provided output size
+        n_points = n_bins
+
     # Sample a random equalization curve factor for each sample in batch
     curves = 1 + torch.randn(size=(batch_size, 1, n_points), device=device) * std_dev
 
-    if n_bins is not None:
+    if n_bins != n_points:
         # Upsample equalization curves to number of frequency bins via linear interpolation
         curves = F.interpolate(curves, size=n_bins, mode='linear', align_corners=True)
 
@@ -173,18 +177,21 @@ def sample_gaussian_equalization(n_bins, batch_size=1, max_A=0.25, max_std_dev=N
     return curves
 
 
-# TODO - can initial logic be simplified at all?
-# TODO - some parameters can be removed due to accessibility of hcqt through model
-#        -> eq_fn, eq_kwargs -> eq_fn(n_bins, **eq_kwargs)
-def compute_timbre_loss(model, features, embeddings, fbins_midi, bins_per_octave, points_per_octave=2, t=0.10):
-    # Determine the number of samples in the batch
-    B, H, K, _ = features.size()
+def compute_timbre_loss(model, features, embeddings, eq_fn, **eq_kwargs):
+    # Obtain dimensionality of features and appropriate device
+    (B, H, K, _), device = features.size(), features.device
+
+    # Extract relevant HCQT parameters
+    bins_per_octave = model.hcqt_params['bins_per_octave']
+
+    # Obtain center frequencies (MIDI) associated with each HCQT bin
+    midi_freqs = torch.from_numpy(model.hcqt.midi_freqs).to(device)
 
     # Infer the number of bins per semitone
     bins_per_semitone = bins_per_octave / 12
 
-    # Determine the semitone span of the frequency support
-    semitone_span = fbins_midi.max() - fbins_midi.min()
+    # Determine semitone span of frequency support
+    semitone_span = midi_freqs.max() - midi_freqs.min()
 
     # Determine how many bins are represented across all harmonics
     n_psuedo_bins = (bins_per_semitone * semitone_span).round()
@@ -192,32 +199,28 @@ def compute_timbre_loss(model, features, embeddings, fbins_midi, bins_per_octave
     # Determine how many octaves have been covered
     n_octaves = int(torch.ceil(n_psuedo_bins / bins_per_octave))
 
-    # Determine the number of cut/boost points to sample
-    n_points = 1 + points_per_octave * n_octaves
-
-    # Cover the full octave for proper interpolation
+    # Perform equalization over full octave
     out_size = n_octaves * bins_per_octave
 
-    # Sample a random equalization curve for each sample in batch
-    equalization_curves = sample_random_equalization(n_points, B, out_size, t, features.device)
-    #equalization_curves = sample_parabolic_equalization(out_size, B, 5, features.device)
-    #equalization_curves = sample_gaussian_equalization(out_size, B, 0.25, bins_per_octave, features.device)
+    # Randomly sample an equalization curve for each sample in batch
+    curves = eq_fn(out_size, batch_size=B, device=device, **eq_kwargs)
 
-    # Determine which bins correspond to which equalization
-    nearest_bins = torch.round(bins_per_semitone * (fbins_midi - fbins_midi.min())).long()
+    # Determine nearest equalization corresponding to each frequency bin
+    equalization_bins = bins_per_semitone * (midi_freqs - midi_freqs.min())
+    # Round, convert equalization bins to integers, and flatten
+    equalization_bins = equalization_bins.round().long().flatten()
+    # Obtain indices corresponding to equalization for each sample in the batch
+    equalization_idcs = torch.meshgrid(torch.arange(B, device=device), equalization_bins)
+    # Obtain the equalization for each sample in the batch
+    equalization = curves[equalization_idcs].view(B, H, K, -1)
 
-    with torch.no_grad():
-        # Obtain indices corresponding to equalization for each sample in the batch
-        equalization_idcs = torch.meshgrid(torch.arange(B), nearest_bins.flatten())
-        # Obtain the equalization for each sample in the batch
-        equalization = equalization_curves[equalization_idcs].view(B, H, K, -1)
-        # Apply the sampled equalization curves to the batch
-        equalization_features = torch.clip(equalization * features, min=0, max=1)
-
-    # Process the equalized features with the model
-    equalization_embeddings = model(equalization_features)[0].squeeze()
+    # Apply sampled equalization curves to the batch and clamp features
+    equalization_features = torch.clip(equalization * features, min=0, max=1)
+    # Process equalized features with provided model
+    equalization_embeddings = model(equalization_features)[0]
 
     # Convert both sets of logits to activations (implicit pitch salience)
+    # TODO - will be unnecessary if ground-truth is salience
     original_salience, equalization_salience = torch.sigmoid(embeddings), torch.sigmoid(equalization_embeddings)
 
     # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original activations

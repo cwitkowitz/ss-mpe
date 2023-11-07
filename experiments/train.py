@@ -68,7 +68,7 @@ def config():
         'support' : 1,
         'harmonic' : 1,
         'sparsity' : 1,
-        'timbre' : 0,
+        'timbre' : 1,
         'geometric' : 0,
         #'superposition' : 0,
         #'scaling' : 0,
@@ -425,10 +425,52 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     min_stretch_time = 0.5
     max_stretch_time = 2
 
-    # Compute minimum MIDI frequency of each harmonic
-    fmins_midi = (fmin + 12 * torch.log2(torch.Tensor(harmonics))).unsqueeze(-1)
-    # Determine center MIDI frequency of each bin in the HCQT (timbre-invariance loss)
-    fbins_midi = fmins_midi + torch.arange(n_bins) / (bins_per_octave / 12)
+    # Number of random points to sample per octave
+    points_per_octave = 2
+
+    # Infer the number of bins per semitone
+    bins_per_semitone = bins_per_octave / 12
+
+    # Determine semitone span of frequency support
+    semitone_span = model.hcqt.midi_freqs.max() - model.hcqt.midi_freqs.min()
+
+    # Determine how many bins are represented across all harmonics
+    n_psuedo_bins = (bins_per_semitone * semitone_span).round()
+
+    # Determine how many octaves have been covered
+    n_octaves = int(math.ceil(n_psuedo_bins / bins_per_octave))
+
+    # Calculate number of cut/boost points to sample
+    n_points = 1 + points_per_octave * n_octaves
+
+    # Standard deviation of boost/cut
+    std_dev = 0.10
+
+    # Define keyword arguments for random equalization
+    random_kwargs = {
+        'n_points' : n_points,
+        'std_dev' : std_dev
+    }
+
+    # Pointiness for parabolic equalization
+    pointiness = 5
+
+    # Define keyword arguments for parabolic equalization
+    parabolic_kwargs = {
+        'pointiness' : pointiness
+    }
+
+    # Maximum amplitude for Gaussian equalization
+    max_A = 0.25
+
+    # Maximum standard deviation for Gaussian equalization
+    max_std_dev = bins_per_octave
+
+    # Define keyword arguments for Gaussian equalization
+    gaussian_kwargs = {
+        'max_A' : max_A,
+        'max_std_dev' : max_std_dev
+    }
 
     # Loop through epochs
     for i in range(max_epochs):
@@ -486,7 +528,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 writer.add_scalar('train/loss/sparsity', sparsity_loss.item(), batch_count)
 
                 # Compute timbre-invariance loss for the batch
-                timbre_loss = compute_timbre_loss(model, features_log, logits, fbins_midi, bins_per_octave)
+                timbre_loss = compute_timbre_loss(model, features_log, logits,
+                                                  eq_fn=sample_random_equalization,
+                                                  **random_kwargs)
                 # Log the timbre-invariance loss for this batch
                 writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
 

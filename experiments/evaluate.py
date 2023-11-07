@@ -184,7 +184,7 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu'):
             activations = threshold(filter_non_peaks(to_array(transcription)), 0.5).squeeze(0)
 
             # Convert the activations to frame-level multi-pitch estimates
-            multi_pitch_est = eval_set.activations_to_multi_pitch(activations, model.hcqt.midi_freqs)
+            multi_pitch_est = eval_set.activations_to_multi_pitch(activations, model.hcqt.get_midi_freqs())
 
             # Compute results for this track using mir_eval multi-pitch metrics
             results = evaluator.evaluate(times_est, multi_pitch_est, times_ref, multi_pitch_ref)
