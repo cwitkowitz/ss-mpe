@@ -21,10 +21,6 @@ class SS_MPE(nn.Module):
         ----------
         hcqt_params : dict
           Parameters for feature extraction module
-        model_complexity : int
-          Scaling factor for number of filters and embedding sizes
-        skip_connections : bool
-          Whether to include skip connections between encoder and decoder
         """
 
         nn.Module.__init__(self)
@@ -32,7 +28,6 @@ class SS_MPE(nn.Module):
         self.hcqt_params = hcqt_params.copy()
 
         hcqt_params.pop('weights')
-        # TODO - don't save with HCQT
         self.hcqt = HCQT(**hcqt_params)
 
     def get_all_features(self, audio):
@@ -126,3 +121,50 @@ class SS_MPE(nn.Module):
         salience = torch.sigmoid(self(features)[0])
 
         return salience
+
+    def save(self, save_path):
+        """
+        Helper function to save model.
+
+        Parameters
+        ----------
+        save_path : str
+          Path for saving model
+        """
+
+        # Pop HCQT module
+        hcqt = self.hcqt
+        self.hcqt = None
+
+        if isinstance(self, torch.nn.DataParallel):
+            # Unwrap and save the core model
+            torch.save(self.module, save_path)
+        else:
+            # Save the core model
+            torch.save(self, save_path)
+
+        # Restore HCQT module
+        self.hcqt = hcqt
+
+    @staticmethod
+    def load(model_path, device='cpu'):
+        """
+        Helper function to load pre-existing model.
+
+        Parameters
+        ----------
+        model_path : str
+          Path to pre-existing model
+        device : str
+          Device on which to load model
+        """
+
+        # Load a pre-existing model onto specified device
+        model = torch.load(model_path, map_location=device)
+        # Extract stored HCQT parameters
+        hcqt_params = model.hcqt_params.copy()
+        hcqt_params.pop('weights')
+        # Re-initialize HQCT module
+        model.hcqt = HCQT(**hcqt_params)
+
+        return model

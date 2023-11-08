@@ -11,7 +11,7 @@ from ss_mpe.datasets.SoloMultiPitch import NSynth, SWD
 from ss_mpe.datasets.AudioMixtures import MagnaTagATune
 from ss_mpe.datasets import collate_audio_only
 
-from ss_mpe.models import DataParallel, TT_Base
+from ss_mpe.models import DataParallel, SS_MPE, TT_Base
 from ss_mpe.models.objectives import *
 from ss_mpe.models.utils import *
 from evaluate import evaluate
@@ -200,6 +200,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                    'fmin': fmin,
                    'bins_per_octave': bins_per_octave,
                    'n_bins': n_bins,
+                   'gamma': None,
                    'harmonics': harmonics,
                    'weights' : harmonic_weights}
 
@@ -210,13 +211,18 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                         model_complexity=2,
                         skip_connections=False)
     else:
-        # Load a prexisting model and resume training
-        model = torch.load(checkpoint_path, map_location=device)
+        # Load weights of the specified model checkpoint
+        model = SS_MPE.load(checkpoint_path, device=device)
 
-        for p, v in model.hcqt_params.items():
-            if v != hcqt_params[p]:
-                # Check for parameter mismatch and warn user
-                warnings.warn(f'Selected value for \'{p}\' does not '
+        for k, v in model.hcqt_params.items():
+            # Get HCQT parameter
+            p = hcqt_params[k]
+            # Check if type is PyTorch Tensor
+            isTensor = type(p) is torch.Tensor
+            # Check for mismatch between parameters
+            if not (v.equal(p) if isTensor else v == p):
+                # Warn user of mismatch between specified/loaded parameters
+                warnings.warn(f'Selected value for \'{k}\' does not '
                               'match saved value...', RuntimeWarning)
 
     if len(gpu_ids) > 1:
@@ -373,8 +379,16 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                                                  threshold=2E-3,
                                                                  cooldown=n_checkpoints_cooldown)
 
-    # Enable anomaly detection to debug any NaNs
-    torch.autograd.set_detect_anomaly(True)
+    # Enable anomaly detection to debug any NaNs (can increase overhead)
+    #torch.autograd.set_detect_anomaly(True)
+
+    # Enable cuDNN auto-tuner to optimize CUDA kernel (might improve
+    # performance, but adds initial overhead to find the best kernel)
+    cudnn_benchmarking = False
+
+    if cudnn_benchmarking:
+        # Enable benchmarking prior to training
+        torch.backends.cudnn.benchmark = True
 
     # Construct the path to the directory for saving models
     log_dir = os.path.join(root_dir, 'models')
@@ -418,8 +432,11 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     # Loop through epochs
     for i in range(max_epochs):
+        #t = get_current_time()
         # Loop through batches of audio
         for data in tqdm(loader, desc=f'Epoch {i + 1}'):
+            #print_time_difference(t, 'Load Batch', device=device)
+            #t = get_current_time()
             # Increment the batch counter
             batch_count += 1
 
@@ -432,23 +449,27 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
             # Log the current learning rate for this batch
             writer.add_scalar('train/loss/learning_rate', optimizer.param_groups[0]['lr'], batch_count)
+            #print_time_difference(t, 'Step/Audio', device=device)
+            #t = get_current_time()
 
             # Compute full set of spectral features
-            # TODO - compute features inside of forward?
             features = model.get_all_features(audio)
 
             # Extract relevant feature sets
             features_log   = features['dec']
             features_log_1 = features['dec_1']
             features_log_h = features['dec_h']
+            #print_time_difference(t, 'Features', device=device)
+            #t = get_current_time()
 
             with torch.autocast(device_type=f'cuda'):
                 # Process features to obtain logits
                 logits, _, losses = model(features_log)
                 # Convert to (implicit) pitch salience activations
                 estimate = torch.sigmoid(logits)
+                #print_time_difference(t, 'Model', device=device)
+                #t = get_current_time()
 
-                # TODO - compute losses inside of forward?
                 # Compute support loss w.r.t. first harmonic for the batch
                 support_loss = compute_support_loss(logits, features_log_1)
                 # Log the support loss for this batch
@@ -497,11 +518,17 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 # Log the total loss for this batch
                 writer.add_scalar('train/loss/total', total_loss.item(), batch_count)
+                #print_time_difference(t, 'Losses', device=device)
+                #t = get_current_time()
 
                 # Zero the accumulated gradients
                 optimizer.zero_grad()
+                #print_time_difference(t, 'Zero Grad', device=device)
+                #t = get_current_time()
                 # Compute gradients using total loss
                 total_loss.backward()
+                #print_time_difference(t, 'Backward', device=device)
+                #t = get_current_time()
 
                 # Track the gradient norm of each layer in the encoder
                 cum_norm_encoder = track_gradient_norms(model.encoder)
@@ -515,11 +542,23 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 # Apply gradient clipping for training stability
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
+                #print_time_difference(t, 'Track Grad', device=device)
+                #t = get_current_time()
 
                 # Perform an optimization step
                 optimizer.step()
+                #print_time_difference(t, 'Step', device=device)
 
             if batch_count % checkpoint_interval == 0:
+                # Construct a path to save the model checkpoint
+                model_path = os.path.join(log_dir, f'model-{batch_count}.pt')
+                # Save model checkpoint
+                model.save(model_path)
+
+                if cudnn_benchmarking:
+                    # Disable benchmarking prior to validation
+                    torch.backends.cudnn.benchmark = False
+
                 # Initialize dictionary to hold all validation results
                 validation_results = dict()
 
@@ -536,15 +575,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 model = model.to(device)
                 model.train()
 
-                # Construct a path to save the model checkpoint
-                model_path = os.path.join(log_dir, f'model-{batch_count}.pt')
-
-                if isinstance(model, torch.nn.DataParallel):
-                    # Unwrap and save the model
-                    torch.save(model.module, model_path)
-                else:
-                    # Save the model as is
-                    torch.save(model, model_path)
+                if cudnn_benchmarking:
+                    # Re-enable benchmarking after validation
+                    torch.backends.cudnn.benchmark = True
 
                 if decay_scheduler.patience and not warmup_scheduler.is_active() and i >= n_epochs_late_start:
                     # Step the learning rate decay scheduler by logging the validation metric for the checkpoint
@@ -575,6 +608,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     early_stop_criteria = True
 
                     break
+            #t = get_current_time()
 
         if early_stop_criteria:
             # Stop training
@@ -588,9 +622,13 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     # Construct a path to the best model checkpoint
     best_model_path = os.path.join(log_dir, f'model-{best_model_checkpoint}.pt')
-    # Load the best model and make sure it is in evaluation mode
-    best_model = torch.load(best_model_path, map_location=device)
+    # Load best model and make sure it is in evaluation mode
+    best_model = SS_MPE.load(best_model_path, device=device)
     best_model.eval()
+
+    if cudnn_benchmarking:
+        # Disable benchmarking prior to evaluation
+        torch.backends.cudnn.benchmark = False
 
     for eval_set in evaluation_sets:
         # Evaluate the model using testing split

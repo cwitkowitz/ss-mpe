@@ -31,7 +31,7 @@ def get_current_time(decimals=3):
     return current_time
 
 
-def print_time_difference(start_time, label=None, decimals=3):
+def print_time_difference(start_time, label=None, decimals=3, device=None):
     """
     Print the time elapsed since the given system time.
 
@@ -43,6 +43,8 @@ def print_time_difference(start_time, label=None, decimals=3):
       Number of digits to keep when rounding
     label : string or None (Optional)
       Label for the optional print statement
+    device : string
+      CUDA device currently in use
 
     Returns
     ----------
@@ -51,7 +53,7 @@ def print_time_difference(start_time, label=None, decimals=3):
     """
 
     # Wait until CUDA processes finish
-    torch.cuda.synchronize()
+    torch.cuda.synchronize(device)
 
     # Take rounded difference between current time and given time
     elapsed_time = round(get_current_time(decimals) - start_time, decimals)
