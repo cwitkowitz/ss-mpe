@@ -66,9 +66,9 @@ n_points = 1 + points_per_octave * n_octaves
 n_out = n_octaves * bins_per_octave
 
 # Sample equalization curves based on uniform random boosts/cuts
-random_curves = sample_random_equalization(n_points,
+random_curves = sample_random_equalization(n_out,
                                            batch_size=n_curves,
-                                           n_bins=n_out,
+                                           n_points=n_points,
                                            std_dev=std_dev)
 
 for curve in to_array(random_curves):

@@ -12,6 +12,14 @@ def bce_full(est, ref):
     # Compute full binary cross entropy loss
     loss = F.binary_cross_entropy_with_logits(est, ref, reduction='none')
 
+    #loss -= F.binary_cross_entropy(ref, ref, reduction='none')
+
+    #loss = loss[1:-1]
+    #loss += loss.clone().t()
+
+    #est, gt = torch.tensor(0.001), torch.tensor(0.)
+    #-(gt * torch.log(est) + (1 - gt) * torch.log(1 - est))
+
     return loss
 
 
