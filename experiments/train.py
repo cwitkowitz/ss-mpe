@@ -61,7 +61,7 @@ def config():
     n_secs = 10
 
     # Initial learning rate
-    learning_rate = 1e-3
+    learning_rate = 5e-4
 
     # Scaling factors for each loss term
     multipliers = {
@@ -76,7 +76,7 @@ def config():
     }
 
     # Number of epochs spanning warmup phase (0 to disable)
-    n_epochs_warmup = 1
+    n_epochs_warmup = 0
 
     # Set validation dataset to compare for learning rate decay and early stopping
     validation_criteria_set = URMP_Mixtures.name()
@@ -537,8 +537,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 # Compute timbre-invariance loss for the batch
                 timbre_loss = compute_timbre_loss(model, features_log, logits,
-                                                  eq_fn=sample_random_equalization,
-                                                  **random_kwargs)
+                                                  eq_fn=sample_gaussian_equalization,
+                                                  **gaussian_kwargs)
                 # Log the timbre-invariance loss for this batch
                 writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
 

@@ -15,7 +15,15 @@ __all__ = [
     'sample_random_equalization',
     'sample_parabolic_equalization',
     'sample_gaussian_equalization',
-    'compute_timbre_loss',
+    'compute_timbre_loss_og',
+    'compute_timbre_loss_og_rvs',
+    'compute_timbre_loss_og_mse',
+    'compute_timbre_loss_og_con',
+    'compute_timbre_loss_2x',
+    'compute_timbre_loss_2x_mse',
+    'compute_timbre_loss_2x_lat_mse',
+    'compute_timbre_loss_2x_con',
+    'compute_timbre_loss_2x_lat_con',
     'compute_geometric_loss',
     #'compute_superposition_loss',
     #'compute_scaling_loss',
@@ -177,15 +185,15 @@ def sample_gaussian_equalization(n_bins, batch_size=1, max_A=0.25, max_std_dev=N
     return curves
 
 
-def compute_timbre_loss(model, features, embeddings, eq_fn, **eq_kwargs):
+def apply_random_eq(features, hcqt, eq_fn, **eq_kwargs):
     # Obtain dimensionality of features and appropriate device
     (B, H, K, _), device = features.size(), features.device
 
     # Extract relevant HCQT parameters
-    bins_per_octave = model.hcqt_params['bins_per_octave']
+    bins_per_octave = hcqt.bins_per_octave
 
     # Obtain center frequencies (MIDI) associated with each HCQT bin
-    midi_freqs = torch.from_numpy(model.hcqt.midi_freqs).to(device)
+    midi_freqs = torch.from_numpy(hcqt.midi_freqs).to(device)
 
     # Infer the number of bins per semitone
     bins_per_semitone = bins_per_octave / 12
@@ -200,10 +208,10 @@ def compute_timbre_loss(model, features, embeddings, eq_fn, **eq_kwargs):
     n_octaves = int(torch.ceil(n_psuedo_bins / bins_per_octave))
 
     # Perform equalization over full octave
-    out_size = n_octaves * bins_per_octave
+    n_total_bins = n_octaves * bins_per_octave
 
     # Randomly sample an equalization curve for each sample in batch
-    curves = eq_fn(out_size, batch_size=B, device=device, **eq_kwargs)
+    curves = eq_fn(n_total_bins, batch_size=B, device=device, **eq_kwargs)
 
     # Determine nearest equalization corresponding to each frequency bin
     equalization_bins = bins_per_semitone * (midi_freqs - midi_freqs.min())
@@ -216,6 +224,14 @@ def compute_timbre_loss(model, features, embeddings, eq_fn, **eq_kwargs):
 
     # Apply sampled equalization curves to the batch and clamp features
     equalization_features = torch.clip(equalization * features, min=0, max=1)
+
+    return equalization_features
+
+
+def compute_timbre_loss_og(model, features, embeddings, eq_fn, **eq_kwargs):
+    # Perform random equalizations on batch of features
+    equalization_features = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+
     # Process equalized features with provided model
     equalization_embeddings = model(equalization_features)[0]
 
@@ -229,6 +245,7 @@ def compute_timbre_loss(model, features, embeddings, eq_fn, **eq_kwargs):
     #timbre_loss_eq = F.mse_loss(equalization_embeddings, embeddings.detach(), reduction='none')
     #timbre_loss_eq = F.mse_loss(equalization_embeddings, embeddings, reduction='none')
     timbre_loss_eq = F.binary_cross_entropy_with_logits(equalization_embeddings, original_salience, reduction='none')
+    #timbre_loss_eq = F.binary_cross_entropy_with_logits(embeddings, equalization_salience, reduction='none')
 
     # Compute timbre loss as BCE of embeddings computed from original features with respect to equalization activations
     #timbre_loss_og = F.binary_cross_entropy_with_logits(embeddings, equalization_salience.detach(), reduction='none')
@@ -240,6 +257,218 @@ def compute_timbre_loss(model, features, embeddings, eq_fn, **eq_kwargs):
     #timbre_loss = (timbre_loss_eq.sum(-2).mean(-1).mean(-1) + timbre_loss_og.sum(-2).mean(-1).mean(-1)) / 2
     #timbre_loss = (timbre_loss_eq + timbre_loss_og).sum(-2).mean(-1).mean(-1)
     timbre_loss = timbre_loss_eq.sum(-2).mean(-1).mean(-1)
+
+    return timbre_loss
+
+
+def compute_timbre_loss_og_rvs(model, features, embeddings, eq_fn, **eq_kwargs):
+    # Perform random equalizations on batch of features
+    equalization_features = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+
+    # Process equalized features with provided model
+    equalization_embeddings = model(equalization_features)[0]
+
+    # Convert both sets of logits to activations (implicit pitch salience)
+    original_salience, equalization_salience = torch.sigmoid(embeddings), torch.sigmoid(equalization_embeddings)
+
+    # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original activations
+    timbre_loss_eq = F.binary_cross_entropy_with_logits(embeddings, equalization_salience, reduction='none')
+
+    # Sum across frequency bins and average across time and batch
+    timbre_loss = timbre_loss_eq.sum(-2).mean(-1).mean(-1)
+
+    return timbre_loss
+
+
+def compute_timbre_loss_og_mse(model, features, embeddings, eq_fn, **eq_kwargs):
+    # Perform random equalizations on batch of features
+    equalization_features = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+
+    # Process equalized features with provided model
+    equalization_embeddings = model(equalization_features)[0]
+
+    # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original activations
+    timbre_loss_eq = F.mse_loss(equalization_embeddings, embeddings, reduction='none')
+
+    # Sum across frequency bins and average across time and batch
+    timbre_loss = timbre_loss_eq.sum(-2).mean(-1).mean(-1)
+
+    return timbre_loss
+
+
+def compute_timbre_loss_2x(model, features, embeddings, eq_fn, **eq_kwargs):
+    # Perform first set of random equalizations on batch of features
+    equalization_features_1st = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+
+    # Process first set of equalized features with provided model
+    equalization_embeddings_1st = model(equalization_features_1st)[0]
+
+    # Perform second set of random equalizations on batch of features
+    equalization_features_2nd = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+
+    # Process second set of equalized features with provided model
+    equalization_embeddings_2nd = model(equalization_features_2nd)[0]
+
+    # Convert both sets of logits to activations
+    salience_1st = torch.sigmoid(equalization_embeddings_1st)
+    salience_2nd = torch.sigmoid(equalization_embeddings_2nd)
+
+    # Compute timbre loss as BCE of embeddings computed from equalized features with respect to alternate activations
+    timbre_loss_1st = F.binary_cross_entropy_with_logits(equalization_embeddings_1st, salience_2nd, reduction='none')
+    timbre_loss_2nd = F.binary_cross_entropy_with_logits(equalization_embeddings_2nd, salience_1st, reduction='none')
+
+    # Sum across frequency bins and average across time and batch for both variations of timbre loss
+    timbre_loss = 0.5 * (timbre_loss_1st + timbre_loss_2nd).sum(-2).mean(-1).mean(-1)
+
+    return timbre_loss
+
+
+def compute_timbre_loss_2x_mse(model, features, embeddings, eq_fn, **eq_kwargs):
+    # Perform first set of random equalizations on batch of features
+    equalization_features_1st = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+
+    # Process first set of equalized features with provided model
+    equalization_embeddings_1st = model(equalization_features_1st)[0]
+
+    # Perform second set of random equalizations on batch of features
+    equalization_features_2nd = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+
+    # Process second set of equalized features with provided model
+    equalization_embeddings_2nd = model(equalization_features_2nd)[0]
+
+    # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original activations
+    timbre_loss = F.mse_loss(equalization_embeddings_1st, equalization_embeddings_2nd, reduction='none')
+
+    # Sum across frequency bins and average across time and batch for both variations of timbre loss
+    timbre_loss = timbre_loss.sum(-2).mean(-1).mean(-1)
+
+    return timbre_loss
+
+
+def compute_timbre_loss_2x_lat_mse(model, features, embeddings, eq_fn, **eq_kwargs):
+    # Perform first set of random equalizations on batch of features
+    equalization_features_1st = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+
+    # Process first set of equalized features with provided model
+    equalization_latents_1st = model(equalization_features_1st)[1]
+
+    # Perform second set of random equalizations on batch of features
+    equalization_features_2nd = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+
+    # Process second set of equalized features with provided model
+    equalization_latents_2nd = model(equalization_features_2nd)[1]
+
+    # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original activations
+    timbre_loss = F.mse_loss(equalization_latents_1st, equalization_latents_2nd, reduction='none')
+
+    # Sum across frequency bins and average across time and batch for both variations of timbre loss
+    timbre_loss = timbre_loss.sum(-2).mean(-1).mean(-1)
+
+    return timbre_loss
+
+
+def compute_contrastive_loss(embeddings_1st, embeddings_2nd, temperature=0.07):
+    # Switch frame and feature dimension of embeddings
+    embeddings_1st = embeddings_1st.transpose(-1, -2)
+    embeddings_2nd = embeddings_2nd.transpose(-1, -2)
+
+    # Keep track of original dimensionality and device
+    (B, T, E), device = embeddings_1st.shape, embeddings_1st.device
+
+    # Concatenate both sets of embeddings along the batch dimension
+    all_embeddings = torch.cat((embeddings_1st, embeddings_2nd), dim=0)
+
+    # Normalize both sets of embeddings
+    all_embeddings = F.normalize(all_embeddings, dim=-1)
+
+    # Switch batch and frame dimensions for the embeddings
+    all_embeddings = all_embeddings.transpose(0, 1)
+
+    # Compute cosine similarity between every embedding across each frame
+    similarities = torch.bmm(all_embeddings, all_embeddings.transpose(-1, -2))
+
+    # Construct a matrix indicating same-sample membership for each embedding
+    labels = (torch.eye(2 * B) + torch.eye(2 * B).roll(B, dims=-1)).to(device)
+
+    # Create mask to indicate which elements belong to diagonal
+    diagonal = torch.eye(2 * B, dtype=torch.bool).to(device)
+
+    # Discard labels indicating identity
+    labels = labels[~diagonal].view(2 * B, -1)
+    # Discard similarities for identical pairs across each frame
+    similarities = similarities[:, ~diagonal].view(T, 2 * B, -1)
+
+    # Obtain the similarity measures for positive pairs
+    positives = similarities[:, labels.bool()].view(T, 2 * B, -1)
+
+    # Obtain the similarity measures for negative pairs
+    negatives = similarities[:, ~labels.bool()].view(T, 2 * B, -1)
+
+    # Combine all similarities, ordering the positive pair similarities first
+    logits = torch.cat([positives, negatives], dim=-1) / temperature
+
+    # Construct labels indicating first index as pertaining to ground-truth class
+    targets = torch.zeros(logits.shape[:-1], dtype=torch.long).to(device)
+
+    # Compute loss based on similarity of embeddings originating from same sample
+    contrastive_loss = F.cross_entropy(logits.view(2 * B * T, -1), targets.flatten(), reduction='none')
+
+    # Restore the original dimensions to the computed losses
+    contrastive_loss = contrastive_loss.view(T, 2 * B).t()
+
+    # Sum the loss across embeddings and then average across frames
+    contrastive_loss = contrastive_loss.sum(0).mean(-1)
+
+    return contrastive_loss
+
+
+def compute_timbre_loss_og_con(model, features, embeddings, eq_fn, **eq_kwargs):
+    # Perform random equalizations on batch of features
+    equalization_features = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+
+    # Process equalized features with provided model
+    equalization_embeddings = model(equalization_features)[0]
+
+    # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original activations
+    timbre_loss = compute_contrastive_loss(equalization_embeddings, embeddings)
+
+    return timbre_loss
+
+
+def compute_timbre_loss_2x_con(model, features, embeddings, eq_fn, **eq_kwargs):
+    # Perform first set of random equalizations on batch of features
+    equalization_features_1st = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+
+    # Process first set of equalized features with provided model
+    equalization_embeddings_1st = model(equalization_features_1st)[0]
+
+    # Perform second set of random equalizations on batch of features
+    equalization_features_2nd = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+
+    # Process second set of equalized features with provided model
+    equalization_embeddings_2nd = model(equalization_features_2nd)[0]
+
+    # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original activations
+    timbre_loss = compute_contrastive_loss(equalization_embeddings_1st, equalization_embeddings_2nd)
+
+    return timbre_loss
+
+
+def compute_timbre_loss_2x_lat_con(model, features, embeddings, eq_fn, **eq_kwargs):
+    # Perform first set of random equalizations on batch of features
+    equalization_features_1st = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+
+    # Process first set of equalized features with provided model
+    equalization_latents_1st = model(equalization_features_1st)[1]
+
+    # Perform second set of random equalizations on batch of features
+    equalization_features_2nd = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+
+    # Process second set of equalized features with provided model
+    equalization_latents_2nd = model(equalization_features_2nd)[1]
+
+    # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original activations
+    timbre_loss = compute_contrastive_loss(equalization_latents_1st, equalization_latents_2nd)
 
     return timbre_loss
 

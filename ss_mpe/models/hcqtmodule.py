@@ -49,6 +49,7 @@ class HCQT(LHVQT):
 
         self.sample_rate = sample_rate
         self.hop_length = hop_length
+        self.bins_per_octave = bins_per_octave
         self.n_bins = n_bins
 
         # Minimum MIDI frequency of each harmonic
