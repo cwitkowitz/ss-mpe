@@ -36,6 +36,10 @@ class TT_Base(SS_MPE):
         # Extract HCQT parameters to infer dimensionality of input features
         n_bins, n_harmonics = hcqt_params['n_bins'], len(hcqt_params['harmonics'])
 
+        if latent_size is None:
+            # Set default dimensionality of latents
+            latent_size = 32 * 2 ** (model_complexity - 1)
+
         self.encoder = Encoder(feature_size=n_bins, latent_size=latent_size, model_complexity=model_complexity)
         self.decoder = Decoder(feature_size=n_bins, latent_size=latent_size, model_complexity=model_complexity)
 
@@ -63,6 +67,48 @@ class TT_Base(SS_MPE):
         else:
             # No skip connections
             self.skip_weights = None
+
+        self.layer_norm = nn.LayerNorm(normalized_shape=[latent_size])
+
+    def encoder_parameters(self):
+        """
+        Obtain parameters for encoder part of network.
+
+        Returns
+        ----------
+        parameters : generator
+          Layer-wise iterator over parameters
+        """
+
+        # Obtain parameters corresponding to encoder
+        parameters = list(super().encoder_parameters())
+        # Append layer normalization parameters
+        parameters += list(self.layer_norm.parameters())
+
+        # Return generator type
+        for p in parameters:
+            yield p
+
+    def decoder_parameters(self):
+        """
+        Obtain parameters for decoder part of network.
+
+        Returns
+        ----------
+        parameters : generator
+          Layer-wise iterator over parameters
+        """
+
+        # Obtain parameters corresponding to decoder
+        parameters = list(super().decoder_parameters())
+
+        if self.skip_weights is not None:
+            # Append skip connection parameters
+            parameters.append(self.skip_weights)
+
+        # Return generator type
+        for p in parameters:
+            yield p
 
     def apply_skip_connections(self, embeddings):
         """
@@ -112,6 +158,9 @@ class TT_Base(SS_MPE):
 
         # Apply skip connections if applicable
         embeddings = self.apply_skip_connections(embeddings)
+
+        # Normalize features of latent codes w.r.t. one another
+        latents = self.layer_norm(latents.transpose(-1, -2)).transpose(-1, -2)
 
         # Process latents with the decoder
         output = self.decoder(latents, embeddings)

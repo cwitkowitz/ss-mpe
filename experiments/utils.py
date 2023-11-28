@@ -293,7 +293,7 @@ def plot_equalization(original, curve, fig=None, save_path=None):
     return fig
 
 
-def track_gradient_norms(module, writer=None, i=0, prefix='gradients'):
+def track_gradient_norms(module, writer=None, i=0, prefix='gradients', print_grad=False):
     """
     Compute the cumulative gradient norm of a network across all layers.
 
@@ -307,6 +307,8 @@ def track_gradient_norms(module, writer=None, i=0, prefix='gradients'):
       Current iteration for logging
     prefix : str
       Tag prefix for logging
+    print_grad : bool
+      Whether to print min/max gradient
 
     Returns
     ----------
@@ -314,8 +316,11 @@ def track_gradient_norms(module, writer=None, i=0, prefix='gradients'):
       Summed norms across all layers
     """
 
-    # Initialize the cumulative norm
+    # Initialize cumulative norm
     cumulative_norm = 0.
+
+    # Initialize tracked min/max
+    mn, mx = 0, 0
 
     for layer, values in module.named_parameters():
         if values.grad is not None:
@@ -328,6 +333,14 @@ def track_gradient_norms(module, writer=None, i=0, prefix='gradients'):
 
             # Accumulate the norm of the gradients
             cumulative_norm += grad_norm
+
+            # Update tracked min/max gradient
+            mn = min(mn, values.grad.min())
+            mx = max(mx, values.grad.max())
+
+    if print_grad:
+        # Print min/max gradient to console
+        print(f'Gradients - Min: {mn} | Max: {mx}')
 
     return cumulative_norm
 

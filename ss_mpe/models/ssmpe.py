@@ -30,6 +30,39 @@ class SS_MPE(nn.Module):
         hcqt_params.pop('weights')
         self.hcqt = HCQT(**hcqt_params)
 
+        self.encoder = None
+        self.encoder = None
+
+    def encoder_parameters(self):
+        """
+        Obtain parameters for encoder part of network.
+
+        Returns
+        ----------
+        parameters : generator
+          Layer-wise iterator over parameters
+        """
+
+        # Obtain generator for encoder parameters
+        parameters = self.encoder.parameters()
+
+        return parameters
+
+    def decoder_parameters(self):
+        """
+        Obtain parameters for decoder part of network.
+
+        Returns
+        ----------
+        parameters : generator
+          Layer-wise iterator over parameters
+        """
+
+        # Obtain generator for decoder parameters
+        parameters = self.decoder.parameters()
+
+        return parameters
+
     def get_all_features(self, audio):
         """
         Compute all possible features.

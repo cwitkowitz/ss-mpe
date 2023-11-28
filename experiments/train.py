@@ -13,6 +13,7 @@ from ss_mpe.datasets import collate_audio_only
 
 from ss_mpe.models import DataParallel, SS_MPE, TT_Base
 from ss_mpe.models.objectives import *
+from timbre_trap.models.utils import *
 from ss_mpe.models.utils import *
 from evaluate import evaluate
 from utils import *
@@ -62,6 +63,9 @@ def config():
 
     # Initial learning rate
     learning_rate = 5e-4
+
+    # Whether to halve learning rate for decoder
+    diff_rates = False
 
     # Scaling factors for each loss term
     multipliers = {
@@ -152,10 +156,11 @@ def config():
 
 
 @ex.automain
-def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_secs, learning_rate, multipliers,
-                n_epochs_warmup, validation_criteria_set, validation_criteria_metric, validation_criteria_maximize,
-                n_epochs_late_start, n_epochs_decay, n_epochs_cooldown, n_epochs_early_stop, gpu_ids, seed,
-                sample_rate, hop_length, fmin, bins_per_octave, n_bins, harmonics, n_workers, root_dir):
+def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_secs, learning_rate, diff_rates,
+                multipliers, n_epochs_warmup, validation_criteria_set, validation_criteria_metric,
+                validation_criteria_maximize, n_epochs_late_start, n_epochs_decay, n_epochs_cooldown,
+                n_epochs_early_stop, gpu_ids, seed, sample_rate, hop_length, fmin, bins_per_octave,
+                n_bins, harmonics, n_workers, root_dir):
     # Discard read-only types
     multipliers = dict(multipliers)
     harmonics = list(harmonics)
@@ -359,8 +364,12 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Add all evaluation datasets to a list
     evaluation_sets = [nsynth_test, urmp_mixes_val, trios_val, bch10_test, su_test, gset_test]
 
-    # Initialize an optimizer for the model parameters
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    # Compute differential learning rate for decoder
+    learning_rate_d = learning_rate / 2 ** diff_rates
+
+    # Initialize an optimizer for the model parameters with differential learning rates
+    optimizer = torch.optim.AdamW([{'params' : model.decoder_parameters(), 'lr' : learning_rate_d},
+                                   {'params' : model.encoder_parameters()}], lr=learning_rate)
 
     # Determine the amount of batches in one epoch
     epoch_steps = len(loader)
@@ -520,20 +529,52 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 #print_time_difference(t, 'Model', device=device)
                 #t = get_current_time()
 
+                """
+                NaN_in_logits = debug_nans(logits)
+                if NaN_in_logits:
+                    print('NaN in Logits!!!')
+                    if not torch.is_anomaly_enabled():
+                        return
+                """
+
                 # Compute support loss w.r.t. first harmonic for the batch
                 support_loss = compute_support_loss(logits, features_log_1)
                 # Log the support loss for this batch
                 writer.add_scalar('train/loss/support', support_loss.item(), batch_count)
+
+                """
+                NaN_in_su_loss = debug_nans(support_loss)
+                if NaN_in_su_loss:
+                    print('NaN in Support Loss!!!')
+                    if not torch.is_anomaly_enabled():
+                        return
+                """
 
                 # Compute harmonic loss w.r.t. weighted harmonic sum for the batch
                 harmonic_loss = compute_harmonic_loss(logits, features_log_h)
                 # Log the harmonic loss for this batch
                 writer.add_scalar('train/loss/harmonic', harmonic_loss.item(), batch_count)
 
+                """
+                NaN_in_h_loss = debug_nans(harmonic_loss)
+                if NaN_in_h_loss:
+                    print('NaN in Harmonic Loss!!!')
+                    if not torch.is_anomaly_enabled():
+                        return
+                """
+
                 # Compute sparsity loss for the batch
                 sparsity_loss = compute_sparsity_loss(estimate)
                 # Log the sparsity loss for this batch
                 writer.add_scalar('train/loss/sparsity', sparsity_loss.item(), batch_count)
+
+                """
+                NaN_in_sp_loss = debug_nans(sparsity_loss)
+                if NaN_in_sp_loss:
+                    print('NaN in Sparsity Loss!!!')
+                    if not torch.is_anomaly_enabled():
+                        return
+                """
 
                 # Compute timbre-invariance loss for the batch
                 timbre_loss = compute_timbre_loss(model, features_log, logits,
@@ -541,6 +582,14 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                                   **gaussian_kwargs)
                 # Log the timbre-invariance loss for this batch
                 writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
+
+                """
+                NaN_in_ti_loss = debug_nans(timbre_loss)
+                if NaN_in_ti_loss:
+                    print('NaN in Timbre Loss!!!')
+                    if not torch.is_anomaly_enabled():
+                        return
+                """
 
                 """
                 # Compute geometric-invariance loss for the batch
@@ -573,6 +622,14 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 #print_time_difference(t, 'Losses', device=device)
                 #t = get_current_time()
 
+                """
+                NaN_in_to_loss = debug_nans(total_loss)
+                if NaN_in_to_loss:
+                    print('NaN in Total Loss!!!')
+                    if not torch.is_anomaly_enabled():
+                        return
+                """
+
                 # Zero the accumulated gradients
                 optimizer.zero_grad()
                 #print_time_difference(t, 'Zero Grad', device=device)
@@ -600,6 +657,14 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 # Perform an optimization step
                 optimizer.step()
                 #print_time_difference(t, 'Step', device=device)
+
+                """
+                NaN_in_weights = np.any([debug_nans(t) for t in list(model.parameters())])
+                if NaN_in_weights:
+                    print('NaN in Model Weights!!!')
+                    if not torch.is_anomaly_enabled():
+                        return
+                """
 
             if batch_count % checkpoint_interval == 0:
                 # Construct a path to save the model checkpoint
