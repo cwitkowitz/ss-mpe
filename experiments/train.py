@@ -507,7 +507,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             audio = data[constants.KEY_AUDIO].to(device)
 
             # Log the current learning rate for this batch
-            writer.add_scalar('train/loss/learning_rate', optimizer.param_groups[0]['lr'], batch_count)
+            writer.add_scalar('train/loss/learning_rate', optimizer.param_groups[-1]['lr'], batch_count)
             #print_time_difference(t, 'Step/Audio', device=device)
             #t = get_current_time()
 
