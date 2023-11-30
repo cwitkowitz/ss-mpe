@@ -61,11 +61,14 @@ def config():
     # Number of seconds of audio per sample
     n_secs = 10
 
-    # Initial learning rate
-    learning_rate = 5e-4
+    # Initial learning rate for encoder
+    learning_rate_encoder = 5e-4
 
-    # Whether to halve learning rate for decoder
-    diff_rates = False
+    # Initial learning rate for decoder
+    learning_rate_decoder = learning_rate_encoder
+
+    # Group together both learning rates
+    learning_rates = [learning_rate_encoder, learning_rate_decoder]
 
     # Scaling factors for each loss term
     multipliers = {
@@ -156,12 +159,13 @@ def config():
 
 
 @ex.automain
-def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_secs, learning_rate, diff_rates,
+def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_secs, learning_rates,
                 multipliers, n_epochs_warmup, validation_criteria_set, validation_criteria_metric,
                 validation_criteria_maximize, n_epochs_late_start, n_epochs_decay, n_epochs_cooldown,
                 n_epochs_early_stop, gpu_ids, seed, sample_rate, hop_length, fmin, bins_per_octave,
                 n_bins, harmonics, n_workers, root_dir):
     # Discard read-only types
+    learning_rates = list(learning_rates)
     multipliers = dict(multipliers)
     harmonics = list(harmonics)
     gpu_ids = list(gpu_ids)
@@ -364,12 +368,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Add all evaluation datasets to a list
     evaluation_sets = [nsynth_test, urmp_mixes_val, trios_val, bch10_test, su_test, gset_test]
 
-    # Compute differential learning rate for decoder
-    learning_rate_d = learning_rate / 2 ** diff_rates
-
     # Initialize an optimizer for the model parameters with differential learning rates
-    optimizer = torch.optim.AdamW([{'params' : model.decoder_parameters(), 'lr' : learning_rate_d},
-                                   {'params' : model.encoder_parameters()}], lr=learning_rate)
+    optimizer = torch.optim.AdamW([{'params' : model.encoder_parameters(), 'lr' : learning_rates[0]},
+                                   {'params' : model.decoder_parameters(), 'lr' : learning_rates[1]}])
 
     # Determine the amount of batches in one epoch
     epoch_steps = len(loader)
@@ -507,7 +508,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             audio = data[constants.KEY_AUDIO].to(device)
 
             # Log the current learning rate for this batch
-            writer.add_scalar('train/loss/learning_rate', optimizer.param_groups[-1]['lr'], batch_count)
+            writer.add_scalar('train/loss/learning_rate/encoder', optimizer.param_groups[0]['lr'], batch_count)
+            writer.add_scalar('train/loss/learning_rate/decoder', optimizer.param_groups[1]['lr'], batch_count)
             #print_time_difference(t, 'Step/Audio', device=device)
             #t = get_current_time()
 

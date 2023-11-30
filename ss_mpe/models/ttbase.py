@@ -1,7 +1,7 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from timbre_trap.models import Encoder, Decoder, DecoderBlock
+from timbre_trap.models import Encoder, EncoderBlock, Decoder, DecoderBlock
 
 from . import SS_MPE
 
@@ -40,7 +40,7 @@ class TT_Base(SS_MPE):
             # Set default dimensionality of latents
             latent_size = 32 * 2 ** (model_complexity - 1)
 
-        self.encoder = Encoder(feature_size=n_bins, latent_size=latent_size, model_complexity=model_complexity)
+        self.encoder = EncoderNorm(feature_size=n_bins, latent_size=latent_size, model_complexity=model_complexity)
         self.decoder = DecoderNorm(feature_size=n_bins, latent_size=latent_size, model_complexity=model_complexity)
 
         convin_out_channels = self.encoder.convin[0].out_channels
@@ -147,6 +147,75 @@ class TT_Base(SS_MPE):
         return output, latents, losses
 
 
+class EncoderNorm(Encoder):
+    """
+    Implements the 2D convolutional encoder from Timbre-Trap with layer normalization.
+    """
+
+    def __init__(self, feature_size, latent_size=None, model_complexity=1):
+        """
+        Initialize the encoder.
+
+        Parameters
+        ----------
+        feature_size : int
+          Dimensionality of input features
+        latent_size : int or None (Optional)
+          Dimensionality of latent space
+        model_complexity : int
+          Scaling factor for number of filters
+        """
+
+        nn.Module.__init__(self)
+
+        channels = (2 * 2 ** (model_complexity - 1),
+                    4 * 2 ** (model_complexity - 1),
+                    8 * 2 ** (model_complexity - 1),
+                    16 * 2 ** (model_complexity - 1),
+                    32 * 2 ** (model_complexity - 1))
+
+        # Make sure all channel sizes are integers
+        channels = tuple([round(c) for c in channels])
+
+        if latent_size is None:
+            # Set default dimensionality
+            latent_size = 32 * 2 ** (model_complexity - 1)
+
+        embedding_sizes = [feature_size]
+
+        for i in range(4):
+            # Dimensionality after strided convolutions
+            embedding_sizes.append(embedding_sizes[-1] // 2 - 1)
+
+        self.convin = nn.Sequential(
+            nn.Conv2d(2, channels[0], kernel_size=3, padding='same'),
+            nn.ELU(inplace=True),
+            LayerNormPermute(normalized_shape=[channels[0], embedding_sizes[0]])
+        )
+
+        self.block1 = nn.Sequential(
+            EncoderBlock(channels[0], channels[1], stride=2),
+            LayerNormPermute(normalized_shape=[channels[1], embedding_sizes[1]])
+        )
+        self.block2 = nn.Sequential(
+            EncoderBlock(channels[1], channels[2], stride=2),
+            LayerNormPermute(normalized_shape=[channels[2], embedding_sizes[2]])
+        )
+        self.block3 = nn.Sequential(
+            EncoderBlock(channels[2], channels[3], stride=2),
+            LayerNormPermute(normalized_shape=[channels[3], embedding_sizes[3]])
+        )
+        self.block4 = nn.Sequential(
+            EncoderBlock(channels[3], channels[4], stride=2),
+            LayerNormPermute(normalized_shape=[channels[4], embedding_sizes[4]])
+        )
+
+        self.convlat = nn.Sequential(
+            nn.Conv2d(channels[4], latent_size, kernel_size=(embedding_sizes[-1], 1)),
+            LayerNormPermute(normalized_shape=[latent_size, 1])
+        )
+
+
 class DecoderNorm(Decoder):
     """
     Implements the 2D convolutional decoder from Timbre-Trap with layer normalization.
@@ -218,6 +287,7 @@ class DecoderNorm(Decoder):
             LayerNormPermute(normalized_shape=[channels[4], embedding_sizes[4]])
         )
 
+        # TODO - add layer normalization after final convolution?
         self.convout = nn.Conv2d(channels[4], 2, kernel_size=3, padding='same')
 
 
