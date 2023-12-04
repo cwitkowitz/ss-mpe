@@ -15,7 +15,6 @@ __all__ = [
     'plot_magnitude',
     'plot_bce_loss',
     'plot_equalization',
-    'track_gradient_norms',
     'cosine_anneal',
     'CosineWarmup',
 ]
@@ -291,58 +290,6 @@ def plot_equalization(original, curve, fig=None, save_path=None):
         fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
 
     return fig
-
-
-def track_gradient_norms(module, writer=None, i=0, prefix='gradients', print_grad=False):
-    """
-    Compute the cumulative gradient norm of a network across all layers.
-
-    Parameters
-    ----------
-    module : torch.nn.Module
-      Network containing gradients to track
-    writer : SummaryWriter
-      Results logger for tensorboard
-    i : int
-      Current iteration for logging
-    prefix : str
-      Tag prefix for logging
-    print_grad : bool
-      Whether to print min/max gradient
-
-    Returns
-    ----------
-    cumulative_norm : float
-      Summed norms across all layers
-    """
-
-    # Initialize cumulative norm
-    cumulative_norm = 0.
-
-    # Initialize tracked min/max
-    mn, mx = 0, 0
-
-    for layer, values in module.named_parameters():
-        if values.grad is not None:
-            # Compute the L2 norm of the gradients
-            grad_norm = values.grad.norm(2).item()
-
-            if writer is not None:
-                # Log the norm of the gradients for this layer
-                writer.add_scalar(f'{prefix}/{layer}', grad_norm, i)
-
-            # Accumulate the norm of the gradients
-            cumulative_norm += grad_norm
-
-            # Update tracked min/max gradient
-            mn = min(mn, values.grad.min())
-            mx = max(mx, values.grad.max())
-
-    if print_grad:
-        # Print min/max gradient to console
-        print(f'Gradients - Min: {mn} | Max: {mx}')
-
-    return cumulative_norm
 
 
 def cosine_anneal(i, n_steps, start=0, floor=0.):

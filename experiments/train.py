@@ -641,15 +641,29 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 #print_time_difference(t, 'Backward', device=device)
                 #t = get_current_time()
 
-                # Track the gradient norm of each layer in the encoder
-                cum_norm_encoder = track_gradient_norms(model.encoder)
-                # Log the cumulative gradient norm of the encoder for this batch
+                # TODO - remove following block after comparison
+                cum_norm_encoder = sum_gradient_norms(model.encoder)
                 writer.add_scalar('train/cum_norm/encoder', cum_norm_encoder, batch_count)
-
-                # Track the gradient norm of each layer in the decoder
-                cum_norm_decoder = track_gradient_norms(model.decoder)
-                # Log the cumulative gradient norm of the decoder for this batch
+                cum_norm_decoder = sum_gradient_norms(model.decoder)
                 writer.add_scalar('train/cum_norm/decoder', cum_norm_decoder, batch_count)
+
+                # Compute the average gradient norm across the encoder
+                avg_norm_encoder = average_gradient_norms(model.encoder)
+                # Log the average gradient norm of the encoder for this batch
+                writer.add_scalar('train/avg_norm/encoder', avg_norm_encoder, batch_count)
+                # Determine the maximum gradient norm across encoder
+                max_norm_encoder = get_max_gradient_norm(model.encoder)
+                # Log the maximum gradient norm of the encoder for this batch
+                writer.add_scalar('train/max_norm/encoder', max_norm_encoder, batch_count)
+
+                # Compute the average gradient norm across the decoder
+                avg_norm_decoder = average_gradient_norms(model.decoder)
+                # Log the average gradient norm of the decoder for this batch
+                writer.add_scalar('train/avg_norm/decoder', avg_norm_decoder, batch_count)
+                # Determine the maximum gradient norm across decoder
+                max_norm_decoder = get_max_gradient_norm(model.decoder)
+                # Log the maximum gradient norm of the decoder for this batch
+                writer.add_scalar('train/max_norm/decoder', max_norm_decoder, batch_count)
 
                 # Apply gradient clipping for training stability
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
