@@ -154,10 +154,10 @@ def sample_gaussian_equalization(n_bins, batch_size=1, max_A=0.25, max_std_dev=N
       Number of frequency bins
     batch_size : int
       Number of curves to sample
-    max_std_dev : float or None (optional)
-      Maximum standard deviation of sampled Gaussians
     max_A : float
       Maximum amplitude of sampled Gaussians
+    max_std_dev : float or None (optional)
+      Maximum standard deviation of sampled Gaussians
     device : string
       Device on which to initialize curves
 

@@ -56,13 +56,13 @@ def config():
     checkpoint_interval = 250
 
     # Number of samples to gather for a batch
-    batch_size = 4 if DEBUG else 16
+    batch_size = 4 if DEBUG else 12
 
     # Number of seconds of audio per sample
     n_secs = 10
 
     # Initial learning rate for encoder
-    learning_rate_encoder = 5e-4
+    learning_rate_encoder = 1e-4
 
     # Initial learning rate for decoder
     learning_rate_decoder = learning_rate_encoder
@@ -98,7 +98,7 @@ def config():
     n_epochs_late_start = 0
 
     # Number of epochs without improvement before reducing learning rate (0 to disable)
-    n_epochs_decay = 1
+    n_epochs_decay = 0.5
 
     # Number of epochs before starting epoch counter for learning rate decay
     n_epochs_cooldown = 0
@@ -479,16 +479,19 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     }
 
     # Maximum amplitude for Gaussian equalization
-    max_A = 0.25
+    max_A = 0.375
 
     # Maximum standard deviation for Gaussian equalization
-    max_std_dev = bins_per_octave
+    max_std_dev = 2 * bins_per_octave
 
     # Define keyword arguments for Gaussian equalization
     gaussian_kwargs = {
         'max_A' : max_A,
         'max_std_dev' : max_std_dev
     }
+
+    # Set equalization type and corresponding parameter values
+    eq_fn, eq_kwargs = sample_gaussian_equalization, gaussian_kwargs
 
     # Loop through epochs
     for i in range(max_epochs):
@@ -579,9 +582,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 """
 
                 # Compute timbre-invariance loss for the batch
-                timbre_loss = compute_timbre_loss(model, features_log, logits,
-                                                  eq_fn=sample_gaussian_equalization,
-                                                  **gaussian_kwargs)
+                timbre_loss = compute_timbre_loss(model, features_log, logits, eq_fn, **eq_kwargs)
                 # Log the timbre-invariance loss for this batch
                 writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
 
@@ -702,7 +703,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                                                   multipliers=multipliers,
                                                                   writer=writer,
                                                                   i=batch_count,
-                                                                  device=device)
+                                                                  device=device,
+                                                                  eq_fn=eq_fn,
+                                                                  **eq_kwargs)
 
                 # Make sure model is on correct device and switch to training mode
                 model = model.to(device)
@@ -768,7 +771,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         final_results = evaluate(model=best_model,
                                  eval_set=eval_set,
                                  multipliers=multipliers,
-                                 device=device)
+                                 device=device,
+                                 eq_fn=eq_fn,
+                                 **eq_kwargs)
 
         # Log the evaluation results for this dataset in metrics.json
         ex.log_scalar(f'Evaluation Results ({eval_set.name()})', final_results, best_model_checkpoint)

@@ -134,7 +134,7 @@ class MultipitchEvaluator(object):
         return results
 
 
-def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu'):
+def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_fn=None, **eq_kwargs):
     # Initialize a new evaluator for the dataset
     evaluator = MultipitchEvaluator()
 
@@ -191,17 +191,24 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu'):
             # Store the computed results
             evaluator.append_results(results)
 
-            # Compute support loss w.r.t. first harmonic for the batch
+            # Compute support loss w.r.t. first harmonic for the track
             support_loss = compute_support_loss(logits, features_log_1)
-            # Compute harmonic loss w.r.t. weighted harmonic sum for the batch
+            # Compute harmonic loss w.r.t. weighted harmonic sum for the track
             harmonic_loss = compute_harmonic_loss(logits, features_log_h)
-            # Compute sparsity loss for the batch
+            # Compute sparsity loss for the track
             sparsity_loss = compute_sparsity_loss(transcription)
-
             # Compute the total loss for the track
             total_loss = multipliers['support'] * support_loss + \
                          multipliers['harmonic'] * harmonic_loss + \
                          multipliers['sparsity'] * sparsity_loss
+
+            if eq_fn is not None:
+                # Compute timbre loss for the track using specified equalization
+                timbre_loss = compute_timbre_loss(model, features_log, logits, eq_fn, **eq_kwargs)
+                # Store the timbre loss for the track
+                evaluator.append_results({'loss/timbre' : timbre_loss.item()})
+                # Add the timbre loss to the total loss
+                total_loss += multipliers['timbre'] * timbre_loss
 
             for key_loss, val_loss in losses.items():
                 # Store the model loss for the track
