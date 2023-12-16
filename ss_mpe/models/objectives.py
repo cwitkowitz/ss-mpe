@@ -223,17 +223,17 @@ def apply_random_eq(features, hcqt, eq_fn, **eq_kwargs):
     equalization = curves[equalization_idcs].view(B, H, K, -1)
 
     # Apply sampled equalization curves to the batch and clamp features
-    equalization_features = torch.clip(equalization * features, min=0, max=1)
+    equalized_features = torch.clip(equalization * features, min=0, max=1)
 
-    return equalization_features
+    return equalized_features
 
 
 def compute_timbre_loss_og(model, features, embeddings, eq_fn, **eq_kwargs):
     # Perform random equalizations on batch of features
-    equalization_features = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+    equalized_features = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
 
     # Process equalized features with provided model
-    equalization_embeddings = model(equalization_features)[0]
+    equalization_embeddings = model(equalized_features)[0]
 
     # Convert both sets of logits to activations (implicit pitch salience)
     # TODO - will be unnecessary if ground-truth is salience
@@ -263,10 +263,10 @@ def compute_timbre_loss_og(model, features, embeddings, eq_fn, **eq_kwargs):
 
 def compute_timbre_loss_og_rvs(model, features, embeddings, eq_fn, **eq_kwargs):
     # Perform random equalizations on batch of features
-    equalization_features = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+    equalized_features = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
 
     # Process equalized features with provided model
-    equalization_embeddings = model(equalization_features)[0]
+    equalization_embeddings = model(equalized_features)[0]
 
     # Convert both sets of logits to activations (implicit pitch salience)
     original_salience, equalization_salience = torch.sigmoid(embeddings), torch.sigmoid(equalization_embeddings)
@@ -282,10 +282,10 @@ def compute_timbre_loss_og_rvs(model, features, embeddings, eq_fn, **eq_kwargs):
 
 def compute_timbre_loss_og_mse(model, features, embeddings, eq_fn, **eq_kwargs):
     # Perform random equalizations on batch of features
-    equalization_features = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+    equalized_features = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
 
     # Process equalized features with provided model
-    equalization_embeddings = model(equalization_features)[0]
+    equalization_embeddings = model(equalized_features)[0]
 
     # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original activations
     timbre_loss_eq = F.mse_loss(equalization_embeddings, embeddings, reduction='none')
@@ -298,16 +298,16 @@ def compute_timbre_loss_og_mse(model, features, embeddings, eq_fn, **eq_kwargs):
 
 def compute_timbre_loss_2x(model, features, embeddings, eq_fn, **eq_kwargs):
     # Perform first set of random equalizations on batch of features
-    equalization_features_1st = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+    equalized_features_1st = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
 
     # Process first set of equalized features with provided model
-    equalization_embeddings_1st = model(equalization_features_1st)[0]
+    equalization_embeddings_1st = model(equalized_features_1st)[0]
 
     # Perform second set of random equalizations on batch of features
-    equalization_features_2nd = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+    equalized_features_2nd = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
 
     # Process second set of equalized features with provided model
-    equalization_embeddings_2nd = model(equalization_features_2nd)[0]
+    equalization_embeddings_2nd = model(equalized_features_2nd)[0]
 
     # Convert both sets of logits to activations
     salience_1st = torch.sigmoid(equalization_embeddings_1st)
@@ -325,16 +325,16 @@ def compute_timbre_loss_2x(model, features, embeddings, eq_fn, **eq_kwargs):
 
 def compute_timbre_loss_2x_mse(model, features, embeddings, eq_fn, **eq_kwargs):
     # Perform first set of random equalizations on batch of features
-    equalization_features_1st = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+    equalized_features_1st = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
 
     # Process first set of equalized features with provided model
-    equalization_embeddings_1st = model(equalization_features_1st)[0]
+    equalization_embeddings_1st = model(equalized_features_1st)[0]
 
     # Perform second set of random equalizations on batch of features
-    equalization_features_2nd = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+    equalized_features_2nd = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
 
     # Process second set of equalized features with provided model
-    equalization_embeddings_2nd = model(equalization_features_2nd)[0]
+    equalization_embeddings_2nd = model(equalized_features_2nd)[0]
 
     # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original activations
     timbre_loss = F.mse_loss(equalization_embeddings_1st, equalization_embeddings_2nd, reduction='none')
@@ -347,16 +347,16 @@ def compute_timbre_loss_2x_mse(model, features, embeddings, eq_fn, **eq_kwargs):
 
 def compute_timbre_loss_2x_lat_mse(model, features, embeddings, eq_fn, **eq_kwargs):
     # Perform first set of random equalizations on batch of features
-    equalization_features_1st = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+    equalized_features_1st = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
 
     # Process first set of equalized features with provided model
-    equalization_latents_1st = model(equalization_features_1st)[1]
+    equalization_latents_1st = model(equalized_features_1st)[1]
 
     # Perform second set of random equalizations on batch of features
-    equalization_features_2nd = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+    equalized_features_2nd = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
 
     # Process second set of equalized features with provided model
-    equalization_latents_2nd = model(equalization_features_2nd)[1]
+    equalization_latents_2nd = model(equalized_features_2nd)[1]
 
     # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original activations
     timbre_loss = F.mse_loss(equalization_latents_1st, equalization_latents_2nd, reduction='none')
@@ -424,10 +424,10 @@ def compute_contrastive_loss(embeddings_1st, embeddings_2nd, temperature=0.07):
 
 def compute_timbre_loss_og_con(model, features, embeddings, eq_fn, **eq_kwargs):
     # Perform random equalizations on batch of features
-    equalization_features = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+    equalized_features = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
 
     # Process equalized features with provided model
-    equalization_embeddings = model(equalization_features)[0]
+    equalization_embeddings = model(equalized_features)[0]
 
     # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original activations
     timbre_loss = compute_contrastive_loss(equalization_embeddings, embeddings)
@@ -437,16 +437,16 @@ def compute_timbre_loss_og_con(model, features, embeddings, eq_fn, **eq_kwargs):
 
 def compute_timbre_loss_2x_con(model, features, embeddings, eq_fn, **eq_kwargs):
     # Perform first set of random equalizations on batch of features
-    equalization_features_1st = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+    equalized_features_1st = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
 
     # Process first set of equalized features with provided model
-    equalization_embeddings_1st = model(equalization_features_1st)[0]
+    equalization_embeddings_1st = model(equalized_features_1st)[0]
 
     # Perform second set of random equalizations on batch of features
-    equalization_features_2nd = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+    equalized_features_2nd = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
 
     # Process second set of equalized features with provided model
-    equalization_embeddings_2nd = model(equalization_features_2nd)[0]
+    equalization_embeddings_2nd = model(equalized_features_2nd)[0]
 
     # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original activations
     timbre_loss = compute_contrastive_loss(equalization_embeddings_1st, equalization_embeddings_2nd)
@@ -456,16 +456,16 @@ def compute_timbre_loss_2x_con(model, features, embeddings, eq_fn, **eq_kwargs):
 
 def compute_timbre_loss_2x_lat_con(model, features, embeddings, eq_fn, **eq_kwargs):
     # Perform first set of random equalizations on batch of features
-    equalization_features_1st = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+    equalized_features_1st = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
 
     # Process first set of equalized features with provided model
-    equalization_latents_1st = model(equalization_features_1st)[1]
+    equalization_latents_1st = model(equalized_features_1st)[1]
 
     # Perform second set of random equalizations on batch of features
-    equalization_features_2nd = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+    equalized_features_2nd = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
 
     # Process second set of equalized features with provided model
-    equalization_latents_2nd = model(equalization_features_2nd)[1]
+    equalization_latents_2nd = model(equalized_features_2nd)[1]
 
     # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original activations
     timbre_loss = compute_contrastive_loss(equalization_latents_1st, equalization_latents_2nd)
@@ -473,108 +473,153 @@ def compute_timbre_loss_2x_lat_con(model, features, embeddings, eq_fn, **eq_kwar
     return timbre_loss
 
 
-# TODO - can this function be sped up?
-def translate_batch(batch, shifts, dim=-1, val=0):
+def apply_translation(tensor, shifts, axis=-1, val=None):
     """
-    TODO
-    """
+    Perform an independent translation on each entry of a tensor.
 
-    # Determine the dimensionality of the batch
-    dimensionality = batch.size()
+    Parameters
+    ----------
+    tensor : Tensor (B x ...)
+      Input tensor with at least 2 dimensions
+    shifts : Tensor (B)
+      Independent translations to perform
+    axis : int
+      Axis to translate
+    val : float or None (optional)
+      Value to insert or None to wrap original data
 
-    # Combine the original tensor with tensor filled with zeros such that no wrapping will occur
-    rolled_batch = torch.cat([batch, val * torch.ones(dimensionality, device=batch.device)], dim=dim)
-
-    # Roll each sample in the batch independently and reconstruct the tensor
-    rolled_batch = torch.cat([x.unsqueeze(0).roll(i, dim) for x, i in zip(rolled_batch, shifts)])
-
-    # Trim the rolled tensor to its original dimensionality
-    translated_batch = rolled_batch.narrow(dim, 0, dimensionality[dim])
-
-    return translated_batch
-
-
-# TODO - can this function be sped up?
-def stretch_batch(batch, stretch_factors):
-    """
-    TODO
+    Returns
+    ----------
+    translated : Tensor (B x ...)
+      Original tensor translated as specified
     """
 
-    # Determine height and width of the batch
-    H, W = batch.size(-2), batch.size(-1)
+    # Determine dimensionality and device of input tensor
+    dimensionality, device = tensor.size(), tensor.device
 
-    # Inserted stretched values to a copy of the original tensor
-    stretched_batch = batch.clone()
+    # Copy original tensor
+    tensor = tensor.clone()
 
-    # Loop through each sample and stretch factor in the batch
-    for i, (sample, factor) in enumerate(zip(batch, stretch_factors)):
-        # Reshape the sample to B x H x W
-        original = sample.reshape(-1, H, W)
-        # Stretch the sample by the specified amount
-        stretched_sample = F.interpolate(original,
-                                         scale_factor=factor,
-                                         mode='linear',
-                                         align_corners=True)
+    if val is not None:
+        # Initialize hidden data to replace wrapped elements
+        hidden_data = torch.full(dimensionality, val, device=device)
+        # Combine original and hidden data to disable wrapping
+        tensor = torch.cat([tensor, hidden_data], dim=axis)
+
+    # Translate each entry by specified amount at specified axis
+    translated = torch.cat([x.unsqueeze(0).roll(k.item(), axis)
+                            for x, k in zip(tensor, shifts)])
+
+    # Trim translated tensor to original dimensionality
+    translated = translated.narrow(axis, 0, dimensionality[axis])
+
+    return translated
+
+
+def apply_distortion(tensor, stretch_factors):
+    """
+    Perform an independent distortion on each entry of a tensor.
+
+    Parameters
+    ----------
+    tensor : Tensor (B x C x H x W)
+      Input tensor with standard 4 dimensions
+    stretch_factors : Tensor (B)
+      Independent distortions to perform
+
+    Returns
+    ----------
+    distorted : Tensor (B x ...)
+      Original tensor distorted as specified
+    """
+
+    # Initialize list for distortions
+    distorted = list()
+
+    # Loop through each entry and scale
+    for x, t in zip(tensor, stretch_factors):
+        # Stretch entry by specified factor using linear interpolation
+        distorted_ = F.interpolate(x, scale_factor=t.item(), mode='linear')#, align_corners=True)
 
         # Patch upsampled -∞ values that end up being NaNs (a little hacky)
-        stretched_sample[stretched_sample.isnan()] = -torch.inf
+        #stretched_sample[stretched_sample.isnan()] = -torch.inf
 
-        if factor < 1:
-            # Determine how much padding is necessary
-            pad_amount = W - stretched_sample.size(-1)
-            # Pad the stretched sample to fit original width
-            stretched_sample = F.pad(stretched_sample, (0, pad_amount))
+        if t >= 1:
+            # Determine starting index to center distortion
+            start_idx = (distorted_.size(-1) - x.size(-1)) // 2
+            # Center distorted tensor and trim to original width
+            distorted_ = distorted_.narrow(-1, start_idx, x.size(-1))
+        else:
+            # Determine total padding necessary
+            pad_t = x.size(-1) - distorted_.size(-1)
+            # Distribute padding between both sides
+            pad_l, pad_r = pad_t // 2, pad_t - pad_t // 2
+            # Pad distorted tensor to match original width
+            distorted_ = F.pad(distorted_, (pad_l, pad_r))
 
-        # Insert the stretched sample back into the batch
-        stretched_batch[i] = stretched_sample[..., :W].view(sample.shape)
+        # Append distorted entry to distortion list
+        distorted.append(distorted_.unsqueeze(0))
 
-    return stretched_batch
+    # Combine all distorted entries
+    distorted = torch.cat(distorted)
+
+    return distorted
 
 
-def compute_geometric_loss(model, features, embeddings, max_seq_idx=250, max_shift_f=12,
-                           max_shift_t=25, min_stretch=0.5, max_stretch=2):
-    # Determine the number of samples in the batch
+def compute_geometric_loss(model, features, embeddings, max_shift_v, max_shift_h, max_stretch_factor):
+    # Determine batch size
     B = features.size(0)
 
-    # Sample a random frequency and time shift for each sample in the batch
-    freq_shifts = torch.randint(low=-max_shift_f, high=max_shift_f + 1, size=(B,)).tolist()
-    time_shifts = torch.randint(low=-max_shift_t, high=max_shift_t + 1, size=(B,)).tolist()
+    # Sample a random vertical / horizontal shift for each sample in the batch
+    v_shifts = torch.randint(low=-max_shift_v, high=max_shift_v + 1, size=(B,))
+    h_shifts = torch.randint(low=-max_shift_h, high=max_shift_h + 1, size=(B,))
 
-    # Sample a random stretch factor for each sample in the batch
-    stretch_factors = (torch.rand(size=(B,)) * (max_stretch - min_stretch) + min_stretch).tolist()
+    # Compute inverse of maximum stretch factor
+    min_stretch_factor = 1 / max_stretch_factor
 
-    with torch.no_grad():
-        # Translate the features by the sampled number of bins and frames
-        distorted_features = translate_batch(features, freq_shifts, -2)
-        distorted_features = translate_batch(distorted_features, time_shifts)
-        # Stretch the features by the sampled stretch factors
-        distorted_features = stretch_batch(distorted_features, stretch_factors)
+    # Sample a random stretch factor for each sample in the batch, starting at minimum
+    stretch_factors, stretch_factors_ = min_stretch_factor, torch.rand(size=(B,))
+    # Split sampled values into piecewise ranges
+    neg_perc = 2 * stretch_factors_.clip(max=0.5)
+    pos_perc = 2 * (stretch_factors_ - 0.5).relu()
+    # Scale stretch factor evenly across effective range
+    stretch_factors += neg_perc * (1 - min_stretch_factor)
+    stretch_factors += pos_perc * (max_stretch_factor - 1)
 
-    # Translate the original embeddings by the sampled number of bins and frames
-    distorted_embeddings = translate_batch(embeddings, freq_shifts, -2, -torch.inf)
-    distorted_embeddings = translate_batch(distorted_embeddings, time_shifts, -1, -torch.inf)
-    # Stretch the original embeddings by the sampled stretch factors
-    distorted_embeddings = stretch_batch(distorted_embeddings, stretch_factors)
+    # Apply vertical and horizontal translations, inserting zero at empties
+    transformed_features = apply_translation(features, v_shifts, axis=-2, val=0)
+    transformed_features = apply_translation(transformed_features, h_shifts, axis=-1, val=0)
+    # Apply time distortion, maintaining original dimensionality and padding with zeros
+    transformed_features = apply_distortion(transformed_features, stretch_factors)
 
-    # Process the distorted features with the model and randomize start position
-    distortion_embeddings = model(distorted_features, max_seq_idx).squeeze()
+    # Process transformed features with provided model
+    transformation_embeddings = model(transformed_features)[0]
 
-    # Convert both sets of logits to activations (implicit pitch salience)
-    distorted_salience = torch.sigmoid(distorted_embeddings)
-    distortion_salience = torch.sigmoid(distortion_embeddings)
+    # Apply same transformations to embeddings produced for original features
+    #transformed_embeddings = apply_translation(embeddings, v_shifts, axis=-2, val=0)
+    #transformed_embeddings = apply_translation(transformed_embeddings, h_shifts, axis=-1, val=0)
+    #transformed_embeddings = apply_distortion(transformed_embeddings, stretch_factors)
 
-    # Compute geometric loss as BCE of embeddings computed from distorted features with respect to distorted activations
-    geometric_loss_ds = F.binary_cross_entropy_with_logits(distortion_embeddings, distorted_salience.detach(), reduction='none')
+    # Convert logits to activations (implicit pitch salience)
+    #transformed_salience = torch.sigmoid(transformed_embeddings)
+    salience = torch.sigmoid(embeddings).unsqueeze(-3)
 
-    # Compute geometric loss as BCE of distorted embeddings with respect to activations computed from distorted features
-    geometric_loss_og = F.binary_cross_entropy_with_logits(distorted_embeddings, distortion_salience.detach(), reduction='none')
+    # Apply same transformations to activations produced for original features
+    transformed_salience = apply_translation(salience, v_shifts, axis=-2, val=0)
+    transformed_salience = apply_translation(transformed_salience, h_shifts, axis=-1, val=0)
+    transformed_salience = apply_distortion(transformed_salience, stretch_factors)
+
+    # Remove temporarily added channel dimension
+    transformed_salience = transformed_salience.squeeze(-3)
+
+    # Compute geometric loss as BCE of embeddings computed from transformed features with respect to transformed activations
+    geometric_loss = F.binary_cross_entropy_with_logits(transformation_embeddings, transformed_salience, reduction='none')
+
+    # Sum across frequency bins and average across time and batch
+    geometric_loss = geometric_loss.sum(-2).mean(-1).mean(-1)
 
     # Ignore NaNs introduced by computing BCE loss on -∞
-    geometric_loss_og[distorted_embeddings.isinf()] = 0
-
-    # Sum across frequency bins and average across time and batch for both variations of geometric loss
-    #geometric_loss = (geometric_loss_ds.sum(-2).mean(-1).mean(-1) + geometric_loss_og.sum(-2).mean(-1).mean(-1)) / 2
-    geometric_loss = (geometric_loss_ds + geometric_loss_og).sum(-2).mean(-1).mean(-1)
+    #geometric_loss_og[distorted_embeddings.isinf()] = 0
 
     return geometric_loss
 

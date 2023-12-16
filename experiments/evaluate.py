@@ -134,7 +134,7 @@ class MultipitchEvaluator(object):
         return results
 
 
-def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_fn=None, **eq_kwargs):
+def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_fn=None, eq_kwargs={}, gm_kwargs={}):
     # Initialize a new evaluator for the dataset
     evaluator = MultipitchEvaluator()
 
@@ -209,6 +209,13 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_fn
                 evaluator.append_results({'loss/timbre' : timbre_loss.item()})
                 # Add the timbre loss to the total loss
                 total_loss += multipliers['timbre'] * timbre_loss
+
+            # Compute geometric loss for the track
+            geometric_loss = compute_geometric_loss(model, features_log, logits, **gm_kwargs)
+            # Store the geometric loss for the track
+            evaluator.append_results({'loss/geometric' : geometric_loss.item()})
+            # Add the geometric loss to the total loss
+            total_loss += multipliers['geometric'] * geometric_loss
 
             for key_loss, val_loss in losses.items():
                 # Store the model loss for the track

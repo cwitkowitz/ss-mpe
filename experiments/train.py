@@ -76,7 +76,7 @@ def config():
         'harmonic' : 1,
         'sparsity' : 1,
         'timbre' : 1,
-        'geometric' : 0,
+        'geometric' : 1,
         #'superposition' : 0,
         #'scaling' : 0,
         #'power' : 0
@@ -173,24 +173,13 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Seed everything with the same seed
     seed_everything(seed)
 
-    # Point to the datasets within the storage drive containing them or use the default location
-    nsynth_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
-    mnet_base_dir      = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if CONFIG else None
-    mydb_base_dir      = os.path.join('/', 'storage', 'frank', 'MedleyDB') if CONFIG else None
-    magna_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'MagnaTagATune') if CONFIG else None
-    fma_base_dir       = os.path.join('/', 'storageNVME', 'frank', 'FMA') if CONFIG else None
-    mydb_ptch_base_dir = os.path.join('/', 'storage', 'frank', 'MedleyDB-Pitch') if CONFIG else None
-    urmp_base_dir      = os.path.join('/', 'storage', 'frank', 'URMP') if CONFIG else None
-    bch10_base_dir     = os.path.join('/', 'storage', 'frank', 'Bach10') if CONFIG else None
-    gset_base_dir      = os.path.join('/', 'storage', 'frank', 'GuitarSet') if CONFIG else None
-    mstro_base_dir     = os.path.join('/', 'storage', 'frank', 'MAESTRO') if CONFIG else None
-    swd_base_dir       = os.path.join('/', 'storage', 'frank', 'SWD') if CONFIG else None
-    su_base_dir        = os.path.join('/', 'storage', 'frank', 'Su') if CONFIG else None
-    trios_base_dir     = os.path.join('/', 'storage', 'frank', 'TRIOS') if CONFIG else None
-
     # Initialize the primary PyTorch device
     device = torch.device(f'cuda:{gpu_ids[0]}'
                           if torch.cuda.is_available() else 'cpu')
+
+    ########################
+    ## FEATURE EXTRACTION ##
+    ########################
 
     # Create weighting for harmonics (harmonic loss)
     harmonic_weights = 1 / torch.Tensor(harmonics) ** 2
@@ -212,6 +201,10 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                    'gamma': None,
                    'harmonics': harmonics,
                    'weights' : harmonic_weights}
+
+    ###########
+    ## MODEL ##
+    ###########
 
     if checkpoint_path is None:
         # Initialize autoencoder model and train from scratch
@@ -240,6 +233,25 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     # Add model to primary device
     model = model.to(device)
+
+    ##############
+    ## DATASETS ##
+    ##############
+
+    # Point to the datasets within the storage drive containing them or use the default location
+    nsynth_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
+    mnet_base_dir      = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if CONFIG else None
+    mydb_base_dir      = os.path.join('/', 'storage', 'frank', 'MedleyDB') if CONFIG else None
+    magna_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'MagnaTagATune') if CONFIG else None
+    fma_base_dir       = os.path.join('/', 'storageNVME', 'frank', 'FMA') if CONFIG else None
+    mydb_ptch_base_dir = os.path.join('/', 'storage', 'frank', 'MedleyDB-Pitch') if CONFIG else None
+    urmp_base_dir      = os.path.join('/', 'storage', 'frank', 'URMP') if CONFIG else None
+    bch10_base_dir     = os.path.join('/', 'storage', 'frank', 'Bach10') if CONFIG else None
+    gset_base_dir      = os.path.join('/', 'storage', 'frank', 'GuitarSet') if CONFIG else None
+    mstro_base_dir     = os.path.join('/', 'storage', 'frank', 'MAESTRO') if CONFIG else None
+    swd_base_dir       = os.path.join('/', 'storage', 'frank', 'SWD') if CONFIG else None
+    su_base_dir        = os.path.join('/', 'storage', 'frank', 'Su') if CONFIG else None
+    trios_base_dir     = os.path.join('/', 'storage', 'frank', 'TRIOS') if CONFIG else None
 
     # Initialize list to hold all training datasets
     all_train = list()
@@ -368,6 +380,10 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Add all evaluation datasets to a list
     evaluation_sets = [nsynth_test, urmp_mixes_val, trios_val, bch10_test, su_test, gset_test]
 
+    #################
+    ## PREPARATION ##
+    #################
+
     # Initialize an optimizer for the model parameters with differential learning rates
     optimizer = torch.optim.AdamW([{'params' : model.encoder_parameters(), 'lr' : learning_rates[0]},
                                    {'params' : model.decoder_parameters(), 'lr' : learning_rates[1]}])
@@ -429,19 +445,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Flag to indicate early stopping criteria has been met
     early_stop_criteria = False
 
-    # Determine the sequence length of training samples
-    n_frames = int(n_secs * sample_rate / hop_length)
-
-    # Define the maximum position index (geometric-invariance loss)
-    max_position = 4 * n_frames
-
-    # Define maximum time and frequency shift (geometric-invariance loss)
-    max_shift_time = n_frames // 4
-    max_shift_freq = 2 * bins_per_octave
-
-    # Define time stretch boundaries (geometric-invariance loss)
-    min_stretch_time = 0.5
-    max_stretch_time = 2
+    #################
+    ## TIMBRE LOSS ##
+    #################
 
     # Number of random points to sample per octave
     points_per_octave = 2
@@ -464,7 +470,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Standard deviation of boost/cut
     std_dev = 0.10
 
-    # Define keyword arguments for random equalization
+    # Set keyword arguments for random equalization
     random_kwargs = {
         'n_points' : n_points,
         'std_dev' : std_dev
@@ -473,7 +479,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Pointiness for parabolic equalization
     pointiness = 5
 
-    # Define keyword arguments for parabolic equalization
+    # Set keyword arguments for parabolic equalization
     parabolic_kwargs = {
         'pointiness' : pointiness
     }
@@ -484,7 +490,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Maximum standard deviation for Gaussian equalization
     max_std_dev = 2 * bins_per_octave
 
-    # Define keyword arguments for Gaussian equalization
+    # Set keyword arguments for Gaussian equalization
     gaussian_kwargs = {
         'max_A' : max_A,
         'max_std_dev' : max_std_dev
@@ -492,6 +498,31 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     # Set equalization type and corresponding parameter values
     eq_fn, eq_kwargs = sample_gaussian_equalization, gaussian_kwargs
+
+    ####################
+    ## GEOMETRIC LOSS ##
+    ####################
+
+    # Determine training sequence length in frames
+    n_frames = int(n_secs * sample_rate / hop_length)
+
+    # Define maximum time and frequency shift
+    max_shift_v = 2 * bins_per_octave
+    max_shift_h = n_frames // 4
+
+    # Maximum rate by which audio can be sped up or slowed down
+    max_stretch_factor = 2
+
+    # Set keyword arguments for geometric transformations
+    gm_kwargs = {
+        'max_shift_v' : max_shift_v,
+        'max_shift_h' : max_shift_h,
+        'max_stretch_factor' : max_stretch_factor
+    }
+
+    ##############################
+    ## TRAINING/VALIDATION LOOP ##
+    ##############################
 
     # Loop through epochs
     for i in range(max_epochs):
@@ -581,10 +612,12 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                         return
                 """
 
+                #t = get_current_time()
                 # Compute timbre-invariance loss for the batch
                 timbre_loss = compute_timbre_loss(model, features_log, logits, eq_fn, **eq_kwargs)
                 # Log the timbre-invariance loss for this batch
                 writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
+                #print_time_difference(t, 'timbre-loss', device=device)
 
                 """
                 NaN_in_ti_loss = debug_nans(timbre_loss)
@@ -594,21 +627,27 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                         return
                 """
 
-                """
+                #t = get_current_time()
                 # Compute geometric-invariance loss for the batch
-                geometric_loss = compute_geometric_loss(model, features_log, logits, max_seq_idx=max_position,
-                                                        max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
-                                                        min_stretch=min_stretch_time, max_stretch=max_stretch_time)
+                geometric_loss = compute_geometric_loss(model, features_log, logits, **gm_kwargs)
                 # Log the geometric-invariance loss for this batch
                 writer.add_scalar('train/loss/geometric', geometric_loss.item(), batch_count)
+                #print_time_difference(t, 'geometric-loss', device=device)
+
+                """
+                NaN_in_ge_loss = debug_nans(geometric_loss)
+                if NaN_in_ge_loss:
+                    print('NaN in Geometric Loss!!!')
+                    if not torch.is_anomaly_enabled():
+                        return
                 """
 
                 # Compute the total loss for this batch
                 total_loss = multipliers['support'] * support_loss + \
                              multipliers['harmonic'] * harmonic_loss + \
                              multipliers['sparsity'] * sparsity_loss + \
-                             multipliers['timbre'] * timbre_loss# + \
-                             #multipliers['geometric'] * geometric_loss
+                             multipliers['timbre'] * timbre_loss + \
+                             multipliers['geometric'] * geometric_loss
 
                 if i >= n_epochs_late_start:
                     # Currently no late-state losses
@@ -641,12 +680,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 total_loss.backward()
                 #print_time_difference(t, 'Backward', device=device)
                 #t = get_current_time()
-
-                # TODO - remove following block after comparison
-                cum_norm_encoder = sum_gradient_norms(model.encoder)
-                writer.add_scalar('train/cum_norm/encoder', cum_norm_encoder, batch_count)
-                cum_norm_decoder = sum_gradient_norms(model.decoder)
-                writer.add_scalar('train/cum_norm/decoder', cum_norm_decoder, batch_count)
 
                 # Compute the average gradient norm across the encoder
                 avg_norm_encoder = average_gradient_norms(model.encoder)
@@ -705,7 +738,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                                                   i=batch_count,
                                                                   device=device,
                                                                   eq_fn=eq_fn,
-                                                                  **eq_kwargs)
+                                                                  eq_kwargs=eq_kwargs,
+                                                                  gm_kwargs=gm_kwargs)
 
                 # Make sure model is on correct device and switch to training mode
                 model = model.to(device)
@@ -756,6 +790,10 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         # Log the results at the best checkpoint for each validation dataset in metrics.json
         ex.log_scalar(f'Validation Results ({val_set.name()})', best_results[val_set.name()], best_model_checkpoint)
 
+    ################
+    ## EVALUATION ##
+    ################
+
     # Construct a path to the best model checkpoint
     best_model_path = os.path.join(log_dir, f'model-{best_model_checkpoint}.pt')
     # Load best model and make sure it is in evaluation mode
@@ -773,7 +811,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                  multipliers=multipliers,
                                  device=device,
                                  eq_fn=eq_fn,
-                                 **eq_kwargs)
+                                 eq_kwargs=eq_kwargs,
+                                 gm_kwargs=gm_kwargs)
 
         # Log the evaluation results for this dataset in metrics.json
         ex.log_scalar(f'Evaluation Results ({eval_set.name()})', final_results, best_model_checkpoint)
