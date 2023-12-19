@@ -175,8 +175,12 @@ class NSynth(AMTDataset):
 
         # Determine safe lower-bound for frequency content
         cutoff_low_local = pitch / 3
-        # Determine minimum allowable frequency in Hertz
-        cutoff_low_global = librosa.midi_to_hz(self.midi_range)[0]
+        if self.midi_range is not None:
+            # Determine minimum allowable frequency in Hertz
+            cutoff_low_global = librosa.midi_to_hz(self.midi_range)[0]
+        else:
+            # No global cutoff
+            cutoff_low_global = 0.
         # Choose the higher of the two cutoffs for filtering
         cutoff_low = max(cutoff_low_local, cutoff_low_global)
         # Low-pass filter to remove artifacts before inferring pitch activity
