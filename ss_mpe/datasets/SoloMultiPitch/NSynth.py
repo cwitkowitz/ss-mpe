@@ -6,9 +6,11 @@ from timbre_trap.datasets import AMTDataset
 
 # Regular imports
 from mir_eval.multipitch import MIN_FREQ, MAX_FREQ
+from torchaudio import functional as F
 
 import numpy as np
 import librosa
+import torch
 import json
 import os
 
@@ -144,7 +146,7 @@ class NSynth(AMTDataset):
 
         return pitch
 
-    def get_ground_truth(self, track):
+    def get_ground_truth(self, track, w_length_t=0.05, a_perc=0.20):
         """
         Construct the ground-truth for the specified track.
 
@@ -152,6 +154,10 @@ class NSynth(AMTDataset):
         ----------
         track : string
           NSynth track name
+        w_length_t : float
+          Size of RMS analysis window in seconds
+        a_perc : float
+          Percentage of envelope maximum used as activity threshold
 
         Returns
         ----------
@@ -166,17 +172,60 @@ class NSynth(AMTDataset):
 
         # Load the track's audio
         audio = self.get_audio(track).squeeze()
+
+        # Determine safe lower-bound for frequency content
+        cutoff_low_local = pitch / 3
+        # Determine minimum allowable frequency in Hertz
+        cutoff_low_global = librosa.midi_to_hz(self.midi_range)[0]
+        # Choose the higher of the two cutoffs for filtering
+        cutoff_low = max(cutoff_low_local, cutoff_low_global)
+        # Low-pass filter to remove artifacts before inferring pitch activity
+        audio_highpass = F.highpass_biquad(audio, self.sample_rate, cutoff_low)
+
+        # Determine window length in number of samples
+        w_length = round(w_length_t * self.sample_rate)
+
+        #audio_highpass = audio_highpass.cpu().detach().numpy()
+        # Attempt to filter out percussive components from the signal
+        #audio_filtered, _ = librosa.effects.hpss(audio_highpass, kernel_size=w_length)
+        #audio_filtered = torch.from_numpy(audio_filtered)
+
+        # Compute RMS window
+        w = torch.ones(w_length)
+        # Compute discrete RMS values for filtered signal
+        rms = torch.sqrt((1 / w_length) * F.convolve(audio_highpass ** 2, w, 'same'))
+        # Low-pass filter RMS values to obtain amplitude envelope
+        amplitude = F.lowpass_biquad(rms, self.sample_rate, cutoff_freq=30)
+
+        # Compute standard loudness of filtered signal
+        #loudness = F.loudness(audio_high.unsqueeze(0), self.sample_rate)
+
         # Compute time corresponding to each sample
         times = np.arange(len(audio)) / self.sample_rate
+        # Determine where amplitude is within specified % of maximum
+        activity = (amplitude >= a_perc * amplitude.max()).long()
 
-        # Determine where amplitude rises above and falls below 10% of maximum
-        active_times = times[audio.abs() >= 0.10 * audio.max()]
+        # Determine which samples correspond to onsets and offsets
+        onsets = torch.cat([activity[:1], activity[1:] - activity[:-1]]).relu()
+        offsets = torch.cat([activity[-1:], activity[:-1] - activity[1:]]).relu()
 
-        # Select onset and offset as time boundaries of activity
-        onset, offset = np.min(active_times), np.max(active_times)
+        #import matplotlib.pyplot as plt
+        #plt.plot(audio)
+        #plt.title(track)
+        #plt.plot(audio_highpass)
+        #plt.plot(amplitude)
+        #plt.plot(onsets)
+        #plt.plot(offsets)
 
-        # Create arrays of expected dimensions for the pitch and interval
-        pitches, intervals = np.array([pitch]), np.array([[onset, offset]])
+        # Convert samples to times
+        onsets = times[onsets.bool()]
+        offsets = times[offsets.bool()]
+
+        # Create an array for detected note intervals
+        intervals = np.concatenate(([onsets], [offsets])).T
+
+        # Create a corresponding array for pitches
+        pitches = np.array([pitch] * len(intervals))
 
         return pitches, intervals
 

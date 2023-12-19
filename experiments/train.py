@@ -98,7 +98,7 @@ def config():
     n_epochs_late_start = 0
 
     # Number of epochs without improvement before reducing learning rate (0 to disable)
-    n_epochs_decay = 0.5
+    n_epochs_decay = 1.0
 
     # Number of epochs before starting epoch counter for learning rate decay
     n_epochs_cooldown = 0

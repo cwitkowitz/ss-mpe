@@ -20,11 +20,11 @@ import os
 
 
 # Name of the model to evaluate
-ex_name = 'Timbre_Gaus_NW_LR5e-4_2'
+ex_name = 'Stable_OG_6'
 #ex_name = '<EXPERIMENT_DIR>'
 
 # Choose the model checkpoint to compare
-checkpoint = 21500
+checkpoint = 5750
 #checkpoint = 0
 
 # Choose the GPU on which to perform evaluation
@@ -88,7 +88,7 @@ nsynth_val = NSynth(base_dir=nsynth_base_dir,
                     seed=seed)
 
 # Sample from which to start NSynth analysis
-nsynth_start_idx = 0
+nsynth_start_idx = 28#104#35#34#28
 
 # Slice NSynth dataset
 nsynth_val.tracks = nsynth_val.tracks[nsynth_start_idx:]
@@ -243,9 +243,9 @@ for eval_set in [nsynth_val]:
             fig.sca(ax[0, 0])
             plot_magnitude(ss_activations_, fig=fig)
             # Extract SS-MPE performance measures
-            ss_mpe_pr = ss_results['mpe/precision'].round(3)
-            ss_mpe_rc = ss_results['mpe/recall'].round(3)
-            ss_mpe_f1 = ss_results['mpe/f1-score'].round(3)
+            ss_mpe_pr = round(ss_results['mpe/precision'], 3)
+            ss_mpe_rc = round(ss_results['mpe/recall'], 3)
+            ss_mpe_f1 = round(ss_results['mpe/f1-score'], 3)
             # Add subtitle
             ax[0, 0].axis('on')
             ax[0, 0].set_xticks([])
@@ -256,9 +256,9 @@ for eval_set in [nsynth_val]:
             fig.sca(ax[1, 0])
             plot_magnitude(features_log_1[0], fig=fig)
             # Extract 1st harmonic (log) performance measures
-            lg1_mpe_pr = lg1_results['mpe/precision'].round(3)
-            lg1_mpe_rc = lg1_results['mpe/recall'].round(3)
-            lg1_mpe_f1 = lg1_results['mpe/f1-score'].round(3)
+            lg1_mpe_pr = round(lg1_results['mpe/precision'], 3)
+            lg1_mpe_rc = round(lg1_results['mpe/recall'], 3)
+            lg1_mpe_f1 = round(lg1_results['mpe/f1-score'], 3)
             # Add subtitle
             ax[1, 0].axis('on')
             ax[1, 0].set_xticks([])
@@ -269,9 +269,9 @@ for eval_set in [nsynth_val]:
             fig.sca(ax[1, 1])
             plot_magnitude(features_lin_1[0], fig=fig)
             # Extract 1st harmonic (linear) performance measures
-            ln1_mpe_pr = ln1_results['mpe/precision'].round(3)
-            ln1_mpe_rc = ln1_results['mpe/recall'].round(3)
-            ln1_mpe_f1 = ln1_results['mpe/f1-score'].round(3)
+            ln1_mpe_pr = round(ln1_results['mpe/precision'], 3)
+            ln1_mpe_rc = round(ln1_results['mpe/recall'], 3)
+            ln1_mpe_f1 = round(ln1_results['mpe/f1-score'], 3)
             # Add subtitle
             ax[1, 1].axis('on')
             ax[1, 1].set_xticks([])
@@ -282,9 +282,9 @@ for eval_set in [nsynth_val]:
             fig.sca(ax[2, 0])
             plot_magnitude(features_log_h[0], fig=fig)
             # Extract harmonic average (log) performance measures
-            lgh_mpe_pr = lgh_results['mpe/precision'].round(3)
-            lgh_mpe_rc = lgh_results['mpe/recall'].round(3)
-            lgh_mpe_f1 = lgh_results['mpe/f1-score'].round(3)
+            lgh_mpe_pr = round(lgh_results['mpe/precision'], 3)
+            lgh_mpe_rc = round(lgh_results['mpe/recall'], 3)
+            lgh_mpe_f1 = round(lgh_results['mpe/f1-score'], 3)
             # Add subtitle
             ax[2, 0].axis('on')
             ax[2, 0].set_xticks([])
@@ -295,9 +295,9 @@ for eval_set in [nsynth_val]:
             fig.sca(ax[2, 1])
             plot_magnitude(features_lin_h[0], fig=fig)
             # Extract harmonic average (linear) performance measures
-            lnh_mpe_pr = lnh_results['mpe/precision'].round(3)
-            lnh_mpe_rc = lnh_results['mpe/recall'].round(3)
-            lnh_mpe_f1 = lnh_results['mpe/f1-score'].round(3)
+            lnh_mpe_pr = round(lnh_results['mpe/precision'], 3)
+            lnh_mpe_rc = round(lnh_results['mpe/recall'], 3)
+            lnh_mpe_f1 = round(lnh_results['mpe/f1-score'], 3)
             # Add subtitle
             ax[2, 1].axis('on')
             ax[2, 1].set_xticks([])
