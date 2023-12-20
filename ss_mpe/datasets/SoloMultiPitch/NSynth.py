@@ -146,7 +146,7 @@ class NSynth(AMTDataset):
 
         return pitch
 
-    def get_ground_truth(self, track, w_length_t=0.05, a_perc=0.20):
+    def get_ground_truth(self, track, w_length_t=0.10, a_perc=0.10):
         """
         Construct the ground-truth for the specified track.
 
@@ -174,25 +174,19 @@ class NSynth(AMTDataset):
         audio = self.get_audio(track).squeeze()
 
         # Determine safe lower-bound for frequency content
-        cutoff_low_local = pitch / 3
+        cutoff_low = pitch / 3
+
         if self.midi_range is not None:
             # Determine minimum allowable frequency in Hertz
             cutoff_low_global = librosa.midi_to_hz(self.midi_range)[0]
-        else:
-            # No global cutoff
-            cutoff_low_global = 0.
-        # Choose the higher of the two cutoffs for filtering
-        cutoff_low = max(cutoff_low_local, cutoff_low_global)
+            # Choose the higher of the two cutoffs for filtering
+            cutoff_low = max(cutoff_low, cutoff_low_global)
+
         # Low-pass filter to remove artifacts before inferring pitch activity
         audio_highpass = F.highpass_biquad(audio, self.sample_rate, cutoff_low)
 
         # Determine window length in number of samples
         w_length = round(w_length_t * self.sample_rate)
-
-        #audio_highpass = audio_highpass.cpu().detach().numpy()
-        # Attempt to filter out percussive components from the signal
-        #audio_filtered, _ = librosa.effects.hpss(audio_highpass, kernel_size=w_length)
-        #audio_filtered = torch.from_numpy(audio_filtered)
 
         # Compute RMS window
         w = torch.ones(w_length)
@@ -200,9 +194,6 @@ class NSynth(AMTDataset):
         rms = torch.sqrt((1 / w_length) * F.convolve(audio_highpass ** 2, w, 'same'))
         # Low-pass filter RMS values to obtain amplitude envelope
         amplitude = F.lowpass_biquad(rms, self.sample_rate, cutoff_freq=30)
-
-        # Compute standard loudness of filtered signal
-        #loudness = F.loudness(audio_high.unsqueeze(0), self.sample_rate)
 
         # Compute time corresponding to each sample
         times = np.arange(len(audio)) / self.sample_rate

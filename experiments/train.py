@@ -202,6 +202,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                    'harmonics': harmonics,
                    'weights' : harmonic_weights}
 
+    # Determine maximum supported MIDI frequency
+    fmax = fmin + n_bins / (bins_per_octave / 12)
+
     ###########
     ## MODEL ##
     ###########
@@ -270,7 +273,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         # Instantiate NSynth validation split for training
         nsynth_stems_train = NSynth(base_dir=nsynth_base_dir,
                                     splits=['valid'],
-                                    midi_range=None,
+                                    midi_range=np.array([fmin, fmax]),
                                     sample_rate=sample_rate,
                                     cqt=model.hcqt,
                                     n_secs=n_secs,
@@ -280,7 +283,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         # Instantiate NSynth training split for training
         nsynth_stems_train = NSynth(base_dir=nsynth_base_dir,
                                     splits=['train'],
-                                    midi_range=None,
+                                    midi_range=np.array([fmin, fmax]),
                                     sample_rate=sample_rate,
                                     cqt=model.hcqt,
                                     n_secs=n_secs,

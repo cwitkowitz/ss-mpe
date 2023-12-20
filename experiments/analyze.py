@@ -88,7 +88,51 @@ nsynth_val = NSynth(base_dir=nsynth_base_dir,
                     seed=seed)
 
 # Sample from which to start NSynth analysis
-nsynth_start_idx = 28#104#35#34#28
+nsynth_start_idx = 0
+
+# Weak/missing fundamental
+#nsynth_start_idx = 21 # Synthetic Bass 34 30 50
+#nsynth_start_idx = 99 # Electronic Keyboard 1 31 75
+#nsynth_start_idx = 162 # Electronic Organ 57 25 25
+#nsynth_start_idx = 192 # Acoustic String 80 28 127
+
+# Strong sub-harmonic
+#nsynth_start_idx = 60 # Synthetic Flute 0 64 50
+#nsynth_start_idx = 147 # Electronic Organ 1 79 25
+
+# Note played again sharply
+#nsynth_start_idx = 35 # Synthetic Bass 134 34 25
+
+# Aduible release of note
+#nsynth_start_idx = 104 # Electronic Keyboard 1 86 25
+
+# Weak attack
+#nsynth_start_idx = 161 # Electronic Organ 28 82 50
+
+# Gradual decay
+#nsynth_start_idx = 142 # Acoustic Mallet 62 33 75
+#nsynth_start_idx = 187 # Acoustic String 14 44 75
+
+# Electronic effects
+#nsynth_start_idx = 117 # Electronic Keyboard 3 63 100
+
+# Strong artifacts
+#nsynth_start_idx = 34 # Synthetic Bass 98 99 50
+
+# Fluctuation outside nominal pitch
+#nsynth_start_idx = 72 # Acoustic Guitar 15 38 100
+#nsynth_start_idx = 91 # Electronic Guitar 28 21 25
+#nsynth_start_idx = 180 # Acoustic Reed 23 42 100
+
+# Overpowering artifacts
+#nsynth_start_idx = 38 # Synthetic Bass 134 86 25
+#nsynth_start_idx = 106 # Electronic Keyboard 1 106 75
+
+# Simultaneous pitches
+#nsynth_start_idx = 199 # Synthetic Vocal 3 104 100
+
+# Corrupted samples
+#nsynth_start_idx = 58 # Acoustic Brass 46 89 100
 
 # Slice NSynth dataset
 nsynth_val.tracks = nsynth_val.tracks[nsynth_start_idx:]
