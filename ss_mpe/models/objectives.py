@@ -461,11 +461,17 @@ def compute_timbre_loss_2x_lat_con(model, features, embeddings, eq_fn, **eq_kwar
     # Process first set of equalized features with provided model
     equalization_latents_1st = model(equalized_features_1st)[1]
 
+    # Project first set of latent features with projection head
+    equalization_latents_1st = model.projection(equalization_latents_1st)
+
     # Perform second set of random equalizations on batch of features
     equalized_features_2nd = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
 
     # Process second set of equalized features with provided model
     equalization_latents_2nd = model(equalized_features_2nd)[1]
+
+    # Project first set of latent features with projection head
+    equalization_latents_2nd = model.projection(equalization_latents_2nd)
 
     # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original activations
     timbre_loss = compute_contrastive_loss(equalization_latents_1st, equalization_latents_2nd)

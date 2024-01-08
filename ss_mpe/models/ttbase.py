@@ -3,7 +3,7 @@
 # My imports
 from timbre_trap.models import Encoder, EncoderBlock, Decoder, DecoderBlock
 
-from . import SS_MPE
+from . import SS_MPE, ProjectionHead
 
 # Regular imports
 import torch.nn as nn
@@ -60,6 +60,8 @@ class TT_Base(SS_MPE):
             nn.ConvTranspose2d(latent_size, latent_channels, kernel_size=latent_kernel),
             *self.decoder.convin[1:]
         )
+
+        self.projection = ProjectionHead(latent_size, latent_size // 4)
 
         if skip_connections:
             # Start by adding encoder features with identity weighting
