@@ -442,11 +442,17 @@ def compute_timbre_loss_2x_con(model, features, embeddings, eq_fn, **eq_kwargs):
     # Process first set of equalized features with provided model
     equalization_embeddings_1st = model(equalized_features_1st)[0]
 
+    # Project first set of embeddings with projection head
+    equalization_embeddings_1st = model.projection(equalization_embeddings_1st)
+
     # Perform second set of random equalizations on batch of features
     equalized_features_2nd = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
 
     # Process second set of equalized features with provided model
     equalization_embeddings_2nd = model(equalized_features_2nd)[0]
+
+    # Project second set of embeddings with projection head
+    equalization_embeddings_2nd = model.projection(equalization_embeddings_2nd)
 
     # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original activations
     timbre_loss = compute_contrastive_loss(equalization_embeddings_1st, equalization_embeddings_2nd)
