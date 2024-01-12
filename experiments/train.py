@@ -76,7 +76,7 @@ def config():
         'harmonic' : 1,
         'sparsity' : 1,
         'timbre' : 1,
-        'geometric' : 1,
+        'geometric' : 0,
         #'superposition' : 0,
         #'scaling' : 0,
         #'power' : 0
@@ -210,7 +210,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ###########
 
     if checkpoint_path is None:
-        # Initialize autoencoder model and train from scratch
+        # Initialize autoencoder model
         model = TT_Base(hcqt_params,
                         latent_size=128,
                         model_complexity=2,
@@ -391,7 +391,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     optimizer = torch.optim.AdamW([{'params' : model.encoder_parameters(), 'lr' : learning_rates[0]},
                                    {'params' : model.decoder_parameters(), 'lr' : learning_rates[1]}])
 
-    # Determine the amount of batches in one epoch
+    # Determine amount of batches in one epoch
     epoch_steps = len(loader)
 
     # Compute number of validation checkpoints corresponding to learning rate decay cooldown and window
@@ -544,7 +544,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             # Extract audio and add to appropriate device
             audio = data[constants.KEY_AUDIO].to(device)
 
-            # Log the current learning rate for this batch
+            # Log the current learning rates for this batch
             writer.add_scalar('train/loss/learning_rate/encoder', optimizer.param_groups[0]['lr'], batch_count)
             writer.add_scalar('train/loss/learning_rate/decoder', optimizer.param_groups[1]['lr'], batch_count)
             #print_time_difference(t, 'Step/Audio', device=device)
@@ -554,15 +554,15 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             features = model.get_all_features(audio)
 
             # Extract relevant feature sets
-            features_log   = features['dec']
-            features_log_1 = features['dec_1']
-            features_log_h = features['dec_h']
+            features_db   = features['db']
+            features_db_1 = features['db_1']
+            features_db_h = features['db_h']
             #print_time_difference(t, 'Features', device=device)
             #t = get_current_time()
 
             with torch.autocast(device_type=f'cuda'):
                 # Process features to obtain logits
-                logits, _, losses = model(features_log)
+                logits, _, losses = model(features_db)
                 # Convert to (implicit) pitch salience activations
                 estimate = torch.sigmoid(logits)
                 #print_time_difference(t, 'Model', device=device)
@@ -577,7 +577,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 """
 
                 # Compute support loss w.r.t. first harmonic for the batch
-                support_loss = compute_support_loss(logits, features_log_1)
+                support_loss = compute_support_loss(logits, features_db_1)
                 # Log the support loss for this batch
                 writer.add_scalar('train/loss/support', support_loss.item(), batch_count)
 
@@ -590,7 +590,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 """
 
                 # Compute harmonic loss w.r.t. weighted harmonic sum for the batch
-                harmonic_loss = compute_harmonic_loss(logits, features_log_h)
+                harmonic_loss = compute_harmonic_loss(logits, features_db_h)
                 # Log the harmonic loss for this batch
                 writer.add_scalar('train/loss/harmonic', harmonic_loss.item(), batch_count)
 
@@ -617,7 +617,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 #t = get_current_time()
                 # Compute timbre-invariance loss for the batch
-                timbre_loss = compute_timbre_loss(model, features_log, logits, eq_fn, **eq_kwargs)
+                timbre_loss = compute_timbre_loss(model, features_db, logits, eq_fn, **eq_kwargs)
                 # Log the timbre-invariance loss for this batch
                 writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
                 #print_time_difference(t, 'timbre-loss', device=device)
@@ -632,7 +632,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 #t = get_current_time()
                 # Compute geometric-invariance loss for the batch
-                geometric_loss = compute_geometric_loss(model, features_log, logits, **gm_kwargs)
+                geometric_loss = compute_geometric_loss(model, features_db, logits, **gm_kwargs)
                 # Log the geometric-invariance loss for this batch
                 writer.add_scalar('train/loss/geometric', geometric_loss.item(), batch_count)
                 #print_time_difference(t, 'geometric-loss', device=device)
@@ -654,6 +654,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 if i >= n_epochs_late_start:
                     # Currently no late-state losses
+                    # TODO - remove if unnecessary
                     pass
 
                 for key_loss, val_loss in losses.items():

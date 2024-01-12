@@ -59,25 +59,25 @@ class HCQT(LHVQT):
         self.midi_freqs = fmins + np.arange(self.n_bins) / (bins_per_octave / 12)
 
     @staticmethod
-    def to_decibels(magnitude, rescale=True):
+    def to_decibels(amplitude, rescale=True):
         """
-        Convert a set of magnitude coefficients to decibels.
+        Convert a set of amplitude coefficients to decibels.
 
         Parameters
         ----------
-        magnitude : Tensor (B x F X T)
-          Batch of magnitude coefficients (amplitude)
+        amplitude : Tensor (B x F X T)
+          Batch of amplitude coefficients (amplitude)
         rescale : bool
           Rescale decibels to the range [0, 1]
 
         Returns
         ----------
         decibels : Tensor (B x F X T)
-          Batch of magnitude coefficients (dB)
+          Batch of power coefficients (dB)
         """
 
         # Initialize a differentiable conversion to decibels
-        decibels = torch_amplitude_to_db(magnitude, to_prob=rescale)
+        decibels = torch_amplitude_to_db(amplitude, to_prob=rescale)
 
         return decibels
 

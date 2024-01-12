@@ -169,12 +169,12 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_fn
             features = model.get_all_features(audio)
 
             # Extract relevant feature sets
-            features_log   = features['dec']
-            features_log_1 = features['dec_1']
-            features_log_h = features['dec_h']
+            features_db   = features['db']
+            features_db_1 = features['db_1']
+            features_db_h = features['db_h']
 
             # Process features to obtain logits
-            logits, _, losses = model(features_log)
+            logits, _, losses = model(features_db)
             # Convert to (implicit) pitch salience activations
             transcription = torch.sigmoid(logits)
 
@@ -192,9 +192,9 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_fn
             evaluator.append_results(results)
 
             # Compute support loss w.r.t. first harmonic for the track
-            support_loss = compute_support_loss(logits, features_log_1)
+            support_loss = compute_support_loss(logits, features_db_1)
             # Compute harmonic loss w.r.t. weighted harmonic sum for the track
-            harmonic_loss = compute_harmonic_loss(logits, features_log_h)
+            harmonic_loss = compute_harmonic_loss(logits, features_db_h)
             # Compute sparsity loss for the track
             sparsity_loss = compute_sparsity_loss(transcription)
             # Compute the total loss for the track
@@ -204,14 +204,14 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_fn
 
             if eq_fn is not None:
                 # Compute timbre loss for the track using specified equalization
-                timbre_loss = compute_timbre_loss(model, features_log, logits, eq_fn, **eq_kwargs)
+                timbre_loss = compute_timbre_loss(model, features_db, logits, eq_fn, **eq_kwargs)
                 # Store the timbre loss for the track
                 evaluator.append_results({'loss/timbre' : timbre_loss.item()})
                 # Add the timbre loss to the total loss
                 total_loss += multipliers['timbre'] * timbre_loss
 
             # Compute geometric loss for the track
-            geometric_loss = compute_geometric_loss(model, features_log, logits, **gm_kwargs)
+            geometric_loss = compute_geometric_loss(model, features_db, logits, **gm_kwargs)
             # Store the geometric loss for the track
             evaluator.append_results({'loss/geometric' : geometric_loss.item()})
             # Add the geometric loss to the total loss
@@ -241,8 +241,8 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_fn
             # Add channel dimension to input/outputs
             ground_truth = ground_truth.unsqueeze(-3)
             transcription = transcription.unsqueeze(-3)
-            features_log_1 = features_log_1.unsqueeze(-3)
-            features_log_h = features_log_h.unsqueeze(-3)
+            features_log_1 = features_db_1.unsqueeze(-3)
+            features_log_h = features_db_h.unsqueeze(-3)
 
             # Remove batch dimension from inputs
             transcription = transcription.squeeze(0)
