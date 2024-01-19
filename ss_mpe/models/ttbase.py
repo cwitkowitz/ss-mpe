@@ -61,9 +61,6 @@ class TT_Base(SS_MPE):
             *self.decoder.convin[1:]
         )
 
-        #self.projection = ProjectionHead(latent_size, latent_size // 4)
-        self.projection = ProjectionHead(n_bins, n_bins // 4)
-
         if skip_connections:
             # Start by adding encoder features with identity weighting
             self.skip_weights = torch.nn.Parameter(torch.ones(5))

@@ -56,10 +56,10 @@ def config():
     checkpoint_interval = 250
 
     # Number of samples to gather for a batch
-    batch_size = 4 if DEBUG else 12
+    batch_size = 4 if DEBUG else 24
 
     # Number of seconds of audio per sample
-    n_secs = 10
+    n_secs = 5
 
     # Initial learning rate for encoder
     learning_rate_encoder = 1e-4
@@ -76,10 +76,7 @@ def config():
         'harmonic' : 1,
         'sparsity' : 1,
         'timbre' : 1,
-        'geometric' : 0,
-        #'superposition' : 0,
-        #'scaling' : 0,
-        #'power' : 0
+        'geometric' : 1
     }
 
     # Number of epochs spanning warmup phase (0 to disable)
@@ -493,10 +490,14 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Maximum standard deviation for Gaussian equalization
     max_std_dev = 2 * bins_per_octave
 
+    # Whether to sample fixed rather than varied shapes
+    fixed_shape = False
+
     # Set keyword arguments for Gaussian equalization
     gaussian_kwargs = {
         'max_A' : max_A,
-        'max_std_dev' : max_std_dev
+        'max_std_dev' : max_std_dev,
+        'fixed_shape' : fixed_shape
     }
 
     # Set equalization type and corresponding parameter values
@@ -529,11 +530,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     # Loop through epochs
     for i in range(max_epochs):
-        #t = get_current_time()
         # Loop through batches of audio
         for data in tqdm(loader, desc=f'Epoch {i + 1}'):
-            #print_time_difference(t, 'Load Batch', device=device)
-            #t = get_current_time()
             # Increment the batch counter
             batch_count += 1
 
@@ -547,8 +545,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             # Log the current learning rates for this batch
             writer.add_scalar('train/loss/learning_rate/encoder', optimizer.param_groups[0]['lr'], batch_count)
             writer.add_scalar('train/loss/learning_rate/decoder', optimizer.param_groups[1]['lr'], batch_count)
-            #print_time_difference(t, 'Step/Audio', device=device)
-            #t = get_current_time()
 
             # Compute full set of spectral features
             features = model.get_all_features(audio)
@@ -557,93 +553,37 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             features_db   = features['db']
             features_db_1 = features['db_1']
             features_db_h = features['db_h']
-            #print_time_difference(t, 'Features', device=device)
-            #t = get_current_time()
 
             with torch.autocast(device_type=f'cuda'):
                 # Process features to obtain logits
                 logits, _, losses = model(features_db)
                 # Convert to (implicit) pitch salience activations
                 estimate = torch.sigmoid(logits)
-                #print_time_difference(t, 'Model', device=device)
-                #t = get_current_time()
-
-                """
-                NaN_in_logits = debug_nans(logits)
-                if NaN_in_logits:
-                    print('NaN in Logits!!!')
-                    if not torch.is_anomaly_enabled():
-                        return
-                """
 
                 # Compute support loss w.r.t. first harmonic for the batch
                 support_loss = compute_support_loss(logits, features_db_1)
                 # Log the support loss for this batch
                 writer.add_scalar('train/loss/support', support_loss.item(), batch_count)
 
-                """
-                NaN_in_su_loss = debug_nans(support_loss)
-                if NaN_in_su_loss:
-                    print('NaN in Support Loss!!!')
-                    if not torch.is_anomaly_enabled():
-                        return
-                """
-
                 # Compute harmonic loss w.r.t. weighted harmonic sum for the batch
                 harmonic_loss = compute_harmonic_loss(logits, features_db_h)
                 # Log the harmonic loss for this batch
                 writer.add_scalar('train/loss/harmonic', harmonic_loss.item(), batch_count)
-
-                """
-                NaN_in_h_loss = debug_nans(harmonic_loss)
-                if NaN_in_h_loss:
-                    print('NaN in Harmonic Loss!!!')
-                    if not torch.is_anomaly_enabled():
-                        return
-                """
 
                 # Compute sparsity loss for the batch
                 sparsity_loss = compute_sparsity_loss(estimate)
                 # Log the sparsity loss for this batch
                 writer.add_scalar('train/loss/sparsity', sparsity_loss.item(), batch_count)
 
-                """
-                NaN_in_sp_loss = debug_nans(sparsity_loss)
-                if NaN_in_sp_loss:
-                    print('NaN in Sparsity Loss!!!')
-                    if not torch.is_anomaly_enabled():
-                        return
-                """
-
-                #t = get_current_time()
                 # Compute timbre-invariance loss for the batch
                 timbre_loss = compute_timbre_loss(model, features_db, logits, eq_fn, **eq_kwargs)
                 # Log the timbre-invariance loss for this batch
                 writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
-                #print_time_difference(t, 'timbre-loss', device=device)
 
-                """
-                NaN_in_ti_loss = debug_nans(timbre_loss)
-                if NaN_in_ti_loss:
-                    print('NaN in Timbre Loss!!!')
-                    if not torch.is_anomaly_enabled():
-                        return
-                """
-
-                #t = get_current_time()
                 # Compute geometric-invariance loss for the batch
                 geometric_loss = compute_geometric_loss(model, features_db, logits, **gm_kwargs)
                 # Log the geometric-invariance loss for this batch
                 writer.add_scalar('train/loss/geometric', geometric_loss.item(), batch_count)
-                #print_time_difference(t, 'geometric-loss', device=device)
-
-                """
-                NaN_in_ge_loss = debug_nans(geometric_loss)
-                if NaN_in_ge_loss:
-                    print('NaN in Geometric Loss!!!')
-                    if not torch.is_anomaly_enabled():
-                        return
-                """
 
                 # Compute the total loss for this batch
                 total_loss = multipliers['support'] * support_loss + \
@@ -665,25 +605,11 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 # Log the total loss for this batch
                 writer.add_scalar('train/loss/total', total_loss.item(), batch_count)
-                #print_time_difference(t, 'Losses', device=device)
-                #t = get_current_time()
-
-                """
-                NaN_in_to_loss = debug_nans(total_loss)
-                if NaN_in_to_loss:
-                    print('NaN in Total Loss!!!')
-                    if not torch.is_anomaly_enabled():
-                        return
-                """
 
                 # Zero the accumulated gradients
                 optimizer.zero_grad()
-                #print_time_difference(t, 'Zero Grad', device=device)
-                #t = get_current_time()
                 # Compute gradients using total loss
                 total_loss.backward()
-                #print_time_difference(t, 'Backward', device=device)
-                #t = get_current_time()
 
                 # Compute the average gradient norm across the encoder
                 avg_norm_encoder = average_gradient_norms(model.encoder)
@@ -705,20 +631,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 # Apply gradient clipping for training stability
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
-                #print_time_difference(t, 'Track Grad', device=device)
-                #t = get_current_time()
 
                 # Perform an optimization step
                 optimizer.step()
-                #print_time_difference(t, 'Step', device=device)
-
-                """
-                NaN_in_weights = np.any([debug_nans(t) for t in list(model.parameters())])
-                if NaN_in_weights:
-                    print('NaN in Model Weights!!!')
-                    if not torch.is_anomaly_enabled():
-                        return
-                """
 
             if batch_count % checkpoint_interval == 0:
                 # Construct a path to save the model checkpoint
@@ -782,7 +697,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     early_stop_criteria = True
 
                     break
-            #t = get_current_time()
 
         if early_stop_criteria:
             # Stop training

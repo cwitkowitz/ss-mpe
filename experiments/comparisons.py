@@ -244,13 +244,13 @@ for eval_set in [urmp_test, trios_test, bch10_test, su_test, gset_test]:
         features = ss_mpe.get_all_features(audio)
 
         # Extract relevant feature sets
-        features_lin_1 = features['amp_1']
-        features_log_1 = features['dec_1']
-        features_lin_h = features['amp_h']
-        features_log_h = features['dec_h']
+        features_pw_1 = features['pw_1']
+        features_db_1 = features['db_1']
+        features_pw_h = features['pw_h']
+        features_db_h = features['db_h']
 
         # Peak-pick and threshold the linear-scaled magnitude
-        ln1_activations = threshold(filter_non_peaks(to_array(features_lin_1)), 0.3)
+        ln1_activations = threshold(filter_non_peaks(to_array(features_pw_1)), 0.3)
         # Convert the raw-feature activations to frame-level multi-pitch estimates
         ln1_multi_pitch = eval_set.activations_to_multi_pitch(ln1_activations, gt_midi_freqs)
         # Compute results for predictions from the linear-scaled CQT features
@@ -264,7 +264,7 @@ for eval_set in [urmp_test, trios_test, bch10_test, su_test, gset_test]:
 
 
         # Peak-pick and threshold the log-scaled magnitude
-        lg1_activations = threshold(filter_non_peaks(to_array(features_log_1)), 0.8)
+        lg1_activations = threshold(filter_non_peaks(to_array(features_db_1)), 0.8)
         # Convert the raw-feature activations to frame-level multi-pitch estimates
         lg1_multi_pitch = eval_set.activations_to_multi_pitch(lg1_activations, gt_midi_freqs)
         # Compute results for predictions from the log-scaled CQT features
@@ -277,7 +277,7 @@ for eval_set in [urmp_test, trios_test, bch10_test, su_test, gset_test]:
             print_and_log(f'\t\t-(log-cqt-1): {lg1_results}', save_path)
 
         # Peak-pick and threshold the weighted harmonic average linear-scaled magnitude
-        lnh_activations = threshold(filter_non_peaks(to_array(features_lin_h)), 0.3)
+        lnh_activations = threshold(filter_non_peaks(to_array(features_pw_h)), 0.3)
         # Convert the raw-feature activations to frame-level multi-pitch estimates
         lnh_multi_pitch = eval_set.activations_to_multi_pitch(lnh_activations, gt_midi_freqs)
         # Compute results for predictions from the linear-scaled CQT features
@@ -291,7 +291,7 @@ for eval_set in [urmp_test, trios_test, bch10_test, su_test, gset_test]:
 
 
         # Peak-pick and threshold the weighted harmonic average log-scaled magnitude
-        lgh_activations = threshold(filter_non_peaks(to_array(features_log_h)), 0.5)
+        lgh_activations = threshold(filter_non_peaks(to_array(features_db_h)), 0.5)
         # Convert the raw-feature activations to frame-level multi-pitch estimates
         lgh_multi_pitch = eval_set.activations_to_multi_pitch(lgh_activations, gt_midi_freqs)
         # Compute results for predictions from the log-scaled CQT features
