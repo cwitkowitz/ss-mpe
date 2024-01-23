@@ -17,6 +17,7 @@ __all__ = [
     'sample_gaussian_equalization',
     'compute_timbre_loss',
     'compute_geometric_loss',
+    'compute_supervised_loss'
 ]
 
 
@@ -376,3 +377,13 @@ def compute_geometric_loss(model, features, embeddings, max_shift_v, max_shift_h
     geometric_loss = geometric_loss.sum(-2).mean(-1).mean(-1)
 
     return geometric_loss
+
+
+def compute_supervised_loss(embeddings, ground_truth):
+    # Compute supervised loss as BCE of activations with respect to ground-truth
+    supervised_loss = F.binary_cross_entropy_with_logits(embeddings, ground_truth, reduction='none')
+
+    # Sum across frequency bins and average across time and batch
+    supervised_loss = supervised_loss.sum(-2).mean(-1).mean(-1)
+
+    return supervised_loss

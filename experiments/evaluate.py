@@ -197,10 +197,14 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_fn
             harmonic_loss = compute_harmonic_loss(logits, features_db_h)
             # Compute sparsity loss for the track
             sparsity_loss = compute_sparsity_loss(transcription)
+            # Compute supervised BCE loss for the batch
+            supervised_loss = compute_supervised_loss(logits, ground_truth.unsqueeze(0))
+
             # Compute the total loss for the track
             total_loss = multipliers['support'] * support_loss + \
                          multipliers['harmonic'] * harmonic_loss + \
-                         multipliers['sparsity'] * sparsity_loss
+                         multipliers['sparsity'] * sparsity_loss + \
+                         multipliers['supervised'] * supervised_loss
 
             if eq_fn is not None:
                 # Compute timbre loss for the track using specified equalization
@@ -227,6 +231,7 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_fn
             evaluator.append_results({'loss/support' : support_loss.item(),
                                       'loss/harmonic' : harmonic_loss.item(),
                                       'loss/sparsity' : sparsity_loss.item(),
+                                      'loss/supervised' : supervised_loss.item(),
                                       'loss/total' : total_loss.item()})
 
         # Compute the average for all scores

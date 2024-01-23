@@ -56,10 +56,10 @@ def config():
     checkpoint_interval = 250
 
     # Number of samples to gather for a batch
-    batch_size = 4 if DEBUG else 24
+    batch_size = 4 if DEBUG else 18
 
     # Number of seconds of audio per sample
-    n_secs = 5
+    n_secs = 4
 
     # Initial learning rate for encoder
     learning_rate_encoder = 1e-4
@@ -76,7 +76,8 @@ def config():
         'harmonic' : 1,
         'sparsity' : 1,
         'timbre' : 1,
-        'geometric' : 1
+        'geometric' : 1,
+        'supervised' : 0
     }
 
     # Number of epochs spanning warmup phase (0 to disable)
@@ -95,13 +96,13 @@ def config():
     n_epochs_late_start = 0
 
     # Number of epochs without improvement before reducing learning rate (0 to disable)
-    n_epochs_decay = 1.0
+    n_epochs_decay = 0.5
 
     # Number of epochs before starting epoch counter for learning rate decay
     n_epochs_cooldown = 0
 
     # Number of epochs without improvement before early stopping (None to disable)
-    n_epochs_early_stop = None
+    n_epochs_early_stop = 1.0
 
     # IDs of the GPUs to use, if available
     gpu_ids = [0]
@@ -136,7 +137,7 @@ def config():
     ############
 
     # Number of threads to use for data loading
-    n_workers = 0 if DEBUG else 8 * len(gpu_ids)
+    n_workers = 0 if DEBUG else 5#8 * len(gpu_ids)
 
     # Top-level directory under which to save all experiment files
     if CONFIG == 1:
@@ -320,7 +321,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                         batch_size=batch_size,
                         shuffle=True,
                         num_workers=n_workers,
-                        collate_fn=collate_audio_only,
+                        #collate_fn=collate_audio_only,
                         pin_memory=True,
                         drop_last=True)
 
@@ -585,12 +586,20 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 # Log the geometric-invariance loss for this batch
                 writer.add_scalar('train/loss/geometric', geometric_loss.item(), batch_count)
 
+                # Extract ground-truth pitch salience activations
+                psuedo_ground_truth = data[constants.KEY_GROUND_TRUTH]
+                # Compute supervised BCE loss for the batch
+                supervised_loss = compute_supervised_loss(logits, psuedo_ground_truth)
+                # Log the supervised BCE loss for this batch
+                writer.add_scalar('train/loss/supervised', supervised_loss.item(), batch_count)
+
                 # Compute the total loss for this batch
                 total_loss = multipliers['support'] * support_loss + \
                              multipliers['harmonic'] * harmonic_loss + \
                              multipliers['sparsity'] * sparsity_loss + \
                              multipliers['timbre'] * timbre_loss + \
-                             multipliers['geometric'] * geometric_loss
+                             multipliers['geometric'] * geometric_loss + \
+                             multipliers['supervised'] * supervised_loss
 
                 if i >= n_epochs_late_start:
                     # Currently no late-state losses
