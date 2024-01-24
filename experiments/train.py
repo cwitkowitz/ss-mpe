@@ -50,13 +50,13 @@ def config():
     checkpoint_path = None
 
     # Maximum number of training iterations to conduct
-    max_epochs = 500
+    max_epochs = 10
 
     # Number of iterations between checkpoints
     checkpoint_interval = 250
 
     # Number of samples to gather for a batch
-    batch_size = 4 if DEBUG else 18
+    batch_size = 4 if DEBUG else 20
 
     # Number of seconds of audio per sample
     n_secs = 4
@@ -102,7 +102,7 @@ def config():
     n_epochs_cooldown = 0
 
     # Number of epochs without improvement before early stopping (None to disable)
-    n_epochs_early_stop = 1.0
+    n_epochs_early_stop = None
 
     # IDs of the GPUs to use, if available
     gpu_ids = [0]
@@ -299,6 +299,15 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                         cqt=model.hcqt,
                         seed=seed)
 
+    # Set the URMP validation set as was defined in the MT3 paper
+    urmp_val_splits = ['01', '02', '12', '13', '24', '25', '31', '38', '39']
+    # Instantiate URMP dataset mixtures for validation
+    urmp_val = URMP_Mixtures(base_dir=urmp_base_dir,
+                             splits=urmp_val_splits,
+                             sample_rate=sample_rate,
+                             cqt=model.hcqt,
+                             seed=seed)
+
     # Instantiate NSynth testing split for evaluation
     nsynth_test = NSynth(base_dir=nsynth_base_dir,
                          splits=['test'],
@@ -342,7 +351,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           seed=seed)
 
     # Add all validation datasets to a list
-    validation_sets = [nsynth_val, bch10_test, su_test, trios_test, urmp_test]
+    validation_sets = [nsynth_val, urmp_val, bch10_test, su_test, trios_test]
 
     # Add all evaluation datasets to a list
     evaluation_sets = [nsynth_test, bch10_test, su_test, trios_test, urmp_test, gset_test]
@@ -657,6 +666,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 if best_results is None or \
                         (validation_criteria_maximize and current_score > best_score) or \
                         (not validation_criteria_maximize and current_score < best_score):
+                    print(f'New best at {batch_count} iterations...')
+
                     # Set current checkpoint as best
                     best_model_checkpoint = batch_count
                     # Update best results
