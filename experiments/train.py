@@ -84,7 +84,7 @@ def config():
     n_epochs_warmup = 0
 
     # Set validation dataset to compare for learning rate decay and early stopping
-    validation_criteria_set = URMP_Mixtures.name()
+    validation_criteria_set = NSynth.name()
 
     # Set validation metric to compare for learning rate decay and early stopping
     validation_criteria_metric = 'loss/total'
@@ -137,7 +137,7 @@ def config():
     ############
 
     # Number of threads to use for data loading
-    n_workers = 0 if DEBUG else 5#8 * len(gpu_ids)
+    n_workers = 0 if DEBUG else 8 * len(gpu_ids)
 
     # Top-level directory under which to save all experiment files
     if CONFIG == 1:
@@ -257,20 +257,11 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Initialize list to hold all training datasets
     all_train = list()
 
-    # Set the URMP validation set as was defined in the MT3 paper
-    urmp_val_splits = ['01', '02', '12', '13', '24', '25', '31', '38', '39']
-
-    # Allocate remaining tracks to URMP training set
-    urmp_train_splits = URMP_Mixtures.available_splits()
-
-    for t in urmp_val_splits:
-        # Remove validation track
-        urmp_train_splits.remove(t)
-
     if DEBUG:
         # Instantiate NSynth validation split for training
         nsynth_stems_train = NSynth(base_dir=nsynth_base_dir,
                                     splits=['valid'],
+                                    n_tracks=200,
                                     midi_range=np.array([fmin, fmax]),
                                     sample_rate=sample_rate,
                                     cqt=model.hcqt,
@@ -288,31 +279,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                     seed=seed)
         all_train.append(nsynth_stems_train)
 
-        # Instantiate NSynth mixing wrapper for training
-        nsynth_mixes_train = StemMixingDataset([nsynth_stems_train],
-                                               len(nsynth_stems_train),
-                                               n_min=1,
-                                               n_max=5,
-                                               seed=seed)
-        #all_train.append(nsynth_mixes_train)
-
-        # Instantiate MusicNet training split for training
-        mnet_mixes_train = MusicNet(base_dir=mnet_base_dir,
-                                    splits=['train'],
-                                    sample_rate=sample_rate,
-                                    cqt=model.hcqt,
-                                    n_secs=n_secs,
-                                    seed=seed)
-        #all_train.append(mnet_mixes_train)
-
-        # Instantiate FMA (large) dataset for training
-        fma_train = FMA(base_dir=fma_base_dir,
-                        splits=None,
-                        sample_rate=sample_rate,
-                        n_secs=n_secs,
-                        seed=seed)
-        #all_train.append(fma_train)
-
     # Combine all training datasets
     all_train = ComboDataset(all_train)
 
@@ -321,7 +287,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                         batch_size=batch_size,
                         shuffle=True,
                         num_workers=n_workers,
-                        #collate_fn=collate_audio_only,
                         pin_memory=True,
                         drop_last=True)
 
@@ -329,23 +294,10 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     nsynth_val = NSynth(base_dir=nsynth_base_dir,
                         splits=['valid'],
                         n_tracks=200,
+                        midi_range=np.array([fmin, fmax]),
                         sample_rate=sample_rate,
                         cqt=model.hcqt,
                         seed=seed)
-
-    # Instantiate URMP dataset mixtures for validation
-    urmp_mixes_val = URMP_Mixtures(base_dir=urmp_base_dir,
-                                   splits=urmp_val_splits,
-                                   sample_rate=sample_rate,
-                                   cqt=model.hcqt,
-                                   seed=seed)
-
-    # Instantiate TRIOS dataset for validation
-    trios_val = TRIOS(base_dir=trios_base_dir,
-                      splits=None,
-                      sample_rate=sample_rate,
-                      cqt=model.hcqt,
-                      seed=seed)
 
     # Instantiate NSynth testing split for evaluation
     nsynth_test = NSynth(base_dir=nsynth_base_dir,
@@ -368,18 +320,32 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                  cqt=model.hcqt,
                  seed=seed)
 
+    # Instantiate URMP dataset mixtures for evaluation
+    urmp_test = URMP_Mixtures(base_dir=urmp_base_dir,
+                              splits=None,
+                              sample_rate=sample_rate,
+                              cqt=model.hcqt,
+                              seed=seed)
+
+    # Instantiate TRIOS dataset for evaluation
+    trios_test = TRIOS(base_dir=trios_base_dir,
+                       splits=None,
+                       sample_rate=sample_rate,
+                       cqt=model.hcqt,
+                       seed=seed)
+
     # Instantiate GuitarSet dataset for evaluation
     gset_test = GuitarSet(base_dir=gset_base_dir,
-                          splits=['05'],
+                          splits=None,
                           sample_rate=sample_rate,
                           cqt=model.hcqt,
                           seed=seed)
 
     # Add all validation datasets to a list
-    validation_sets = [nsynth_val, urmp_mixes_val, trios_val, bch10_test, su_test, gset_test]
+    validation_sets = [nsynth_val, bch10_test, su_test, trios_test, urmp_test]
 
     # Add all evaluation datasets to a list
-    evaluation_sets = [nsynth_test, urmp_mixes_val, trios_val, bch10_test, su_test, gset_test]
+    evaluation_sets = [nsynth_test, bch10_test, su_test, trios_test, urmp_test, gset_test]
 
     #################
     ## PREPARATION ##
@@ -587,7 +553,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 writer.add_scalar('train/loss/geometric', geometric_loss.item(), batch_count)
 
                 # Extract ground-truth pitch salience activations
-                psuedo_ground_truth = data[constants.KEY_GROUND_TRUTH]
+                psuedo_ground_truth = data[constants.KEY_GROUND_TRUTH].to(device)
                 # Compute supervised BCE loss for the batch
                 supervised_loss = compute_supervised_loss(logits, psuedo_ground_truth)
                 # Log the supervised BCE loss for this batch

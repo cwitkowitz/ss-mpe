@@ -198,7 +198,7 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_fn
             # Compute sparsity loss for the track
             sparsity_loss = compute_sparsity_loss(transcription)
             # Compute supervised BCE loss for the batch
-            supervised_loss = compute_supervised_loss(logits, ground_truth.unsqueeze(0))
+            supervised_loss = compute_supervised_loss(logits, ground_truth.to(device).unsqueeze(0))
 
             # Compute the total loss for the track
             total_loss = multipliers['support'] * support_loss + \
