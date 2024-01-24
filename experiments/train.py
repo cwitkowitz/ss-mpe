@@ -102,7 +102,7 @@ def config():
     n_epochs_cooldown = 0
 
     # Number of epochs without improvement before early stopping (None to disable)
-    n_epochs_early_stop = None
+    n_epochs_early_stop = 1.0
 
     # IDs of the GPUs to use, if available
     gpu_ids = [0]
