@@ -1,5 +1,7 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
+from matplotlib.pyplot import Figure
+
 import matplotlib.pyplot as plt
 import numpy as np
 import random
@@ -258,9 +260,12 @@ def plot_equalization(original, curve, fig=None, save_path=None):
         (fig, ax) = plt.subplots(nrows=1, ncols=3, width_ratios=[2, 1, 2], figsize=(12, 4), tight_layout=True)
         # Open the figure manually
         plt.show(block=False)
-    else:
+    elif isinstance(fig, Figure):
         # Obtain a handle for the figure's current axis
         ax = fig.gca()
+    else:
+        # Axis was provided
+        ax = fig
 
     # Plot original magnitude features as an image
     ax[0].imshow(original, vmin=0, vmax=1, aspect='auto', origin='lower')
@@ -272,7 +277,7 @@ def plot_equalization(original, curve, fig=None, save_path=None):
     # Plot upright equalization curve
     ax[1].plot(curve, np.arange(curve.shape[-1]))
     # Compress x-axis to valid range
-    ax[1].set_xlim(0, 1.5)
+    ax[1].set_xlim(0.5, 1.5)
     # Remove vertical axis
     ax[1].get_yaxis().set_visible(False)
     # Add title to subplot

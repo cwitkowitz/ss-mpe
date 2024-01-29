@@ -1,11 +1,9 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
-# My imports
-from utils import *
-
-# Regular imports
 import torch.nn.functional as F
 import torch
+import sys
+import os
 
 
 def bce_full(est, ref):
@@ -42,6 +40,10 @@ def bce_pos(est, ref):
 
     return loss
 
+
+# Import utilities from parent directory
+sys.path.insert(0, os.path.join('..'))
+from utils import *
 
 # Set number of steps
 n_steps = 2000

@@ -20,12 +20,10 @@ import os
 
 
 # Name of the model to evaluate
-ex_name = 'Stable_OG_6'
-#ex_name = '<EXPERIMENT_DIR>'
+ex_name = '<EXPERIMENT_DIR>'
 
 # Choose the model checkpoint to compare
-checkpoint = 5750
-#checkpoint = 0
+checkpoint = 0
 
 # Choose the GPU on which to perform evaluation
 gpu_id = None
