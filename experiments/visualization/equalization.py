@@ -22,7 +22,7 @@ import os
 n_curves = 3
 
 # Set randomization seed
-seed = 17
+seed = 0#17
 
 # Import utilities from parent directory
 sys.path.insert(0, os.path.join('..'))
@@ -110,10 +110,10 @@ nsynth_val.tracks = nsynth_val.tracks[nsynth_start_idx:]
 ## Visualization ##
 ###################
 
-# Create a directory for saving visualized samples
+# Create a directory for saving visualized equalizations
 save_dir = os.path.join('..', '..', 'generated', 'visualization', 'equalization')
 
-# Create the root directory
+# Create the visualization directory
 os.makedirs(save_dir, exist_ok=True)
 
 # Maximum amplitude for Gaussian equalization
@@ -180,6 +180,7 @@ for i, data in enumerate(tqdm(nsynth_val)):
     # Minimize free space
     fig.tight_layout()
 
+    """
     # Open the figure manually
     plt.show(block=False)
     
@@ -191,12 +192,13 @@ for i, data in enumerate(tqdm(nsynth_val)):
     save = input('Save figure? (y/n)')
     
     if save == 'y':
-        # Replace / in the track name
-        track = track.replace('/', '-')
-        # Construct path under visualization directory
-        save_path = os.path.join(save_dir, f'{track}_{seed}.pdf')
-        # Save the figure with minimal whitespace
-        fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
+    """
+    # Replace / in the track name
+    track = track.replace('/', '-')
+    # Construct path under visualization directory
+    save_path = os.path.join(save_dir, f'{track}_{seed}.pdf')
+    # Save the figure with minimal whitespace
+    fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
 
     # Close figure
     plt.close(fig)

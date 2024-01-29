@@ -55,9 +55,9 @@ seed_everything(seed)
 sample_rate = 22050
 
 
-############
-## MODELS ##
-############
+###########
+## MODEL ##
+###########
 
 # Initialize a device pointer for loading the models
 device = torch.device(f'cuda:{gpu_id}' if torch.cuda.is_available() and gpu_id is not None else 'cpu')
@@ -70,9 +70,9 @@ ss_mpe = SS_MPE.load(model_path, device=device)
 ss_mpe.eval()
 
 
-##############
-## DATASETS ##
-##############
+#############
+## DATASET ##
+#############
 
 # Point to the datasets within the storage drive containing them or use the default location
 nsynth_base_dir = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if path_layout else None

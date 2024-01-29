@@ -50,7 +50,7 @@ def config():
     checkpoint_path = None
 
     # Maximum number of training iterations to conduct
-    max_epochs = 10
+    max_epochs = 3
 
     # Number of iterations between checkpoints
     checkpoint_interval = 250

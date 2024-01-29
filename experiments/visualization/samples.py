@@ -105,7 +105,7 @@ nsynth_val.tracks = nsynth_val.tracks[nsynth_start_idx:]
 # Create a directory for saving visualized samples
 save_dir = os.path.join('..', '..', 'generated', 'visualization', 'samples')
 
-# Create the root directory
+# Create the visualization directory
 os.makedirs(save_dir, exist_ok=True)
 
 # Loop through all tracks in the test set
@@ -118,11 +118,8 @@ for i, data in enumerate(tqdm(nsynth_val)):
     # Compute full set of spectral features
     features = ss_mpe.get_all_features(audio)
 
-    # Extract relevant feature sets
-    features_pw_1 = features['pw_1']
+    # Extract scaled power features
     features_db_1 = features['db_1']
-    features_pw_h = features['pw_h']
-    features_db_h = features['db_h']
 
     # Extract ground-truth pitch salience activations
     gt_activations = data[constants.KEY_GROUND_TRUTH]
