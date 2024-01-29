@@ -170,7 +170,7 @@ for i, data in enumerate(tqdm(nsynth_val)):
     fig.set_layout_engine('constrained')
     # Create sub-figures within the figure
     # TODO - fix default ratio so it behaves like subplots
-    subfigs = fig.subfigures(nrows=n_transforms, ncols=3, width_ratios=[2.4, 1, 2])
+    subfigs = fig.subfigures(nrows=n_transforms, ncols=3, width_ratios=[2.35, 1.325, 1.925])
 
     # Determine track's attributes
     name, pitch, vel = track.split('-')
@@ -221,7 +221,6 @@ for i, data in enumerate(tqdm(nsynth_val)):
     ax_orig.set_xlabel('Time (s)')
     ax_trns.set_xlabel('Time (s)')
 
-    """
     # Open the figure manually
     plt.show(block=False)
     
@@ -233,13 +232,12 @@ for i, data in enumerate(tqdm(nsynth_val)):
     save = input('Save figure? (y/n)')
     
     if save == 'y':
-    """
-    # Replace / in the track name
-    track = track.replace('/', '-')
-    # Construct path under visualization directory
-    save_path = os.path.join(save_dir, f'{track}_{seed}.pdf')
-    # Save the figure with minimal whitespace
-    fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
+        # Replace / in the track name
+        track = track.replace('/', '-')
+        # Construct path under visualization directory
+        save_path = os.path.join(save_dir, f'{track}_{seed}.pdf')
+        # Save the figure with minimal whitespace
+        fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
 
     # Close figure
     plt.close(fig)

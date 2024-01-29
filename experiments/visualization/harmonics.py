@@ -150,14 +150,12 @@ for i, data in enumerate(tqdm(nsynth_val)):
         # Save the figure with minimal whitespace
         fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
 
-    """
     # Open the figure manually
     plt.show(block=False)
 
     # Wait for keyboard input
     while plt.waitforbuttonpress() != True:
         continue
-    """
 
     # Close figure
     plt.close('all')

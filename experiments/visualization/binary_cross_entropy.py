@@ -63,7 +63,7 @@ loss_neg = to_array(bce_neg(est, ref))
 loss_pos = to_array(bce_pos(est, ref))
 
 # Initialize a new figure with subplots if one was not given
-(fig, ax) = plt.subplots(nrows=1, ncols=3, figsize=(8, 3), width_ratios=[1, 1, 1.25])
+(fig, ax) = plt.subplots(nrows=1, ncols=3, figsize=(9.5, 3), width_ratios=[1, 1, 1.25])
 
 # Add a global title above all sub-plots
 #fig.suptitle('BCE Loss Variants')

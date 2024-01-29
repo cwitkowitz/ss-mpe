@@ -182,7 +182,6 @@ for i, data in enumerate(tqdm(nsynth_val)):
     # Minimize free space
     fig.tight_layout()
 
-    """
     # Open the figure manually
     plt.show(block=False)
     
@@ -194,13 +193,12 @@ for i, data in enumerate(tqdm(nsynth_val)):
     save = input('Save figure? (y/n)')
     
     if save == 'y':
-    """
-    # Replace / in the track name
-    track = track.replace('/', '-')
-    # Construct path under visualization directory
-    save_path = os.path.join(save_dir, f'{track}_{seed}.pdf')
-    # Save the figure with minimal whitespace
-    fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
+        # Replace / in the track name
+        track = track.replace('/', '-')
+        # Construct path under visualization directory
+        save_path = os.path.join(save_dir, f'{track}_{seed}.pdf')
+        # Save the figure with minimal whitespace
+        fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
 
     # Close figure
     plt.close(fig)
