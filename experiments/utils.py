@@ -172,7 +172,7 @@ def plot_magnitude(magnitude, extent=None, fig=None, save_path=None):
     return fig
 
 
-def plot_bce_loss(loss, title=None, fig=None, save_path=None):
+def plot_bce_loss(loss, title=None, colorbar=False, fig=None, save_path=None):
     """
     Plot BCE loss landscape over entire range of ground-truth (y) / estimates (x).
 
@@ -182,6 +182,8 @@ def plot_bce_loss(loss, title=None, fig=None, save_path=None):
       Loss over potential combinations [0, ?]
     title : string or None (Optional)
       Title to add above image
+    colorbar : bool
+      Whether to include a colorbar for reference
     fig : matplotlib Figure object
       Preexisting figure to use for plotting
     save_path : string or None (Optional)
@@ -209,8 +211,10 @@ def plot_bce_loss(loss, title=None, fig=None, save_path=None):
     ax.invert_yaxis()
     # Make sure the image fills the figure
     ax.set_aspect('auto')
-    # Add a legend to image
-    fig.colorbar(img)
+
+    if colorbar:
+        # Add a legend to image
+        fig.colorbar(img)
 
     # Add axis labels
     ax.set_ylabel('Ground-Truth')

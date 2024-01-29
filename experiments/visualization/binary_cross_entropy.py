@@ -1,5 +1,6 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
+import matplotlib.pyplot as plt
 import torch.nn.functional as F
 import torch
 import sys
@@ -61,10 +62,40 @@ loss_full = to_array(bce_full(est, ref))
 loss_neg = to_array(bce_neg(est, ref))
 loss_pos = to_array(bce_pos(est, ref))
 
-# Plot each loss landscape
-fig_full = plot_bce_loss(loss_full, 'Full')
-fig_neg = plot_bce_loss(loss_neg, 'Negative')
-fig_pos = plot_bce_loss(loss_pos, 'Positive')
+# Initialize a new figure with subplots if one was not given
+(fig, ax) = plt.subplots(nrows=1, ncols=3, figsize=(8, 3), width_ratios=[1, 1, 1.25])
 
-# Wait for user input
-input('Press ENTER to finish...')
+# Add a global title above all sub-plots
+#fig.suptitle('BCE Loss Variants')
+
+# Plot each BCE loss landscape
+fig.sca(ax[0])
+plot_bce_loss(loss_pos, fig=fig)
+fig.sca(ax[1])
+plot_bce_loss(loss_neg, fig=fig)
+fig.sca(ax[2])
+plot_bce_loss(loss_full, colorbar=True, fig=fig)
+
+# Minimize free space
+fig.tight_layout()
+
+# Open the figure manually
+plt.show(block=False)
+
+# Wait for keyboard input
+while plt.waitforbuttonpress() != True:
+    continue
+
+# Prompt user to save figure
+save = input('Save figure? (y/n)')
+
+if save == 'y':
+    # Create a directory for saving visualized samples
+    save_dir = os.path.join('..', '..', 'generated', 'visualization')
+    # Construct path under visualization directory
+    save_path = os.path.join(save_dir, f'BCE.pdf')
+    # Save the figure with minimal whitespace
+    fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
+
+# Close figure
+plt.close(fig)
