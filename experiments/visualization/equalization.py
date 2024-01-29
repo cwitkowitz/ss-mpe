@@ -22,7 +22,7 @@ import os
 n_curves = 3
 
 # Set randomization seed
-seed = 0#17
+seed = 17
 
 # Import utilities from parent directory
 sys.path.insert(0, os.path.join('..'))
@@ -138,7 +138,7 @@ for i, data in enumerate(tqdm(nsynth_val)):
     # Compute full set of spectral features
     features = ss_mpe.get_all_features(audio)
 
-    # Extract relevant feature sets
+    # Extract first harmonic CQT spectral features
     features_db_1 = to_array(features['db_1'][0])
 
     # Sample parametric Gaussian equalization curves
@@ -171,10 +171,12 @@ for i, data in enumerate(tqdm(nsynth_val)):
         ax[i, 0].set_ylabel('Frequency (MIDI)')
         ax[i, 0].get_images()[0].set_extent(extent_midi)
         ax[i, 0].set_yticks(midi_ticks)
+        ax[i, 1].lines[0].set_linewidth(2)
         ax[i, 2].axis('on')
         ax[i, 2].get_yaxis().set_visible(False)
         ax[i, 2].get_images()[0].set_extent(extent_midi)
     ax[i, 0].set_xlabel('Time (s)')
+    ax[i, 1].set_xlabel('Scaling')
     ax[i, 2].set_xlabel('Time (s)')
 
     # Minimize free space
