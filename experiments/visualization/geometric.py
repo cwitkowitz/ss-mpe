@@ -37,19 +37,19 @@ seed_everything(seed)
 ########################
 
 # Number of samples per second of audio
-sample_rate = 16000
+sample_rate = 22050
 
 # Number of samples between frames
-hop_length = 512
+hop_length = 256
 
 # First center frequency (MIDI) of geometric progression
 fmin = librosa.note_to_midi('A0')
 
 # Number of bins in a single octave
-bins_per_octave = 36
+bins_per_octave = 60
 
 # Number of frequency bins per CQT
-n_bins = 264
+n_bins = 440
 
 # Harmonics to stack along channel dimension of HCQT
 harmonics = [0.5, 1, 2, 3, 4, 5]
@@ -169,8 +169,7 @@ for i, data in enumerate(tqdm(nsynth_val)):
     fig = initialize_figure(figsize=(6.666, 3 * n_transforms))
     fig.set_layout_engine('constrained')
     # Create sub-figures within the figure
-    # TODO - fix default ratio so it behaves like subplots
-    subfigs = fig.subfigures(nrows=n_transforms, ncols=3, width_ratios=[2.35, 1.325, 1.925])
+    subfigs = fig.subfigures(nrows=n_transforms, ncols=3, width_ratios=[2.35, 1.325, 1.925], height_ratios=[1, 1, 1.065])
 
     # Determine track's attributes
     name, pitch, vel = track.split('-')
@@ -193,7 +192,9 @@ for i, data in enumerate(tqdm(nsynth_val)):
         # Ticks and labels
         ax_orig.set_ylabel('Frequency (MIDI)')
         ax_orig.set_yticks(midi_ticks)
-        ax_trns.get_yaxis().set_visible(False)
+        ax_trns.set_ylabel('')
+        ax_trns.set_yticks(midi_ticks)
+        ax_trns.set_yticklabels(['' for t in midi_ticks])
         # Plot sampled parameter values
         ax_param[0].plot([v_shifts[i], v_shifts[i]], [0, 1], linewidth=2)
         ax_param[0].set_ylim([0, 1])
@@ -223,14 +224,14 @@ for i, data in enumerate(tqdm(nsynth_val)):
 
     # Open the figure manually
     plt.show(block=False)
-    
+
     # Wait for keyboard input
     while plt.waitforbuttonpress() != True:
         continue
-    
+
     # Prompt user to save figure
     save = input('Save figure? (y/n)')
-    
+
     if save == 'y':
         # Replace / in the track name
         track = track.replace('/', '-')

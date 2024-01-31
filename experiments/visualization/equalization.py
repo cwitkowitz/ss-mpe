@@ -22,7 +22,7 @@ import os
 n_curves = 3
 
 # Set randomization seed
-seed = 17
+seed = 0
 
 # Import utilities from parent directory
 sys.path.insert(0, os.path.join('..'))
@@ -37,19 +37,19 @@ seed_everything(seed)
 ########################
 
 # Number of samples per second of audio
-sample_rate = 16000
+sample_rate = 22050
 
 # Number of samples between frames
-hop_length = 512
+hop_length = 256
 
 # First center frequency (MIDI) of geometric progression
 fmin = librosa.note_to_midi('A0')
 
 # Number of bins in a single octave
-bins_per_octave = 36
+bins_per_octave = 60
 
 # Number of frequency bins per CQT
-n_bins = 264
+n_bins = 440
 
 # Harmonics to stack along channel dimension of HCQT
 harmonics = [0.5, 1, 2, 3, 4, 5]
@@ -173,8 +173,10 @@ for i, data in enumerate(tqdm(nsynth_val)):
         ax[i, 0].set_yticks(midi_ticks)
         ax[i, 1].lines[0].set_linewidth(2)
         ax[i, 2].axis('on')
-        ax[i, 2].get_yaxis().set_visible(False)
+        ax[i, 2].set_ylabel('')
         ax[i, 2].get_images()[0].set_extent(extent_midi)
+        ax[i, 2].set_yticks(midi_ticks)
+        ax[i, 2].set_yticklabels(['' for t in midi_ticks])
     ax[i, 0].set_xlabel('Time (s)')
     ax[i, 1].set_xlabel('Scaling')
     ax[i, 2].set_xlabel('Time (s)')

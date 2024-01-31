@@ -78,6 +78,8 @@ plot_bce_loss(loss_full, colorbar=True, fig=fig)
 # Remove 2nd and 3rd y-axis labels
 ax[1].set_ylabel('')
 ax[2].set_ylabel('')
+#ax[1].set_yticklabels(['' for t in ax[1].get_yticks()])
+#ax[2].set_yticklabels(['' for t in ax[2].get_yticks()])
 
 # Minimize free space
 fig.tight_layout()
