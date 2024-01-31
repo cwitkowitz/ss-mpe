@@ -16,10 +16,10 @@ import os
 
 
 # Name of the model to evaluate
-ex_name = 'PowFeats_Timbre_B20_0' # TODO - PowFeats_B20_0
+ex_name = 'PowFeats_B20_0'
 
 # Choose the model checkpoint to compare
-checkpoint = 20000 # TODO - best checkpoint
+checkpoint = 19750 # TODO - replace w/ best checkpoint
 
 # Choose the GPU on which to perform evaluation
 gpu_id = None
@@ -111,6 +111,9 @@ for i, data in enumerate(tqdm(nsynth_val)):
     # Transcribe the audio using the SS-MPE model
     ss_activations = to_array(ss_mpe.transcribe(audio).squeeze())
 
+    # Extract ground-truth pitch salience activations
+    gt_activations = data[constants.KEY_GROUND_TRUTH]
+
     # Determine track's attributes
     name, pitch, vel = track.split('-')
     # Add a global title above all sub-plots
@@ -136,9 +139,10 @@ for i, data in enumerate(tqdm(nsynth_val)):
         # Save the figure with minimal whitespace
         fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
 
-    # Loop through isolated first harmonic, weighted average, and output
-    for (h, cqt) in zip(['1\'', 'w', 'o'],
-                        [features_db_1, features_db_h, ss_activations]):
+    # Loop through custom features, output, and ground-truth
+    for (h, cqt) in zip(['h1\'', 'wavg', 'out', 'pgt'],
+                        [features_db_1, features_db_h,
+                         ss_activations, gt_activations]):
         # Open a new figure
         fig = initialize_figure(figsize=(4, 3))
         # Plot spectral features
@@ -146,7 +150,7 @@ for i, data in enumerate(tqdm(nsynth_val)):
         # Minimize free space
         fig.tight_layout()
         # Construct path under visualization directory
-        save_path = os.path.join(save_dir, f'{track}_h{h}.pdf')
+        save_path = os.path.join(save_dir, f'{track}_{h}.pdf')
         # Save the figure with minimal whitespace
         fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
 

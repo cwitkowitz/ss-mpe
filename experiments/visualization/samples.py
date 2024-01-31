@@ -7,9 +7,11 @@ from timbre_trap.datasets.utils import constants
 from ss_mpe.models import TT_Base
 
 # Regular imports
+from scipy.signal import convolve2d
 from tqdm import tqdm
 
 import matplotlib.pyplot as plt
+import numpy as np
 import librosa
 import torch
 import sys
@@ -124,31 +126,37 @@ for i, data in enumerate(tqdm(nsynth_val)):
     # Extract ground-truth pitch salience activations
     gt_activations = data[constants.KEY_GROUND_TRUTH]
 
+    # Widen the activations for better visualization
+    gt_activations = convolve2d(gt_activations,
+                                np.array([[1, 1, 1]]).T, 'same')
+
     # Initialize a new figure with subplots
-    (fig, ax) = plt.subplots(nrows=1, ncols=3, figsize=(8, 3))
+    (fig, ax) = plt.subplots(nrows=1, ncols=3, figsize=(8, 3), width_ratios=[0.93, 0.93, 1.15])
 
     # Determine track's attributes
     name, pitch, vel = track.split('-')
     # Add a global title above all sub-plots
     #fig.suptitle(f'Track: {name} | Pitch: {pitch} | Velocity: {vel}')
 
-    # Compute tick interval for waveform
-    tick_interval = audio.size(-1) // 4
+    # Compute tick intervals
+    tick_interval_wav = audio.size(-1) // 4
+    tick_interval_mag = features_db_1.size(-1) / 4
 
     # Plot raw waveform
     ax[0].plot(audio.squeeze())
     ax[0].set_xlim([0, audio.size(-1) - 1])
+    ax[0].set_ylim([-1, 1])
     ax[0].set_ylabel('Amplitude')
     ax[0].set_xlabel('Time (s)')
     # Ticks and labels
     ax[0].axis('on')
-    ax[0].set_xticks([0, tick_interval, 2 * tick_interval,
-                      3 * tick_interval, 4 * tick_interval])
+    ax[0].set_xticks([0, tick_interval_wav, 2 * tick_interval_wav,
+                      3 * tick_interval_wav, 4 * tick_interval_wav])
     ax[0].set_xticklabels([0, 1, 2, 3, 4])
     #ax[0].set_xlabel(f'Time-Domain')
 
     # Define extent for magnitude plots
-    extent_midi = [0, 4, fmin, fmax]
+    extent_midi = [0, features_db_1.size(-1), fmin, fmax]
 
     # Define ticks for frequencies in Hz
     midi_ticks = [oct * 12 + librosa.note_to_midi('A0') for oct in range(0, 8)]
@@ -165,18 +173,24 @@ for i, data in enumerate(tqdm(nsynth_val)):
     ax[1].set_ylabel('Frequency (Hz)')
     #ax[1].get_yaxis().set_visible(False)
     #ax[1].set_xlabel(f'Frequency-Domain')
+    ax[1].set_xticks([0, tick_interval_mag, 2 * tick_interval_mag,
+                      3 * tick_interval_mag, 4 * tick_interval_mag])
+    ax[1].set_xticklabels([0, 1, 2, 3, 4])
 
     # Plot ground-truth activations
     fig.sca(ax[2])
-    plot_magnitude(gt_activations, extent=extent_midi, fig=fig)
+    plot_magnitude(gt_activations, extent=extent_midi, colorbar=True, fig=fig)
     # Ticks and labels
     ax[2].axis('on')
     ax[2].set_yticks([30, 40, 50, 60, 70, 80, 90, 100])
     #ax[2].get_yaxis().set_visible(False)
     #ax[2].set_xlabel('Pseudo Ground-Truth')
-
-    # Add a global colorbar
-    # fig.colorbar(ax[0, 2].get_images()[0], ax=ax.ravel().tolist())
+    ax[2].set_xticks([0, tick_interval_mag, 2 * tick_interval_mag,
+                      3 * tick_interval_mag, 4 * tick_interval_mag])
+    ax[2].set_xticklabels([0, 1, 2, 3, 4])
+    cbar = ax[2].get_images()[0].colorbar
+    cbar.ax.set_yticks([0, 0.25, 0.5, 0.75, 1.0])
+    cbar.ax.set_yticklabels(['-80 dB', '-60 dB', '-40 dB', '-20 dB', '+0 dB'])
 
     # Minimize free space
     fig.tight_layout()

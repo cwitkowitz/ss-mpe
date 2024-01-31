@@ -75,6 +75,9 @@ fig.sca(ax[1])
 plot_bce_loss(loss_neg, fig=fig)
 fig.sca(ax[2])
 plot_bce_loss(loss_full, colorbar=True, fig=fig)
+# Remove 2nd and 3rd y-axis labels
+ax[1].set_ylabel('')
+ax[2].set_ylabel('')
 
 # Minimize free space
 fig.tight_layout()

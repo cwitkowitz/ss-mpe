@@ -115,7 +115,7 @@ def initialize_figure(figsize=(9, 3), interactive=False):
     return fig
 
 
-def plot_magnitude(magnitude, extent=None, fig=None, save_path=None):
+def plot_magnitude(magnitude, extent=None, colorbar=False, fig=None, save_path=None):
     """
     Plot magnitude coefficients within range [0, 1].
 
@@ -127,6 +127,8 @@ def plot_magnitude(magnitude, extent=None, fig=None, save_path=None):
       T - number of frames
     extent : list [l, r, b, t] or None (Optional)
       Boundaries of horizontal and vertical axis
+    colorbar : bool
+      Whether to include a colorbar for reference
     fig : matplotlib Figure object
       Preexisting figure to use for plotting
     save_path : string or None (Optional)
@@ -151,7 +153,7 @@ def plot_magnitude(magnitude, extent=None, fig=None, save_path=None):
                   extent[3], extent[2]]
 
     # Plot magnitude as an image
-    ax.imshow(magnitude, vmin=0, vmax=1, extent=extent)
+    img = ax.imshow(magnitude, vmin=0, vmax=1, extent=extent)
     # Flip y-axis for ascending pitch
     ax.invert_yaxis()
     # Make sure the image fills the figure
@@ -164,6 +166,10 @@ def plot_magnitude(magnitude, extent=None, fig=None, save_path=None):
     else:
         # Hide the axes
         ax.axis('off')
+
+    if colorbar:
+        # Add a legend to image
+        fig.colorbar(img)
 
     if save_path is not None:
         # Save the figure
@@ -217,8 +223,8 @@ def plot_bce_loss(loss, title=None, colorbar=False, fig=None, save_path=None):
         fig.colorbar(img)
 
     # Add axis labels
-    ax.set_ylabel('Ground-Truth')
-    ax.set_xlabel('Estimated')
+    ax.set_ylabel('Target')
+    ax.set_xlabel('Estimate')
 
     if title is not None:
         # Add title to plot
