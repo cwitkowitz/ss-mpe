@@ -204,6 +204,6 @@ class SS_MPE(nn.Module):
         hcqt_params = model.hcqt_params.copy()
         hcqt_params.pop('weights')
         # Re-initialize HQCT module
-        model.hcqt = HCQT(**hcqt_params)
+        model.hcqt = HCQT(**hcqt_params).to(device)
 
         return model

@@ -199,7 +199,7 @@ for eval_set in [nsynth_val, bch10_test, urmp_test, su_test, trios_test, gset_te
         features_db_h = features['db_h']
 
         # Peak-pick and threshold the linear-scaled magnitude
-        ln1_activations = threshold(filter_non_peaks(to_array(features_pw_1)), 0.3)
+        ln1_activations = threshold(filter_non_peaks(to_array(features_pw_1)), 0.5)
         # Convert the raw-feature activations to frame-level multi-pitch estimates
         ln1_multi_pitch = eval_set.activations_to_multi_pitch(ln1_activations, gt_midi_freqs)
         # Compute results for predictions from the linear-scaled CQT features
@@ -213,7 +213,7 @@ for eval_set in [nsynth_val, bch10_test, urmp_test, su_test, trios_test, gset_te
 
 
         # Peak-pick and threshold the log-scaled magnitude
-        lg1_activations = threshold(filter_non_peaks(to_array(features_db_1)), 0.8)
+        lg1_activations = threshold(filter_non_peaks(to_array(features_db_1)), 0.9)
         # Convert the raw-feature activations to frame-level multi-pitch estimates
         lg1_multi_pitch = eval_set.activations_to_multi_pitch(lg1_activations, gt_midi_freqs)
         # Compute results for predictions from the log-scaled CQT features
@@ -240,7 +240,7 @@ for eval_set in [nsynth_val, bch10_test, urmp_test, su_test, trios_test, gset_te
 
 
         # Peak-pick and threshold the weighted harmonic average log-scaled magnitude
-        lgh_activations = threshold(filter_non_peaks(to_array(features_db_h)), 0.8)
+        lgh_activations = threshold(filter_non_peaks(to_array(features_db_h)), 0.9)
         # Convert the raw-feature activations to frame-level multi-pitch estimates
         lgh_multi_pitch = eval_set.activations_to_multi_pitch(lgh_activations, gt_midi_freqs)
         # Compute results for predictions from the log-scaled CQT features
