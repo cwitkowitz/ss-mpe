@@ -23,10 +23,10 @@ import os
 
 # Name of the model to evaluate
 ex_name = '<EXPERIMENT_DIR>'
-#ex_name = 'PowFeats_Both_B20_0'
-#ex_name = 'PowFeats_Timbre_B20_0'
-#ex_name = 'PowFeats_Geometric_B20_0_local'
-#ex_name = 'PowFeats_B20_0'
+#ex_name = 'SS-MPE'
+#ex_name = 'Timbre'
+#ex_name = 'Geometric'
+#ex_name = 'Energy'
 
 # Choose the model checkpoint to compare
 checkpoint = 0

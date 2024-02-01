@@ -19,10 +19,10 @@ import os
 
 # Experiment dictionary [tag, checkpoint]
 experiments = {
-    'PowFeats_Both_B20_0' : ['SS-MPE', 37000],
-    'PowFeats_Timbre_B20_0' : ['Timbre-Only', 41750],
-    'PowFeats_Geometric_B20_0_local' : ['Geometric-Only', 37000],
-    'PowFeats_B20_0' : ['Energy-Only', 43000]
+    'SS-MPE' : ['SS-MPE', 37000],
+    'Timbre' : ['Timbre-Only', 41750],
+    'Geometric' : ['Geometric-Only', 37000],
+    'Energy' : ['Energy-Only', 43000]
 }
 
 # Choose the GPU on which to perform evaluation
