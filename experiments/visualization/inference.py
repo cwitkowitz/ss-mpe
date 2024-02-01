@@ -22,7 +22,8 @@ experiments = {
     'PowFeats_Both_B20_0' : ['SS-MPE', 0],
     'PowFeats_Timbre_B20_0' : ['Timbre-Only', 0],
     'PowFeats_Geometric_B20_0' : ['Geometric-Only', 0],
-    'PowFeats_B20_0' : ['Basic', 0]
+    'PowFeats_B20_0' : ['Energy-Only', 0],
+    'PowFeats_Supervised_B20_0' : ['Supervised', 0]
 }
 
 # Choose the GPU on which to perform evaluation
@@ -124,12 +125,12 @@ for eval_set in [bch10_test]:
         # Extract ground-truth pitch salience activations
         gt_activations = data[constants.KEY_GROUND_TRUTH]
 
-        # Widen the activations for better visualization
-        #gt_activations = convolve2d(gt_activations,
-        #                            np.array([[0.75, 1, 0.75]]).T, 'same')
+        # Widen the activations for easier visualization
+        gt_activations = convolve2d(gt_activations,
+                                    np.array([[1, 1, 1]]).T, 'same')
 
         # Make sure there are enough rows
-        n_rows = round(0.5 * (len(models) + 2))
+        n_rows = round(0.5 * (len(models) + 3))
 
         # Initialize a new figure with subplots
         (fig, ax) = plt.subplots(nrows=n_rows, ncols=2, figsize=(18, 3 * n_rows))
@@ -153,11 +154,11 @@ for eval_set in [bch10_test]:
         ax[0, 0].set_yticks([30, 40, 50, 60, 70, 80, 90, 100])
         ax[0, 0].grid()
 
-        # Plot ground-truth activations
+        # Plot weighted average of HCQT features
         fig.sca(ax[0, 1])
-        plot_magnitude(gt_activations, extent=extent_midi, fig=fig)
+        plot_magnitude(features_db_h, extent=extent_midi, fig=fig)
         # Axis management
-        ax[0, 1].set_title('Ground-Truth')
+        ax[0, 1].set_title('$X_{h_w}$')
         ax[0, 1].axis('on')
         ax[0, 1].set_xlabel('')
         ax[0, 1].set_ylabel('')
@@ -165,21 +166,25 @@ for eval_set in [bch10_test]:
         ax[0, 1].set_yticklabels(['' for t in ax[0, 1].get_yticks()])
         ax[0, 1].grid()
 
-        # TODO - add X_{h_w} if necessary to fill row
-        # Plot weighted average of HCQT features
-        #fig.sca(ax[x, x])
-        #plot_magnitude(features_db_h, extent=extent_midi, fig=fig)
+        # Plot ground-truth activations
+        fig.sca(ax[1, 0])
+        plot_magnitude(gt_activations, extent=extent_midi, fig=fig)
         # Axis management
-        #ax[x, x].set_title('$X_{h_w}$')
-        #ax[x, x].axis('on')
-        #ax[x, x].set_yticks([30, 40, 50, 60, 70, 80, 90, 100])
-        #ax[x, x].grid()
+        ax[1, 0].set_title('Ground-Truth')
+        ax[1, 0].axis('on')
+        ax[1, 0].set_xlabel('')
+        ax[1, 0].set_ylabel('Frequency (MIDI)')
+        ax[1, 0].set_yticks([30, 40, 50, 60, 70, 80, 90, 100])
+        ax[1, 0].grid()
 
         for i, (tag, model) in enumerate(models.items()):
             # Transcribe the audio using the SS-MPE model
             ss_activations = to_array(model.transcribe(audio).squeeze(0))
 
-            ax_curr = ax[1 + i // 2, i % 2]
+            # Offset subplot
+            k = i + 1
+            # Obtain a reference to current axis
+            ax_curr = ax[1 + k // 2, k % 2]
             # Plot multi-pitch salience-gram
             fig.sca(ax_curr)
             plot_magnitude(ss_activations, extent=extent_midi, fig=fig)
@@ -187,12 +192,12 @@ for eval_set in [bch10_test]:
             ax_curr.set_title(f'{tag}')
             ax_curr.axis('on')
             ax_curr.set_yticks([30, 40, 50, 60, 70, 80, 90, 100])
-            if i % 2 == 0:
+            if k % 2 == 0:
                 ax_curr.set_ylabel('Frequency (MIDI)')
             else:
                 ax_curr.set_ylabel('')
                 ax_curr.set_yticklabels(['' for t in ax_curr.get_yticks()])
-            if (i // 2) == n_rows - 2:
+            if (k // 2) == n_rows - 2:
                 ax_curr.set_xlabel('Time (s)')
             else:
                 ax_curr.set_xlabel('')
