@@ -264,7 +264,7 @@ for eval_set in [nsynth_val]:
             print(f'\t\t-(ss-mpe): {ss_results}')
 
         if verbose:
-            # Initialize a new figure with subplots if one was not given
+            # Initialize a new figure with subplots
             (fig, ax) = plt.subplots(nrows=3, ncols=2, figsize=(8, 12))
 
             # Determine track's attributes
@@ -355,7 +355,7 @@ for eval_set in [nsynth_val]:
             # Open the figure manually
             plt.show(block=False)
 
-            print('Press ENTER to continue...')
+            print('Press SPACE with plot focused to continue...')
             # Wait for keyboard input
             while plt.waitforbuttonpress() != True:
                 continue
