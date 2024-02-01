@@ -357,6 +357,8 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
 
         # Obtain salience predictions from the PESTO model
         pe_times, pe_preds, _, pe_salience = pesto.predict(audio.squeeze(), sample_rate)
+        # Convert time steps to seconds
+        pe_times = to_array(pe_times) / 1000
         # Apply peak-picking and thresholding on the raw salience
         pe_salience = threshold(filter_non_peaks(pe_salience.T), 0.3)
         # Remove activations for invalid frequencies
@@ -364,7 +366,7 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
         # Convert the activations to frame-level multi-pitch estimates
         pe_multi_pitch = eval_set.activations_to_multi_pitch(pe_salience, pe_midi_freqs)
         # Compute results for BasicPitch predictions
-        pe_results = pe_evaluator.evaluate(to_array(pe_times), pe_multi_pitch, times_ref, multi_pitch_ref)
+        pe_results = pe_evaluator.evaluate(pe_times, pe_multi_pitch, times_ref, multi_pitch_ref)
         # Store results for this track
         pe_evaluator.append_results(pe_results)
 
