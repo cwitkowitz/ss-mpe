@@ -19,7 +19,7 @@ import os
 
 
 # Set number of curves per methodology
-n_transforms = 3
+n_transforms = 2
 
 # Set randomization seed
 seed = 0
@@ -169,7 +169,8 @@ for i, data in enumerate(tqdm(nsynth_val)):
     fig = initialize_figure(figsize=(6.666, 3 * n_transforms))
     fig.set_layout_engine('constrained')
     # Create sub-figures within the figure
-    subfigs = fig.subfigures(nrows=n_transforms, ncols=3, width_ratios=[2.35, 1.325, 1.925], height_ratios=[1, 1, 1.065])
+    subfigs = fig.subfigures(nrows=n_transforms, ncols=3, width_ratios=[2.35, 1.325, 1.925],
+                                                          height_ratios=[1] * (n_transforms - 1) + [1.065])
 
     # Determine track's attributes
     name, pitch, vel = track.split('-')
@@ -236,7 +237,7 @@ for i, data in enumerate(tqdm(nsynth_val)):
         # Replace / in the track name
         track = track.replace('/', '-')
         # Construct path under visualization directory
-        save_path = os.path.join(save_dir, f'{track}_{seed}.pdf')
+        save_path = os.path.join(save_dir, f'{track}_t{n_transforms}_s{seed}.pdf')
         # Save the figure with minimal whitespace
         fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
 

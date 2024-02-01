@@ -19,7 +19,7 @@ import os
 
 
 # Set number of curves per methodology
-n_curves = 3
+n_curves = 2
 
 # Set randomization seed
 seed = 0
@@ -198,7 +198,7 @@ for i, data in enumerate(tqdm(nsynth_val)):
         # Replace / in the track name
         track = track.replace('/', '-')
         # Construct path under visualization directory
-        save_path = os.path.join(save_dir, f'{track}_{seed}.pdf')
+        save_path = os.path.join(save_dir, f'{track}_c{n_curves}_s{seed}.pdf')
         # Save the figure with minimal whitespace
         fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
 
