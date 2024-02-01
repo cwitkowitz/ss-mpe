@@ -78,9 +78,9 @@ import tensorflow as tf
 
 # Number of bins in a single octave
 bp_bins_per_octave = 36
-# Load the BasicPitch model checkpoint corresponding to paper
+# Load the Basic-Pitch model checkpoint corresponding to paper
 basic_pitch = tf.saved_model.load(str(ICASSP_2022_MODEL_PATH))
-# Determine the MIDI frequency associated with each bin of Basic Pitch predictions
+# Compute the MIDI frequency associated with each bin of Basic-Pitch predictions
 bp_midi_freqs = librosa.note_to_midi('A0') + np.arange(264) / (bp_bins_per_octave / 12)
 
 
@@ -132,7 +132,7 @@ except ModuleNotFoundError:
                                                               compute_hcqt,
                                                               get_single_test_prediction,
                                                               get_multif0)
-# Initialize DeepSalience
+# Initialize Deep-Salience
 deep_salience = model_def()
 # Load the weights from the paper
 deep_salience.load_weights(weights_path)
@@ -159,9 +159,8 @@ tt_mpe.eval()
 
 # Frequencies associated with Timbre-Trap estimates
 tt_midi_freqs = tt_mpe.sliCQ.get_midi_freqs()
-
-# Determine valid frequency bins for multi-pitch estimation (based on mir_eval)
-tt_valid_freqs = librosa.midi_to_hz(tt_midi_freqs) > mir_eval.multipitch.MAX_FREQ
+# Determine which Timbre-Trap bins correspond to valid frequencies for mir_eval
+tt_invalid_freqs = librosa.midi_to_hz(tt_midi_freqs) > mir_eval.multipitch.MAX_FREQ
 
 
 import crepe
@@ -175,7 +174,12 @@ cr_hz_freqs = 10 * 2 ** (cents / 1200)
 cr_midi_freqs = librosa.hz_to_midi(cr_hz_freqs)
 
 
-# TODO - add PESTO
+import pesto
+
+# Compute the MIDI frequency associated with each bin of PESTO predictions
+pe_midi_freqs = torch.arange(384) / 3
+# Determine which Timbre-Trap bins correspond to valid frequencies for mir_eval
+pe_invalid_freqs = librosa.midi_to_hz(pe_midi_freqs) < mir_eval.multipitch.MIN_FREQ
 
 
 ##############
@@ -247,6 +251,7 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
     ds_evaluator = MultipitchEvaluator()
     tt_evaluator = MultipitchEvaluator()
     cr_evaluator = MultipitchEvaluator()
+    pe_evaluator = MultipitchEvaluator()
 
     print_and_log(f'Results for {eval_set.name()}:', save_path)
 
@@ -318,13 +323,13 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
         # Determine the times associated with features
         times_est = tt_mpe.sliCQ.get_times(tt_mpe.sliCQ.get_expected_frames(audio_padded.size(-1)))
         # Transcribe the audio using the Timbre-Trap model
-        tt_activations = to_array(tt_mpe.transcribe(audio_padded).squeeze())
+        tt_salience = to_array(tt_mpe.transcribe(audio_padded).squeeze())
         # Peak-pick and threshold the Timbre-Trap activations
-        tt_activations = threshold(filter_non_peaks(tt_activations), 0.5)
+        tt_salience = threshold(filter_non_peaks(tt_salience), 0.5)
         # Remove activations for invalid frequencies
-        tt_activations[tt_valid_freqs] = 0
+        tt_salience[tt_invalid_freqs] = 0
         # Convert the Timbre-Trap activations to frame-level multi-pitch estimates
-        tt_multi_pitch = eval_set.activations_to_multi_pitch(tt_activations, tt_midi_freqs)
+        tt_multi_pitch = eval_set.activations_to_multi_pitch(tt_salience, tt_midi_freqs)
         # Compute results for predictions from the Timbre-Trap methodology
         tt_results = tt_evaluator.evaluate(times_est, tt_multi_pitch, times_ref, multi_pitch_ref)
         # Store results for this track
@@ -349,6 +354,24 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
             # Print results for the individual track
             print_and_log(f'\t\t-(crepe): {cr_results}', save_path)
 
+
+        # Obtain salience predictions from the PESTO model
+        pe_times, pe_preds, _, pe_salience = pesto.predict(audio.squeeze(), sample_rate)
+        # Apply peak-picking and thresholding on the raw salience
+        pe_salience = threshold(filter_non_peaks(pe_salience.T), 0.3)
+        # Remove activations for invalid frequencies
+        pe_salience[pe_invalid_freqs] = 0
+        # Convert the activations to frame-level multi-pitch estimates
+        pe_multi_pitch = eval_set.activations_to_multi_pitch(pe_salience, pe_midi_freqs)
+        # Compute results for BasicPitch predictions
+        pe_results = pe_evaluator.evaluate(to_array(pe_times), pe_multi_pitch, times_ref, multi_pitch_ref)
+        # Store results for this track
+        pe_evaluator.append_results(pe_results)
+
+        if verbose:
+            # Print results for the individual track
+            print_and_log(f'\t\t-(pesto): {pe_results}', save_path)
+
     # Print a header for average results across all tracks of the dataset
     print_and_log(f'\tAverage Results ({eval_set.name()}):', save_path)
 
@@ -357,3 +380,4 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
     print_and_log(f'\t\t-(dp-slnc): {ds_evaluator.average_results()[0]}', save_path)
     print_and_log(f'\t\t-(tt-mpe): {tt_evaluator.average_results()[0]}', save_path)
     print_and_log(f'\t\t-(crepe): {cr_evaluator.average_results()[0]}', save_path)
+    print_and_log(f'\t\t-(pesto): {pe_evaluator.average_results()[0]}', save_path)
