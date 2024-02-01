@@ -4,6 +4,7 @@
 from timbre_trap.datasets.MixedMultiPitch import Bach10, URMP, Su, TRIOS
 from timbre_trap.datasets.SoloMultiPitch import GuitarSet
 from timbre_trap.datasets.NoteDataset import NoteDataset
+from timbre_trap.models import Transcriber as Timbre_Trap
 
 from timbre_trap.datasets.utils import stream_url_resource, constants
 from timbre_trap.models.utils import filter_non_peaks, threshold
@@ -136,15 +137,32 @@ deep_salience = model_def()
 # Load the weights from the paper
 deep_salience.load_weights(weights_path)
 
+
 # Initialize a device pointer for loading the models
 device = torch.device(f'cuda:{gpu_id}' if torch.cuda.is_available() and gpu_id is not None else 'cpu')
 
 # Construct the path to the final model checkpoint for the base Timbre-Trap model
-model_path = os.path.join('..', 'generated', 'experiments', 'models', f'model-8750.pt')
+model_path = os.path.join('..', '..', 'timbre-trap', 'generated', 'experiments', 'Base', 'models', 'model-8750.pt')
 
-# Load a checkpoint of the Timbre-Trap model
-tt_mpe = torch.load(model_path, map_location=device)
+# Initialize autoencoder model and train from scratch
+tt_mpe = Timbre_Trap(sample_rate=22050,
+                     n_octaves=9,
+                     bins_per_octave=60,
+                     secs_per_block=3,
+                     latent_size=128,
+                     model_complexity=2,
+                     skip_connections=False)
+
+# Load final checkpoint of the base Timbre-Trap model
+tt_mpe.load_state_dict(torch.load(model_path, map_location=device))
 tt_mpe.eval()
+
+# Frequencies associated with Timbre-Trap estimates
+tt_midi_freqs = tt_mpe.sliCQ.get_midi_freqs()
+
+# Determine valid frequency bins for multi-pitch estimation (based on mir_eval)
+tt_valid_freqs = librosa.midi_to_hz(tt_midi_freqs) > mir_eval.multipitch.MAX_FREQ
+
 
 # TODO - add CREPE / PESTO
 
@@ -220,12 +238,6 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
 
     print_and_log(f'Results for {eval_set.name()}:', save_path)
 
-    # Frequencies associated with ground-truth
-    gt_midi_freqs = eval_set.cqt.get_midi_freqs()
-
-    # Determine valid frequency bins for multi-pitch estimation (based on mir_eval)
-    valid_freqs = librosa.midi_to_hz(gt_midi_freqs) > mir_eval.multipitch.MAX_FREQ
-
     # Loop through all tracks in the test set
     for i, data in enumerate(tqdm(eval_set)):
         # Determine which track is being processed
@@ -257,7 +269,7 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
         # Determine times associated with each frame of predictions
         bp_times = model_frames_to_time(bp_salience.shape[-1])
         # Apply peak-picking and thresholding on the raw salience
-        bp_salience = threshold(filter_non_peaks(bp_salience), 0.27)
+        bp_salience = threshold(filter_non_peaks(bp_salience), 0.3)
         # Convert the activations to frame-level multi-pitch estimates
         bp_multi_pitch = eval_set.activations_to_multi_pitch(bp_salience, bp_midi_freqs)
         # Compute results for BasicPitch predictions
@@ -297,9 +309,9 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
         # Peak-pick and threshold the Timbre-Trap activations
         tt_activations = threshold(filter_non_peaks(tt_activations), 0.5)
         # Remove activations for invalid frequencies
-        tt_activations[valid_freqs] = 0
+        tt_activations[tt_valid_freqs] = 0
         # Convert the Timbre-Trap activations to frame-level multi-pitch estimates
-        tt_multi_pitch = eval_set.activations_to_multi_pitch(tt_activations, gt_midi_freqs)
+        tt_multi_pitch = eval_set.activations_to_multi_pitch(tt_activations, tt_midi_freqs)
         # Compute results for predictions from the Timbre-Trap methodology
         tt_results = tt_evaluator.evaluate(times_est, tt_multi_pitch, times_ref, multi_pitch_ref)
         # Store results for this track
