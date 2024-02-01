@@ -164,7 +164,18 @@ tt_midi_freqs = tt_mpe.sliCQ.get_midi_freqs()
 tt_valid_freqs = librosa.midi_to_hz(tt_midi_freqs) > mir_eval.multipitch.MAX_FREQ
 
 
-# TODO - add CREPE / PESTO
+import crepe
+
+# Determine cent values for each bin of CREPE predictions
+# (https://github.com/marl/crepe/blob/master/crepe/core.py#L103)
+cents = np.linspace(0, 7180, 360) + 1997.3794084376191
+# Convert cents to frequencies in Hz
+cr_hz_freqs = 10 * 2 ** (cents / 1200)
+# Compute the MIDI frequency for each bin
+cr_midi_freqs = librosa.hz_to_midi(cr_hz_freqs)
+
+
+# TODO - add PESTO
 
 
 ##############
@@ -235,6 +246,7 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
     bp_evaluator = MultipitchEvaluator()
     ds_evaluator = MultipitchEvaluator()
     tt_evaluator = MultipitchEvaluator()
+    cr_evaluator = MultipitchEvaluator()
 
     print_and_log(f'Results for {eval_set.name()}:', save_path)
 
@@ -300,12 +312,13 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
 
         # Extract audio and add to the appropriate device
         audio = data[constants.KEY_AUDIO].to(device).unsqueeze(0)
+
         # Pad audio to next multiple of block length
-        audio = tt_mpe.sliCQ.pad_to_block_length(audio)
+        audio_padded = tt_mpe.sliCQ.pad_to_block_length(audio)
         # Determine the times associated with features
-        times_est = tt_mpe.sliCQ.get_times(tt_mpe.sliCQ.get_expected_frames(audio.size(-1)))
+        times_est = tt_mpe.sliCQ.get_times(tt_mpe.sliCQ.get_expected_frames(audio_padded.size(-1)))
         # Transcribe the audio using the Timbre-Trap model
-        tt_activations = to_array(tt_mpe.transcribe(audio).squeeze())
+        tt_activations = to_array(tt_mpe.transcribe(audio_padded).squeeze())
         # Peak-pick and threshold the Timbre-Trap activations
         tt_activations = threshold(filter_non_peaks(tt_activations), 0.5)
         # Remove activations for invalid frequencies
@@ -321,6 +334,21 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
             # Print results for the individual track
             print_and_log(f'\t\t-(tt-mpe): {tt_results}', save_path)
 
+        # Obtain salience predictions from the CREPE model
+        cr_times, _, _, cr_salience = crepe.predict(to_array(audio.squeeze()), sample_rate, viterbi=False)
+        # Apply peak-picking and thresholding on the raw salience
+        cr_salience = threshold(filter_non_peaks(cr_salience.T), 0.3)
+        # Convert the activations to frame-level multi-pitch estimates
+        cr_multi_pitch = eval_set.activations_to_multi_pitch(cr_salience, cr_midi_freqs)
+        # Compute results for BasicPitch predictions
+        cr_results = cr_evaluator.evaluate(cr_times, cr_multi_pitch, times_ref, multi_pitch_ref)
+        # Store results for this track
+        cr_evaluator.append_results(cr_results)
+
+        if verbose:
+            # Print results for the individual track
+            print_and_log(f'\t\t-(crepe): {cr_results}', save_path)
+
     # Print a header for average results across all tracks of the dataset
     print_and_log(f'\tAverage Results ({eval_set.name()}):', save_path)
 
@@ -328,3 +356,4 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
     print_and_log(f'\t\t-(bsc-ptc): {bp_evaluator.average_results()[0]}', save_path)
     print_and_log(f'\t\t-(dp-slnc): {ds_evaluator.average_results()[0]}', save_path)
     print_and_log(f'\t\t-(tt-mpe): {tt_evaluator.average_results()[0]}', save_path)
+    print_and_log(f'\t\t-(crepe): {cr_evaluator.average_results()[0]}', save_path)
