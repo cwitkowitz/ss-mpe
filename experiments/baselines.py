@@ -155,6 +155,7 @@ tt_mpe = Timbre_Trap(sample_rate=22050,
 
 # Load final checkpoint of the base Timbre-Trap model
 tt_mpe.load_state_dict(torch.load(model_path, map_location=device))
+tt_mpe.to(device)
 tt_mpe.eval()
 
 # Frequencies associated with Timbre-Trap estimates
