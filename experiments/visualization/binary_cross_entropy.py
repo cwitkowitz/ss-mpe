@@ -97,7 +97,7 @@ save = input('Save figure? (y/n)')
 if save == 'y':
     # Create a directory for saving visualized samples
     save_dir = os.path.join('..', '..', 'generated', 'visualization')
-    # Construct path under visualization directory
+    # Construct save path under visualization directory
     save_path = os.path.join(save_dir, f'BCE.pdf')
     # Save the figure with minimal whitespace
     fig.savefig(save_path, bbox_inches='tight', pad_inches=0)

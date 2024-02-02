@@ -34,7 +34,7 @@ verbose = True
 # File layout of system (0 - desktop | 1 - lab)
 path_layout = 0
 
-# Construct the path to the top-level directory of the experiment
+# Construct the path to the top-level directory of the experiments
 if path_layout == 1:
     experiments_dir = os.path.join('/', 'storage', 'frank', 'self-supervised-pitch')
 else:
