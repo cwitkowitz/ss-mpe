@@ -33,10 +33,7 @@ Again, make sure all the paths are set correctly / to your liking.
 
 Baseline results can be reproduced with ```baselines.py```, though note that the Timbre-Trap model has no mechanism to perform chunk-based processing, so it will likely crash unless your PC has lots of RAM.
 
-The code will attempt to download most datasets automatically, however some datasets are not readily available online.
-You can use the following links to access the ```Bach10``` and ```Su``` datasets:
-- [Bach10](https://drive.google.com/file/d/1MCRUtzT_puaRHbe3RMC06q315Xgs7aGs/view?usp=sharing)
-- [Su](https://drive.google.com/file/d/1HmpASWa5mG04a96i-GSdVIOL2xENtCbo/view?usp=sharing)
+The code will attempt to download most datasets automatically, however some datasets are not readily available online, and must be requested.
 
 We also invite you to play around with the various other analysis and visualizastion scripts.
 
