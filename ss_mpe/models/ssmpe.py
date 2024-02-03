@@ -30,6 +30,39 @@ class SS_MPE(nn.Module):
         hcqt_params.pop('weights')
         self.hcqt = HCQT(**hcqt_params)
 
+        self.encoder = None
+        self.encoder = None
+
+    def encoder_parameters(self):
+        """
+        Obtain parameters for encoder part of network.
+
+        Returns
+        ----------
+        parameters : generator
+          Layer-wise iterator over parameters
+        """
+
+        # Obtain generator for encoder parameters
+        parameters = self.encoder.parameters()
+
+        return parameters
+
+    def decoder_parameters(self):
+        """
+        Obtain parameters for decoder part of network.
+
+        Returns
+        ----------
+        parameters : generator
+          Layer-wise iterator over parameters
+        """
+
+        # Obtain generator for decoder parameters
+        parameters = self.decoder.parameters()
+
+        return parameters
+
     def get_all_features(self, audio):
         """
         Compute all possible features.
@@ -46,14 +79,16 @@ class SS_MPE(nn.Module):
         """
 
         # Compute features for audio
-        features_amp = self.hcqt(audio)
+        features_lin = self.hcqt(audio)
 
         # Convert raw HCQT spectral features to decibels [-80, 0] dB
-        features_dec = self.hcqt.to_decibels(features_amp, rescale=False)
+        features_db = self.hcqt.to_decibels(features_lin, rescale=False)
         # Convert decibels to linear probability-like values [0, 1]
-        features_lin = self.hcqt.decibels_to_amplitude(features_dec)
+        features_am = self.hcqt.decibels_to_amplitude(features_db)
+        # Convert amplitude to power by squaring
+        features_pw = features_am ** 2
         # Scale decibels to represent probability-like values [0, 1]
-        features_log = self.hcqt.rescale_decibels(features_dec)
+        features_db = self.hcqt.rescale_decibels(features_db)
 
         # Extract relevant parameters
         harmonics = self.hcqt_params['harmonics']
@@ -63,20 +98,24 @@ class SS_MPE(nn.Module):
         h_idx = harmonics.index(1)
 
         # Obtain first harmonic spectral features
-        features_lin_1 = features_lin[:, h_idx]
-        features_log_1 = features_log[:, h_idx]
+        features_am_1 = features_am[:, h_idx]
+        features_pw_1 = features_pw[:, h_idx]
+        features_db_1 = features_db[:, h_idx]
 
         # Compute a weighted sum of features to obtain a rough salience estimate
-        features_lin_h = torch.sum(features_lin * harmonic_weights, dim=-3)
-        features_log_h = torch.sum(features_log * harmonic_weights, dim=-3)
+        features_pw_h = torch.sum((features_am * harmonic_weights) ** 2, dim=-3)
+        features_db_h = self.hcqt.to_decibels(features_pw_h ** 0.5, rescale=False)
+        features_db_h = self.hcqt.rescale_decibels(features_db_h)
 
         features = {
-            'amp'   : features_lin,
-            'dec'   : features_log,
-            'amp_1' : features_lin_1,
-            'dec_1' : features_log_1,
-            'amp_h' : features_lin_h,
-            'dec_h' : features_log_h
+            'am'   : features_am,
+            'pw'   : features_pw,
+            'db'   : features_db,
+            'am_1' : features_am_1,
+            'pw_1' : features_pw_1,
+            'db_1' : features_db_1,
+            'pw_h' : features_pw_h,
+            'db_h' : features_db_h
         }
 
         return features
@@ -165,6 +204,6 @@ class SS_MPE(nn.Module):
         hcqt_params = model.hcqt_params.copy()
         hcqt_params.pop('weights')
         # Re-initialize HQCT module
-        model.hcqt = HCQT(**hcqt_params)
+        model.hcqt = HCQT(**hcqt_params).to(device)
 
         return model

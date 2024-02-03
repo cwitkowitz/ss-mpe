@@ -33,7 +33,7 @@ class AE_Base(SS_MPE):
         # Extract HCQT parameters to infer dimensionality of input features
         n_bins, n_harmonics = hcqt_params['n_bins'], len(hcqt_params['harmonics'])
         # Layer normalization over frequency and channels (harmonics of HCQT)
-        self.layernorm = nn.LayerNorm(normalized_shape=[n_harmonics, n_bins])
+        self.layer_norm = nn.LayerNorm(normalized_shape=[n_harmonics, n_bins])
 
         self.encoder = Encoder(in_channels=n_harmonics,
                                model_complexity=model_complexity)
@@ -42,6 +42,25 @@ class AE_Base(SS_MPE):
                                skip_connections=skip_connections)
 
         self.skip_connections = skip_connections
+
+    def encoder_parameters(self):
+        """
+        Obtain parameters for encoder part of network.
+
+        Returns
+        ----------
+        parameters : generator
+          Layer-wise iterator over parameters
+        """
+
+        # Obtain parameters corresponding to encoder
+        parameters = list(super().encoder_parameters())
+        # Append layer normalization parameters
+        parameters += list(self.layer_norm.parameters())
+
+        # Return generator type
+        for p in parameters:
+            yield p
 
     def forward(self, features):
         """
@@ -63,7 +82,7 @@ class AE_Base(SS_MPE):
         """
 
         # Normalize the spectral features
-        features = self.layernorm(features.permute(0, -1, -3, -2)).permute(0, -2, -1, -3)
+        features = self.layer_norm(features.permute(0, -1, -3, -2)).permute(0, -2, -1, -3)
 
         # Process features with the encoder
         latents, padding, embeddings, losses = self.encoder(features)
@@ -114,6 +133,44 @@ class AE_SA(AE_Base):
                                                          nhead=8,
                                                          dim_feedforward=d_forward,
                                                          batch_first=True)
+
+    def encoder_parameters(self):
+        """
+        Obtain parameters for encoder part of network.
+
+        Returns
+        ----------
+        parameters : generator
+          Layer-wise iterator over parameters
+        """
+
+        # Obtain parameters corresponding to encoder
+        parameters = list(super().encoder_parameters())
+        # Append self-attention fan-in parameters
+        parameters += list(self.bottleneck_in.parameters())
+
+        # Return generator type
+        for p in parameters:
+            yield p
+
+    def decoder_parameters(self):
+        """
+        Obtain parameters for decoder part of network.
+
+        Returns
+        ----------
+        parameters : generator
+          Layer-wise iterator over parameters
+        """
+
+        # Obtain parameters corresponding to decoder
+        parameters = list(super().decoder_parameters())
+        # Append self-attention fan-out parameters
+        parameters += list(self.bottleneck_out.parameters())
+
+        # Return generator type
+        for p in parameters:
+            yield p
 
     def forward(self, features):
         """

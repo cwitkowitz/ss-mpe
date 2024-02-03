@@ -12,3 +12,5 @@ pyyaml
 mido
 jams
 tqdm
+crepe
+pesto-pitch

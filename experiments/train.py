@@ -5,7 +5,7 @@ from timbre_trap.datasets.MixedMultiPitch import URMP as URMP_Mixtures, Bach10 a
 from timbre_trap.datasets.SoloMultiPitch import URMP as URMP_Stems, MedleyDB_Pitch, MAESTRO, GuitarSet
 from timbre_trap.datasets.AudioMixtures import MedleyDB as MedleyDB_Mixtures, FMA
 from timbre_trap.datasets.AudioStems import MedleyDB as MedleyDB_Stems
-from timbre_trap.datasets import ComboDataset, constants
+from timbre_trap.datasets import ComboDataset, constants, StemMixingDataset
 
 from ss_mpe.datasets.SoloMultiPitch import NSynth, SWD
 from ss_mpe.datasets.AudioMixtures import MagnaTagATune
@@ -13,6 +13,7 @@ from ss_mpe.datasets import collate_audio_only
 
 from ss_mpe.models import DataParallel, SS_MPE, TT_Base
 from ss_mpe.models.objectives import *
+from timbre_trap.models.utils import *
 from ss_mpe.models.utils import *
 from evaluate import evaluate
 from utils import *
@@ -49,37 +50,41 @@ def config():
     checkpoint_path = None
 
     # Maximum number of training iterations to conduct
-    max_epochs = 500
+    max_epochs = 3
 
     # Number of iterations between checkpoints
     checkpoint_interval = 250
 
     # Number of samples to gather for a batch
-    batch_size = 4 if DEBUG else 16
+    batch_size = 4 if DEBUG else 20
 
     # Number of seconds of audio per sample
-    n_secs = 10
+    n_secs = 4
 
-    # Initial learning rate
-    learning_rate = 1e-3
+    # Initial learning rate for encoder
+    learning_rate_encoder = 1e-4
+
+    # Initial learning rate for decoder
+    learning_rate_decoder = learning_rate_encoder
+
+    # Group together both learning rates
+    learning_rates = [learning_rate_encoder, learning_rate_decoder]
 
     # Scaling factors for each loss term
     multipliers = {
         'support' : 1,
         'harmonic' : 1,
         'sparsity' : 1,
-        'timbre' : 0,
-        'geometric' : 0,
-        #'superposition' : 0,
-        #'scaling' : 0,
-        #'power' : 0
+        'timbre' : 1,
+        'geometric' : 1,
+        'supervised' : 0
     }
 
     # Number of epochs spanning warmup phase (0 to disable)
-    n_epochs_warmup = 1
+    n_epochs_warmup = 0
 
     # Set validation dataset to compare for learning rate decay and early stopping
-    validation_criteria_set = URMP_Mixtures.name()
+    validation_criteria_set = NSynth.name()
 
     # Set validation metric to compare for learning rate decay and early stopping
     validation_criteria_metric = 'loss/total'
@@ -91,13 +96,13 @@ def config():
     n_epochs_late_start = 0
 
     # Number of epochs without improvement before reducing learning rate (0 to disable)
-    n_epochs_decay = 1
+    n_epochs_decay = 0.5
 
     # Number of epochs before starting epoch counter for learning rate decay
     n_epochs_cooldown = 0
 
     # Number of epochs without improvement before early stopping (None to disable)
-    n_epochs_early_stop = None
+    n_epochs_early_stop = 1.0
 
     # IDs of the GPUs to use, if available
     gpu_ids = [0]
@@ -152,11 +157,13 @@ def config():
 
 
 @ex.automain
-def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_secs, learning_rate, multipliers,
-                n_epochs_warmup, validation_criteria_set, validation_criteria_metric, validation_criteria_maximize,
-                n_epochs_late_start, n_epochs_decay, n_epochs_cooldown, n_epochs_early_stop, gpu_ids, seed,
-                sample_rate, hop_length, fmin, bins_per_octave, n_bins, harmonics, n_workers, root_dir):
+def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_secs, learning_rates,
+                multipliers, n_epochs_warmup, validation_criteria_set, validation_criteria_metric,
+                validation_criteria_maximize, n_epochs_late_start, n_epochs_decay, n_epochs_cooldown,
+                n_epochs_early_stop, gpu_ids, seed, sample_rate, hop_length, fmin, bins_per_octave,
+                n_bins, harmonics, n_workers, root_dir):
     # Discard read-only types
+    learning_rates = list(learning_rates)
     multipliers = dict(multipliers)
     harmonics = list(harmonics)
     gpu_ids = list(gpu_ids)
@@ -164,24 +171,13 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Seed everything with the same seed
     seed_everything(seed)
 
-    # Point to the datasets within the storage drive containing them or use the default location
-    nsynth_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
-    mnet_base_dir      = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if CONFIG else None
-    mydb_base_dir      = os.path.join('/', 'storage', 'frank', 'MedleyDB') if CONFIG else None
-    magna_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'MagnaTagATune') if CONFIG else None
-    fma_base_dir       = os.path.join('/', 'storageNVME', 'frank', 'FMA') if CONFIG else None
-    mydb_ptch_base_dir = os.path.join('/', 'storage', 'frank', 'MedleyDB-Pitch') if CONFIG else None
-    urmp_base_dir      = os.path.join('/', 'storage', 'frank', 'URMP') if CONFIG else None
-    bch10_base_dir     = os.path.join('/', 'storage', 'frank', 'Bach10') if CONFIG else None
-    gset_base_dir      = os.path.join('/', 'storage', 'frank', 'GuitarSet') if CONFIG else None
-    mstro_base_dir     = os.path.join('/', 'storage', 'frank', 'MAESTRO') if CONFIG else None
-    swd_base_dir       = os.path.join('/', 'storage', 'frank', 'SWD') if CONFIG else None
-    su_base_dir        = os.path.join('/', 'storage', 'frank', 'Su') if CONFIG else None
-    trios_base_dir     = os.path.join('/', 'storage', 'frank', 'TRIOS') if CONFIG else None
-
     # Initialize the primary PyTorch device
     device = torch.device(f'cuda:{gpu_ids[0]}'
                           if torch.cuda.is_available() else 'cpu')
+
+    ########################
+    ## FEATURE EXTRACTION ##
+    ########################
 
     # Create weighting for harmonics (harmonic loss)
     harmonic_weights = 1 / torch.Tensor(harmonics) ** 2
@@ -204,8 +200,15 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                    'harmonics': harmonics,
                    'weights' : harmonic_weights}
 
+    # Determine maximum supported MIDI frequency
+    fmax = fmin + n_bins / (bins_per_octave / 12)
+
+    ###########
+    ## MODEL ##
+    ###########
+
     if checkpoint_path is None:
-        # Initialize autoencoder model and train from scratch
+        # Initialize autoencoder model
         model = TT_Base(hcqt_params,
                         latent_size=128,
                         model_complexity=2,
@@ -232,56 +235,49 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Add model to primary device
     model = model.to(device)
 
+    ##############
+    ## DATASETS ##
+    ##############
+
+    # Point to the datasets within the storage drive containing them or use the default location
+    nsynth_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
+    mnet_base_dir      = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if CONFIG else None
+    mydb_base_dir      = os.path.join('/', 'storage', 'frank', 'MedleyDB') if CONFIG else None
+    magna_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'MagnaTagATune') if CONFIG else None
+    fma_base_dir       = os.path.join('/', 'storageNVME', 'frank', 'FMA') if CONFIG else None
+    mydb_ptch_base_dir = os.path.join('/', 'storage', 'frank', 'MedleyDB-Pitch') if CONFIG else None
+    urmp_base_dir      = os.path.join('/', 'storage', 'frank', 'URMP') if CONFIG else None
+    bch10_base_dir     = os.path.join('/', 'storage', 'frank', 'Bach10') if CONFIG else None
+    gset_base_dir      = os.path.join('/', 'storage', 'frank', 'GuitarSet') if CONFIG else None
+    mstro_base_dir     = os.path.join('/', 'storage', 'frank', 'MAESTRO') if CONFIG else None
+    swd_base_dir       = os.path.join('/', 'storage', 'frank', 'SWD') if CONFIG else None
+    su_base_dir        = os.path.join('/', 'storage', 'frank', 'Su') if CONFIG else None
+    trios_base_dir     = os.path.join('/', 'storage', 'frank', 'TRIOS') if CONFIG else None
+
     # Initialize list to hold all training datasets
     all_train = list()
 
-    # Set the URMP validation set as was defined in the MT3 paper
-    urmp_val_splits = ['01', '02', '12', '13', '24', '25', '31', '38', '39']
-
-    # Allocate remaining tracks to URMP training set
-    urmp_train_splits = URMP_Mixtures.available_splits()
-
-    for t in urmp_val_splits:
-        # Remove validation track
-        urmp_train_splits.remove(t)
-
     if DEBUG:
         # Instantiate NSynth validation split for training
-        nsynth_train = NSynth(base_dir=nsynth_base_dir,
-                              splits=['valid'],
-                              midi_range=None,
-                              sample_rate=sample_rate,
-                              cqt=model.hcqt,
-                              n_secs=n_secs,
-                              seed=seed)
-        all_train.append(nsynth_train)
-    else:
-        # Instantiate NSynth training split for training
-        nsynth_train = NSynth(base_dir=nsynth_base_dir,
-                              splits=['train'],
-                              midi_range=None,
-                              sample_rate=sample_rate,
-                              cqt=model.hcqt,
-                              n_secs=n_secs,
-                              seed=seed)
-        all_train.append(nsynth_train)
-
-        # Instantiate MusicNet training split for training
-        mnet_mixes_train = MusicNet(base_dir=mnet_base_dir,
-                                    splits=['train'],
+        nsynth_stems_train = NSynth(base_dir=nsynth_base_dir,
+                                    splits=['valid'],
+                                    n_tracks=200,
+                                    midi_range=np.array([fmin, fmax]),
                                     sample_rate=sample_rate,
                                     cqt=model.hcqt,
                                     n_secs=n_secs,
                                     seed=seed)
-        #all_train.append(mnet_mixes_train)
-
-        # Instantiate FMA (large) dataset for training
-        fma_train = FMA(base_dir=fma_base_dir,
-                        splits=None,
-                        sample_rate=sample_rate,
-                        n_secs=n_secs,
-                        seed=seed)
-        #all_train.append(fma_train)
+        all_train.append(nsynth_stems_train)
+    else:
+        # Instantiate NSynth training split for training
+        nsynth_stems_train = NSynth(base_dir=nsynth_base_dir,
+                                    splits=['train'],
+                                    midi_range=np.array([fmin, fmax]),
+                                    sample_rate=sample_rate,
+                                    cqt=model.hcqt,
+                                    n_secs=n_secs,
+                                    seed=seed)
+        all_train.append(nsynth_stems_train)
 
     # Combine all training datasets
     all_train = ComboDataset(all_train)
@@ -291,7 +287,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                         batch_size=batch_size,
                         shuffle=True,
                         num_workers=n_workers,
-                        collate_fn=collate_audio_only,
                         pin_memory=True,
                         drop_last=True)
 
@@ -299,23 +294,19 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     nsynth_val = NSynth(base_dir=nsynth_base_dir,
                         splits=['valid'],
                         n_tracks=200,
+                        midi_range=np.array([fmin, fmax]),
                         sample_rate=sample_rate,
                         cqt=model.hcqt,
                         seed=seed)
 
+    # Set the URMP validation set as was defined in the MT3 paper
+    urmp_val_splits = ['01', '02', '12', '13', '24', '25', '31', '38', '39']
     # Instantiate URMP dataset mixtures for validation
-    urmp_mixes_val = URMP_Mixtures(base_dir=urmp_base_dir,
-                                   splits=urmp_val_splits,
-                                   sample_rate=sample_rate,
-                                   cqt=model.hcqt,
-                                   seed=seed)
-
-    # Instantiate TRIOS dataset for validation
-    trios_val = TRIOS(base_dir=trios_base_dir,
-                      splits=None,
-                      sample_rate=sample_rate,
-                      cqt=model.hcqt,
-                      seed=seed)
+    urmp_val = URMP_Mixtures(base_dir=urmp_base_dir,
+                             splits=urmp_val_splits,
+                             sample_rate=sample_rate,
+                             cqt=model.hcqt,
+                             seed=seed)
 
     # Instantiate NSynth testing split for evaluation
     nsynth_test = NSynth(base_dir=nsynth_base_dir,
@@ -338,23 +329,42 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                  cqt=model.hcqt,
                  seed=seed)
 
+    # Instantiate URMP dataset mixtures for evaluation
+    urmp_test = URMP_Mixtures(base_dir=urmp_base_dir,
+                              splits=None,
+                              sample_rate=sample_rate,
+                              cqt=model.hcqt,
+                              seed=seed)
+
+    # Instantiate TRIOS dataset for evaluation
+    trios_test = TRIOS(base_dir=trios_base_dir,
+                       splits=None,
+                       sample_rate=sample_rate,
+                       cqt=model.hcqt,
+                       seed=seed)
+
     # Instantiate GuitarSet dataset for evaluation
     gset_test = GuitarSet(base_dir=gset_base_dir,
-                          splits=['05'],
+                          splits=None,
                           sample_rate=sample_rate,
                           cqt=model.hcqt,
                           seed=seed)
 
     # Add all validation datasets to a list
-    validation_sets = [nsynth_val, urmp_mixes_val, trios_val, bch10_test, su_test, gset_test]
+    validation_sets = [nsynth_val, urmp_val, bch10_test, su_test, trios_test]
 
     # Add all evaluation datasets to a list
-    evaluation_sets = [nsynth_test, urmp_mixes_val, trios_val, bch10_test, su_test, gset_test]
+    evaluation_sets = [nsynth_test, bch10_test, su_test, trios_test, urmp_test, gset_test]
 
-    # Initialize an optimizer for the model parameters
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    #################
+    ## PREPARATION ##
+    #################
 
-    # Determine the amount of batches in one epoch
+    # Initialize an optimizer for the model parameters with differential learning rates
+    optimizer = torch.optim.AdamW([{'params' : model.encoder_parameters(), 'lr' : learning_rates[0]},
+                                   {'params' : model.decoder_parameters(), 'lr' : learning_rates[1]}])
+
+    # Determine amount of batches in one epoch
     epoch_steps = len(loader)
 
     # Compute number of validation checkpoints corresponding to learning rate decay cooldown and window
@@ -411,32 +421,93 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Flag to indicate early stopping criteria has been met
     early_stop_criteria = False
 
-    # Determine the sequence length of training samples
+    #################
+    ## TIMBRE LOSS ##
+    #################
+
+    # Number of random points to sample per octave
+    points_per_octave = 2
+
+    # Infer the number of bins per semitone
+    bins_per_semitone = bins_per_octave / 12
+
+    # Determine semitone span of frequency support
+    semitone_span = model.hcqt.midi_freqs.max() - model.hcqt.midi_freqs.min()
+
+    # Determine how many bins are represented across all harmonics
+    n_psuedo_bins = (bins_per_semitone * semitone_span).round()
+
+    # Determine how many octaves have been covered
+    n_octaves = int(math.ceil(n_psuedo_bins / bins_per_octave))
+
+    # Calculate number of cut/boost points to sample
+    n_points = 1 + points_per_octave * n_octaves
+
+    # Standard deviation of boost/cut
+    std_dev = 0.10
+
+    # Set keyword arguments for random equalization
+    random_kwargs = {
+        'n_points' : n_points,
+        'std_dev' : std_dev
+    }
+
+    # Pointiness for parabolic equalization
+    pointiness = 5
+
+    # Set keyword arguments for parabolic equalization
+    parabolic_kwargs = {
+        'pointiness' : pointiness
+    }
+
+    # Maximum amplitude for Gaussian equalization
+    max_A = 0.375
+
+    # Maximum standard deviation for Gaussian equalization
+    max_std_dev = 2 * bins_per_octave
+
+    # Whether to sample fixed rather than varied shapes
+    fixed_shape = False
+
+    # Set keyword arguments for Gaussian equalization
+    gaussian_kwargs = {
+        'max_A' : max_A,
+        'max_std_dev' : max_std_dev,
+        'fixed_shape' : fixed_shape
+    }
+
+    # Set equalization type and corresponding parameter values
+    eq_fn, eq_kwargs = sample_gaussian_equalization, gaussian_kwargs
+
+    ####################
+    ## GEOMETRIC LOSS ##
+    ####################
+
+    # Determine training sequence length in frames
     n_frames = int(n_secs * sample_rate / hop_length)
 
-    # Define the maximum position index (geometric-invariance loss)
-    max_position = 4 * n_frames
+    # Define maximum time and frequency shift
+    max_shift_v = 2 * bins_per_octave
+    max_shift_h = n_frames // 4
 
-    # Define maximum time and frequency shift (geometric-invariance loss)
-    max_shift_time = n_frames // 4
-    max_shift_freq = 2 * bins_per_octave
+    # Maximum rate by which audio can be sped up or slowed down
+    max_stretch_factor = 2
 
-    # Define time stretch boundaries (geometric-invariance loss)
-    min_stretch_time = 0.5
-    max_stretch_time = 2
+    # Set keyword arguments for geometric transformations
+    gm_kwargs = {
+        'max_shift_v' : max_shift_v,
+        'max_shift_h' : max_shift_h,
+        'max_stretch_factor' : max_stretch_factor
+    }
 
-    # Compute minimum MIDI frequency of each harmonic
-    fmins_midi = (fmin + 12 * torch.log2(torch.Tensor(harmonics))).unsqueeze(-1)
-    # Determine center MIDI frequency of each bin in the HCQT (timbre-invariance loss)
-    fbins_midi = fmins_midi + torch.arange(n_bins) / (bins_per_octave / 12)
+    ##############################
+    ## TRAINING/VALIDATION LOOP ##
+    ##############################
 
     # Loop through epochs
     for i in range(max_epochs):
-        #t = get_current_time()
         # Loop through batches of audio
         for data in tqdm(loader, desc=f'Epoch {i + 1}'):
-            #print_time_difference(t, 'Load Batch', device=device)
-            #t = get_current_time()
             # Increment the batch counter
             batch_count += 1
 
@@ -447,36 +518,31 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             # Extract audio and add to appropriate device
             audio = data[constants.KEY_AUDIO].to(device)
 
-            # Log the current learning rate for this batch
-            writer.add_scalar('train/loss/learning_rate', optimizer.param_groups[0]['lr'], batch_count)
-            #print_time_difference(t, 'Step/Audio', device=device)
-            #t = get_current_time()
+            # Log the current learning rates for this batch
+            writer.add_scalar('train/loss/learning_rate/encoder', optimizer.param_groups[0]['lr'], batch_count)
+            writer.add_scalar('train/loss/learning_rate/decoder', optimizer.param_groups[1]['lr'], batch_count)
 
             # Compute full set of spectral features
             features = model.get_all_features(audio)
 
             # Extract relevant feature sets
-            features_log   = features['dec']
-            features_log_1 = features['dec_1']
-            features_log_h = features['dec_h']
-            #print_time_difference(t, 'Features', device=device)
-            #t = get_current_time()
+            features_db   = features['db']
+            features_db_1 = features['db_1']
+            features_db_h = features['db_h']
 
             with torch.autocast(device_type=f'cuda'):
                 # Process features to obtain logits
-                logits, _, losses = model(features_log)
+                logits, _, losses = model(features_db)
                 # Convert to (implicit) pitch salience activations
                 estimate = torch.sigmoid(logits)
-                #print_time_difference(t, 'Model', device=device)
-                #t = get_current_time()
 
                 # Compute support loss w.r.t. first harmonic for the batch
-                support_loss = compute_support_loss(logits, features_log_1)
+                support_loss = compute_support_loss(logits, features_db_1)
                 # Log the support loss for this batch
                 writer.add_scalar('train/loss/support', support_loss.item(), batch_count)
 
                 # Compute harmonic loss w.r.t. weighted harmonic sum for the batch
-                harmonic_loss = compute_harmonic_loss(logits, features_log_h)
+                harmonic_loss = compute_harmonic_loss(logits, features_db_h)
                 # Log the harmonic loss for this batch
                 writer.add_scalar('train/loss/harmonic', harmonic_loss.item(), batch_count)
 
@@ -485,29 +551,34 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 # Log the sparsity loss for this batch
                 writer.add_scalar('train/loss/sparsity', sparsity_loss.item(), batch_count)
 
-                """
                 # Compute timbre-invariance loss for the batch
-                timbre_loss = compute_timbre_loss(model, features_log, logits, fbins_midi, bins_per_octave)
+                timbre_loss = compute_timbre_loss(model, features_db, logits, eq_fn, **eq_kwargs)
                 # Log the timbre-invariance loss for this batch
                 writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
 
                 # Compute geometric-invariance loss for the batch
-                geometric_loss = compute_geometric_loss(model, features_log, logits, max_seq_idx=max_position,
-                                                        max_shift_f=max_shift_freq, max_shift_t=max_shift_time,
-                                                        min_stretch=min_stretch_time, max_stretch=max_stretch_time)
+                geometric_loss = compute_geometric_loss(model, features_db, logits, **gm_kwargs)
                 # Log the geometric-invariance loss for this batch
                 writer.add_scalar('train/loss/geometric', geometric_loss.item(), batch_count)
-                """
+
+                # Extract ground-truth pitch salience activations
+                psuedo_ground_truth = data[constants.KEY_GROUND_TRUTH].to(device)
+                # Compute supervised BCE loss for the batch
+                supervised_loss = compute_supervised_loss(logits, psuedo_ground_truth)
+                # Log the supervised BCE loss for this batch
+                writer.add_scalar('train/loss/supervised', supervised_loss.item(), batch_count)
 
                 # Compute the total loss for this batch
                 total_loss = multipliers['support'] * support_loss + \
                              multipliers['harmonic'] * harmonic_loss + \
-                             multipliers['sparsity'] * sparsity_loss# + \
-                             #multipliers['timbre'] * timbre_loss + \
-                             #multipliers['geometric'] * geometric_loss
+                             multipliers['sparsity'] * sparsity_loss + \
+                             multipliers['timbre'] * timbre_loss + \
+                             multipliers['geometric'] * geometric_loss + \
+                             multipliers['supervised'] * supervised_loss
 
                 if i >= n_epochs_late_start:
                     # Currently no late-state losses
+                    # TODO - remove if unnecessary
                     pass
 
                 for key_loss, val_loss in losses.items():
@@ -518,36 +589,35 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 # Log the total loss for this batch
                 writer.add_scalar('train/loss/total', total_loss.item(), batch_count)
-                #print_time_difference(t, 'Losses', device=device)
-                #t = get_current_time()
 
                 # Zero the accumulated gradients
                 optimizer.zero_grad()
-                #print_time_difference(t, 'Zero Grad', device=device)
-                #t = get_current_time()
                 # Compute gradients using total loss
                 total_loss.backward()
-                #print_time_difference(t, 'Backward', device=device)
-                #t = get_current_time()
 
-                # Track the gradient norm of each layer in the encoder
-                cum_norm_encoder = track_gradient_norms(model.encoder)
-                # Log the cumulative gradient norm of the encoder for this batch
-                writer.add_scalar('train/cum_norm/encoder', cum_norm_encoder, batch_count)
+                # Compute the average gradient norm across the encoder
+                avg_norm_encoder = average_gradient_norms(model.encoder)
+                # Log the average gradient norm of the encoder for this batch
+                writer.add_scalar('train/avg_norm/encoder', avg_norm_encoder, batch_count)
+                # Determine the maximum gradient norm across encoder
+                max_norm_encoder = get_max_gradient_norm(model.encoder)
+                # Log the maximum gradient norm of the encoder for this batch
+                writer.add_scalar('train/max_norm/encoder', max_norm_encoder, batch_count)
 
-                # Track the gradient norm of each layer in the decoder
-                cum_norm_decoder = track_gradient_norms(model.decoder)
-                # Log the cumulative gradient norm of the decoder for this batch
-                writer.add_scalar('train/cum_norm/decoder', cum_norm_decoder, batch_count)
+                # Compute the average gradient norm across the decoder
+                avg_norm_decoder = average_gradient_norms(model.decoder)
+                # Log the average gradient norm of the decoder for this batch
+                writer.add_scalar('train/avg_norm/decoder', avg_norm_decoder, batch_count)
+                # Determine the maximum gradient norm across decoder
+                max_norm_decoder = get_max_gradient_norm(model.decoder)
+                # Log the maximum gradient norm of the decoder for this batch
+                writer.add_scalar('train/max_norm/decoder', max_norm_decoder, batch_count)
 
                 # Apply gradient clipping for training stability
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
-                #print_time_difference(t, 'Track Grad', device=device)
-                #t = get_current_time()
 
                 # Perform an optimization step
                 optimizer.step()
-                #print_time_difference(t, 'Step', device=device)
 
             if batch_count % checkpoint_interval == 0:
                 # Construct a path to save the model checkpoint
@@ -569,7 +639,10 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                                                   multipliers=multipliers,
                                                                   writer=writer,
                                                                   i=batch_count,
-                                                                  device=device)
+                                                                  device=device,
+                                                                  eq_fn=eq_fn,
+                                                                  eq_kwargs=eq_kwargs,
+                                                                  gm_kwargs=gm_kwargs)
 
                 # Make sure model is on correct device and switch to training mode
                 model = model.to(device)
@@ -593,6 +666,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 if best_results is None or \
                         (validation_criteria_maximize and current_score > best_score) or \
                         (not validation_criteria_maximize and current_score < best_score):
+                    print(f'New best at {batch_count} iterations...')
+
                     # Set current checkpoint as best
                     best_model_checkpoint = batch_count
                     # Update best results
@@ -608,7 +683,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     early_stop_criteria = True
 
                     break
-            #t = get_current_time()
 
         if early_stop_criteria:
             # Stop training
@@ -619,6 +693,10 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     for val_set in validation_sets:
         # Log the results at the best checkpoint for each validation dataset in metrics.json
         ex.log_scalar(f'Validation Results ({val_set.name()})', best_results[val_set.name()], best_model_checkpoint)
+
+    ################
+    ## EVALUATION ##
+    ################
 
     # Construct a path to the best model checkpoint
     best_model_path = os.path.join(log_dir, f'model-{best_model_checkpoint}.pt')
@@ -635,7 +713,10 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         final_results = evaluate(model=best_model,
                                  eval_set=eval_set,
                                  multipliers=multipliers,
-                                 device=device)
+                                 device=device,
+                                 eq_fn=eq_fn,
+                                 eq_kwargs=eq_kwargs,
+                                 gm_kwargs=gm_kwargs)
 
         # Log the evaluation results for this dataset in metrics.json
         ex.log_scalar(f'Evaluation Results ({eval_set.name()})', final_results, best_model_checkpoint)

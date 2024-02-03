@@ -1,6 +1,9 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
+from matplotlib.pyplot import Figure
+
 import matplotlib.pyplot as plt
+import numpy as np
 import random
 import torch
 import math
@@ -12,7 +15,8 @@ __all__ = [
     'print_and_log',
     'initialize_figure',
     'plot_magnitude',
-    'track_gradient_norms',
+    'plot_bce_loss',
+    'plot_equalization',
     'cosine_anneal',
     'CosineWarmup',
 ]
@@ -111,7 +115,7 @@ def initialize_figure(figsize=(9, 3), interactive=False):
     return fig
 
 
-def plot_magnitude(magnitude, extent=None, fig=None, save_path=None):
+def plot_magnitude(magnitude, extent=None, colorbar=False, fig=None, save_path=None):
     """
     Plot magnitude coefficients within range [0, 1].
 
@@ -123,6 +127,8 @@ def plot_magnitude(magnitude, extent=None, fig=None, save_path=None):
       T - number of frames
     extent : list [l, r, b, t] or None (Optional)
       Boundaries of horizontal and vertical axis
+    colorbar : bool
+      Whether to include a colorbar for reference
     fig : matplotlib Figure object
       Preexisting figure to use for plotting
     save_path : string or None (Optional)
@@ -131,7 +137,7 @@ def plot_magnitude(magnitude, extent=None, fig=None, save_path=None):
     Returns
     ----------
     fig : matplotlib Figure object
-      A handle for the figure used to plot the TFR
+      A handle for the figure used to plot TFR
     """
 
     if fig is None:
@@ -147,8 +153,8 @@ def plot_magnitude(magnitude, extent=None, fig=None, save_path=None):
                   extent[3], extent[2]]
 
     # Plot magnitude as an image
-    ax.imshow(magnitude, vmin=0, vmax=1, extent=extent)
-    # Flip the axis for ascending pitch
+    img = ax.imshow(magnitude, vmin=0, vmax=1, extent=extent)
+    # Flip y-axis for ascending pitch
     ax.invert_yaxis()
     # Make sure the image fills the figure
     ax.set_aspect('auto')
@@ -161,6 +167,10 @@ def plot_magnitude(magnitude, extent=None, fig=None, save_path=None):
         # Hide the axes
         ax.axis('off')
 
+    if colorbar:
+        # Add a legend to image
+        fig.colorbar(img)
+
     if save_path is not None:
         # Save the figure
         fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
@@ -168,43 +178,133 @@ def plot_magnitude(magnitude, extent=None, fig=None, save_path=None):
     return fig
 
 
-def track_gradient_norms(module, writer=None, i=0, prefix='gradients'):
+def plot_bce_loss(loss, title=None, colorbar=False, fig=None, save_path=None):
     """
-    Compute the cumulative gradient norm of a network across all layers.
+    Plot BCE loss landscape over entire range of ground-truth (y) / estimates (x).
 
     Parameters
     ----------
-    module : torch.nn.Module
-      Network containing gradients to track
-    writer : SummaryWriter
-      Results logger for tensorboard
-    i : int
-      Current iteration for logging
-    prefix : str
-      Tag prefix for logging
+    loss : ndarray (N + 1 x N - 1)
+      Loss over potential combinations [0, ?]
+    title : string or None (Optional)
+      Title to add above image
+    colorbar : bool
+      Whether to include a colorbar for reference
+    fig : matplotlib Figure object
+      Preexisting figure to use for plotting
+    save_path : string or None (Optional)
+      Save the figure to this path
 
     Returns
     ----------
-    cumulative_norm : float
-      Summed norms across all layers
+    fig : matplotlib Figure object
+      A handle for the figure used to plot loss landscape
     """
 
-    # Initialize the cumulative norm
-    cumulative_norm = 0.
+    if fig is None:
+        # Initialize a new figure if one was not given
+        fig = initialize_figure(figsize=(6, 5), interactive=False)
 
-    for layer, values in module.named_parameters():
-        if values.grad is not None:
-            # Compute the L2 norm of the gradients
-            grad_norm = values.grad.norm(2).item()
+    # Obtain a handle for the figure's current axis
+    ax = fig.gca()
 
-            if writer is not None:
-                # Log the norm of the gradients for this layer
-                writer.add_scalar(f'{prefix}/{layer}', grad_norm, i)
+    # Activation boundaries
+    extent = [0, 1, 1, 0]
 
-            # Accumulate the norm of the gradients
-            cumulative_norm += grad_norm
+    # Plot loss landscape as an image
+    img = ax.imshow(loss, vmin=0, vmax=np.max(loss), extent=extent)
+    # Flip y-axis for ascending activations
+    ax.invert_yaxis()
+    # Make sure the image fills the figure
+    ax.set_aspect('auto')
 
-    return cumulative_norm
+    if colorbar:
+        # Add a legend to image
+        fig.colorbar(img)
+
+    # Add axis labels
+    ax.set_ylabel('Target')
+    ax.set_xlabel('Estimate')
+
+    if title is not None:
+        # Add title to plot
+        ax.set_title(title)
+
+    if save_path is not None:
+        # Save the figure
+        fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
+
+    return fig
+
+
+def plot_equalization(original, curve, fig=None, save_path=None):
+    """
+    Plot original and equalized (normalized decibel) magnitude features, along with equalization curve.
+
+    Parameters
+    ----------
+    original : ndarray (F x T)
+      Magnitude coefficients [0, 1]
+      F - number of frequency bins
+      T - number of frames
+    curve : ndarray (F)
+      Equalization curve to apply
+    fig : matplotlib Figure object
+      Preexisting figure to use for plotting
+    save_path : string or None (Optional)
+      Save the figure to this path
+
+    Returns
+    ----------
+    fig : matplotlib Figure object
+      A handle for the figure used to plot equalization
+    """
+
+    # Equalized features with provided curve
+    equalized = np.expand_dims(curve, -1) * original
+    # Ensure equalized features remain within bounds
+    equalized = np.clip(equalized, a_min=0, a_max=1)
+
+    if fig is None:
+        # Initialize a new figure with subplots if one was not given
+        (fig, ax) = plt.subplots(nrows=1, ncols=3, width_ratios=[2, 1, 2], figsize=(12, 4), tight_layout=True)
+        # Open the figure manually
+        plt.show(block=False)
+    elif isinstance(fig, Figure):
+        # Obtain a handle for the figure's current axis
+        ax = fig.gca()
+    else:
+        # Axis was provided
+        ax = fig
+
+    # Plot original magnitude features as an image
+    ax[0].imshow(original, vmin=0, vmax=1, aspect='auto', origin='lower')
+    # Remove both axes
+    ax[0].axis('off')
+    # Add title to subplot
+    ax[0].set_title('Original')
+
+    # Plot upright equalization curve
+    ax[1].plot(curve, np.arange(curve.shape[-1]))
+    # Compress x-axis to valid range
+    ax[1].set_xlim(0.5, 1.5)
+    # Remove vertical axis
+    ax[1].get_yaxis().set_visible(False)
+    # Add title to subplot
+    ax[1].set_title('Curve')
+
+    # Plot equalized magnitude features as an image
+    ax[2].imshow(equalized, vmin=0, vmax=1, aspect='auto', origin='lower')
+    # Remove both axes
+    ax[2].axis('off')
+    # Add title to subplot
+    ax[2].set_title('Equalized')
+
+    if save_path is not None:
+        # Save the figure
+        fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
+
+    return fig
 
 
 def cosine_anneal(i, n_steps, start=0, floor=0.):

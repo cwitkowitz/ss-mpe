@@ -49,31 +49,35 @@ class HCQT(LHVQT):
 
         self.sample_rate = sample_rate
         self.hop_length = hop_length
+        self.bins_per_octave = bins_per_octave
         self.n_bins = n_bins
 
+        # Minimum MIDI frequency of each harmonic
+        fmins = fmin + 12 * np.log2([harmonics]).T
+
         # Determine center frequency (MIDI) associated with each bin of module
-        self.midi_freqs = fmin + np.arange(self.n_bins) / (bins_per_octave / 12)
+        self.midi_freqs = fmins + np.arange(self.n_bins) / (bins_per_octave / 12)
 
     @staticmethod
-    def to_decibels(magnitude, rescale=True):
+    def to_decibels(amplitude, rescale=True):
         """
-        Convert a set of magnitude coefficients to decibels.
+        Convert a set of amplitude coefficients to decibels.
 
         Parameters
         ----------
-        magnitude : Tensor (B x F X T)
-          Batch of magnitude coefficients (amplitude)
+        amplitude : Tensor (B x F X T)
+          Batch of amplitude coefficients (amplitude)
         rescale : bool
           Rescale decibels to the range [0, 1]
 
         Returns
         ----------
         decibels : Tensor (B x F X T)
-          Batch of magnitude coefficients (dB)
+          Batch of power coefficients (dB)
         """
 
         # Initialize a differentiable conversion to decibels
-        decibels = torch_amplitude_to_db(magnitude, to_prob=rescale)
+        decibels = torch_amplitude_to_db(amplitude, to_prob=rescale)
 
         return decibels
 
@@ -190,3 +194,21 @@ class HCQT(LHVQT):
         times = np.arange(n_frames) * self.hop_length / self.sample_rate
 
         return times
+
+    def get_midi_freqs(self):
+        """
+        Obtain the MIDI frequencies associated with the 1st harmonic.
+
+        Returns
+        ----------
+        midi_freqs : ndarray (F)
+          Center frequency of each bin
+        """
+
+        # Determine first harmonic index
+        h_idx = self.harmonics.index(1)
+
+        # Extract pre-computed frequencies
+        midi_freqs = self.midi_freqs[h_idx]
+
+        return midi_freqs
