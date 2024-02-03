@@ -1,7 +1,8 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from timbre_trap.datasets.MixedMultiPitch import Bach10
+from timbre_trap.datasets.MixedMultiPitch import Bach10, URMP, Su, TRIOS
+from timbre_trap.datasets.SoloMultiPitch import GuitarSet
 
 from timbre_trap.datasets.utils import constants
 from ss_mpe.models import SS_MPE
@@ -87,12 +88,40 @@ fmax = fmin + hcqt.n_bins / (hcqt.bins_per_octave / 12)
 
 # Point to the datasets within the storage drive containing them or use the default location
 bch10_base_dir = os.path.join('/', 'storage', 'frank', 'Bach10') if path_layout else None
+urmp_base_dir  = os.path.join('/', 'storage', 'frank', 'URMP') if path_layout else None
+su_base_dir    = os.path.join('/', 'storage', 'frank', 'Su') if path_layout else None
+trios_base_dir = os.path.join('/', 'storage', 'frank', 'TRIOS') if path_layout else None
+gset_base_dir  = os.path.join('/', 'storage', 'frank', 'GuitarSet') if path_layout else None
 
 # Instantiate Bach10 dataset mixtures for inference
 bch10_test = Bach10(base_dir=bch10_base_dir,
                     splits=None,
                     sample_rate=sample_rate,
                     cqt=hcqt)
+
+# Instantiate URMP dataset mixtures for inference
+urmp_test = URMP(base_dir=urmp_base_dir,
+                 splits=None,
+                 sample_rate=sample_rate,
+                 cqt=hcqt)
+
+# Instantiate Su dataset for inference
+su_test = Su(base_dir=su_base_dir,
+             splits=None,
+             sample_rate=sample_rate,
+             cqt=hcqt)
+
+# Instantiate TRIOS dataset for inference
+trios_test = TRIOS(base_dir=trios_base_dir,
+                   splits=None,
+                   sample_rate=sample_rate,
+                   cqt=hcqt)
+
+# Instantiate GuitarSet dataset for inference
+gset_test = GuitarSet(base_dir=gset_base_dir,
+                      splits=None,
+                      sample_rate=sample_rate,
+                      cqt=hcqt)
 
 
 ################
@@ -146,12 +175,12 @@ for eval_set in [bch10_test]:
         fig.sca(ax[0, 0])
         plot_magnitude(features_db_1, extent=extent_midi, fig=fig)
         # Axis management
-        ax[0, 0].set_title('$X_{h_1}$')
+        ax[0, 0].set_title('$X_1$')
         ax[0, 0].axis('on')
         ax[0, 0].set_xlabel('')
         ax[0, 0].set_ylabel('Frequency (MIDI)')
         ax[0, 0].set_yticks([30, 40, 50, 60, 70, 80, 90, 100])
-        ax[0, 0].grid()
+        #ax[0, 0].grid()
 
         """
         # Plot weighted average of HCQT features
@@ -177,7 +206,7 @@ for eval_set in [bch10_test]:
         ax[0, 1].set_ylabel('')
         ax[0, 1].set_yticks([30, 40, 50, 60, 70, 80, 90, 100])
         ax[0, 1].set_yticklabels(['' for t in ax[0, 1].get_yticks()])
-        ax[0, 1].grid()
+        #ax[0, 1].grid()
 
         for i, (tag, model) in enumerate(models.items()):
             # Transcribe the audio using the SS-MPE model
@@ -204,7 +233,7 @@ for eval_set in [bch10_test]:
                 ax_curr.set_xlabel('Time (s)')
             else:
                 ax_curr.set_xlabel('')
-            ax_curr.grid()
+            #ax_curr.grid()
 
         # Minimize free space
         fig.tight_layout()
