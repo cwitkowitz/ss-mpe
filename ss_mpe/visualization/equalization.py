@@ -4,8 +4,9 @@
 from ss_mpe.datasets.SoloMultiPitch import NSynth
 
 from ss_mpe.models.objectives import sample_gaussian_equalization
-from timbre_trap.datasets.utils import constants
 from ss_mpe.models import TT_Base
+from timbre_trap.utils import *
+from .utils import *
 
 # Regular imports
 import matplotlib.pyplot as plt
@@ -14,7 +15,6 @@ from tqdm import tqdm
 import librosa
 import torch
 import math
-import sys
 import os
 
 
@@ -23,10 +23,6 @@ n_curves = 2
 
 # Set randomization seed
 seed = 0
-
-# Import utilities from parent directory
-sys.path.insert(0, os.path.join('..'))
-from utils import *
 
 # Seed everything with the same seed
 seed_everything(seed)

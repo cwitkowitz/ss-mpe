@@ -1,22 +1,16 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from timbre_trap.datasets.MixedMultiPitch import URMP as URMP_Mixtures, Bach10 as Bach10_Mixtures, Su, MusicNet, TRIOS
-from timbre_trap.datasets.SoloMultiPitch import URMP as URMP_Stems, MedleyDB_Pitch, MAESTRO, GuitarSet
-from timbre_trap.datasets.AudioMixtures import MedleyDB as MedleyDB_Mixtures, FMA
-from timbre_trap.datasets.AudioStems import MedleyDB as MedleyDB_Stems
-from timbre_trap.datasets import ComboDataset, constants, StemMixingDataset
+from timbre_trap.datasets.MixedMultiPitch import URMP as URMP_Mixtures, Bach10 as Bach10_Mixtures, Su, TRIOS
+from timbre_trap.datasets.SoloMultiPitch import GuitarSet
+from timbre_trap.datasets import ComboDataset
 
-from ss_mpe.datasets.SoloMultiPitch import NSynth, SWD
-from ss_mpe.datasets.AudioMixtures import MagnaTagATune
-from ss_mpe.datasets import collate_audio_only
+from ss_mpe.datasets.SoloMultiPitch import NSynth
 
-from ss_mpe.models import DataParallel, SS_MPE, TT_Base
+from ss_mpe.models import SS_MPE, TT_Base
 from ss_mpe.models.objectives import *
-from timbre_trap.models.utils import *
-from ss_mpe.models.utils import *
+from timbre_trap.utils import *
 from evaluate import evaluate
-from utils import *
 
 # Regular imports
 from torch.utils.tensorboard import SummaryWriter

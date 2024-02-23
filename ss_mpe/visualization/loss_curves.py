@@ -1,10 +1,12 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
+# My imports
+from timbre_trap.utils import *
+
 # Regular imports
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
-import sys
 import os
 
 
@@ -19,11 +21,6 @@ if path_layout == 1:
     experiments_dir = os.path.join('/', 'storage', 'frank', 'self-supervised-pitch')
 else:
     experiments_dir = os.path.join('..', '..', 'generated', 'experiments')
-
-# Import utilities from parent directory
-sys.path.insert(0, os.path.join('..'))
-from utils import *
-
 
 # Open a new figure
 fig = initialize_figure(figsize=(12, 6))

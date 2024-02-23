@@ -1,8 +1,8 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from timbre_trap.datasets.utils import stream_url_resource, unzip_and_remove
 from timbre_trap.datasets import AMTDataset
+from timbre_trap.utils.data import *
 
 # Regular imports
 from mir_eval.multipitch import MIN_FREQ, MAX_FREQ

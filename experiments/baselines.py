@@ -4,13 +4,10 @@
 from timbre_trap.datasets.MixedMultiPitch import Bach10, URMP, Su, TRIOS
 from timbre_trap.datasets.SoloMultiPitch import GuitarSet
 from timbre_trap.datasets.NoteDataset import NoteDataset
-from timbre_trap.models import Transcriber as Timbre_Trap
+from timbre_trap.framework import TimbreTrap
 
-from timbre_trap.datasets.utils import stream_url_resource, constants
-from timbre_trap.models.utils import filter_non_peaks, threshold
-from evaluate import MultipitchEvaluator
 from ss_mpe.models import HCQT
-from utils import *
+from timbre_trap.utils import *
 
 # Regular imports
 from tqdm import tqdm
@@ -145,13 +142,13 @@ device = torch.device(f'cuda:{gpu_id}' if torch.cuda.is_available() and gpu_id i
 model_path = os.path.join('..', '..', 'timbre-trap', 'generated', 'experiments', 'Base', 'models', 'model-8750.pt')
 
 # Initialize autoencoder model and train from scratch
-tt_mpe = Timbre_Trap(sample_rate=22050,
-                     n_octaves=9,
-                     bins_per_octave=60,
-                     secs_per_block=3,
-                     latent_size=128,
-                     model_complexity=2,
-                     skip_connections=False)
+tt_mpe = TimbreTrap(sample_rate=22050,
+                    n_octaves=9,
+                    bins_per_octave=60,
+                    secs_per_block=3,
+                    latent_size=128,
+                    model_complexity=2,
+                    skip_connections=False)
 
 # Load final checkpoint of the base Timbre-Trap model
 tt_mpe.load_state_dict(torch.load(model_path, map_location=device))

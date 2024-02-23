@@ -1,7 +1,7 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from . import constants
+from timbre_trap.utils.data import constants
 
 # Regular imports
 from torch.utils.data import default_collate

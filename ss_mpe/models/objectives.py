@@ -1,9 +1,5 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
-# My imports
-from .hcqtmodule import HCQT
-
-# Regular imports
 import torch.nn.functional as F
 import torch
 

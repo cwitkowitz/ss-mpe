@@ -3,8 +3,8 @@
 # My imports
 from ss_mpe.datasets.SoloMultiPitch import NSynth
 
-from timbre_trap.datasets.utils import constants
 from ss_mpe.models import TT_Base
+from timbre_trap.utils import *
 
 # Regular imports
 from tqdm import tqdm
@@ -12,16 +12,11 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import librosa
 import torch
-import sys
 import os
 
 
 # Set randomization seed
 seed = 0
-
-# Import utilities from parent directory
-sys.path.insert(0, os.path.join('..'))
-from utils import plot_magnitude
 
 
 ########################
