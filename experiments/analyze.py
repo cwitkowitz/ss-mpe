@@ -4,7 +4,7 @@
 from timbre_trap.datasets.NoteDataset import NoteDataset
 from ss_mpe.datasets.SoloMultiPitch import NSynth
 
-from ss_mpe.models import SS_MPE
+from ss_mpe.framework import SS_MPE
 from timbre_trap.utils import *
 
 # Regular imports

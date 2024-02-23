@@ -7,8 +7,8 @@ from timbre_trap.datasets import ComboDataset
 
 from ss_mpe.datasets.SoloMultiPitch import NSynth
 
-from ss_mpe.models import SS_MPE, TT_Base
-from ss_mpe.models.objectives import *
+from ss_mpe.framework import SS_MPE, TT_Base
+from ss_mpe.framework.objectives import *
 from timbre_trap.utils import *
 from evaluate import evaluate
 

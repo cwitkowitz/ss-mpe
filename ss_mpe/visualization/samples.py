@@ -3,7 +3,7 @@
 # My imports
 from ss_mpe.datasets.SoloMultiPitch import NSynth
 
-from ss_mpe.models import TT_Base
+from ss_mpe.framework import TT_Base
 from timbre_trap.utils import *
 
 # Regular imports
