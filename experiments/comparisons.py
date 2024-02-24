@@ -6,16 +6,12 @@ from timbre_trap.datasets.SoloMultiPitch import GuitarSet
 from timbre_trap.datasets.NoteDataset import NoteDataset
 from ss_mpe.datasets.SoloMultiPitch import NSynth
 
-from timbre_trap.datasets.utils import stream_url_resource, constants
-from timbre_trap.models.utils import filter_non_peaks, threshold
-from evaluate import MultipitchEvaluator
-from ss_mpe.models import SS_MPE
-from utils import *
+from ss_mpe.framework import SS_MPE
+from timbre_trap.utils import *
 
 # Regular imports
 from tqdm import tqdm
 
-import numpy as np
 import librosa
 import torch
 import os

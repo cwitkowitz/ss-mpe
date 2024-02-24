@@ -4,11 +4,8 @@
 from timbre_trap.datasets.NoteDataset import NoteDataset
 from ss_mpe.datasets.SoloMultiPitch import NSynth
 
-from timbre_trap.models.utils import filter_non_peaks, threshold
-from timbre_trap.datasets.utils import constants
-from evaluate import MultipitchEvaluator
-from ss_mpe.models import SS_MPE
-from utils import *
+from ss_mpe.framework import SS_MPE
+from timbre_trap.utils import *
 
 # Regular imports
 from tqdm import tqdm
@@ -20,10 +17,10 @@ import os
 
 
 # Name of the model to evaluate
-ex_name = '<EXPERIMENT_DIR>'
+ex_name = 'SS-MPE'
 
 # Choose the model checkpoint to compare
-checkpoint = 0
+checkpoint = 37000
 
 # Choose the GPU on which to perform evaluation
 gpu_id = None

@@ -4,13 +4,10 @@
 from timbre_trap.datasets.MixedMultiPitch import Bach10, URMP, Su, TRIOS
 from timbre_trap.datasets.SoloMultiPitch import GuitarSet
 from timbre_trap.datasets.NoteDataset import NoteDataset
-from timbre_trap.models import Transcriber as Timbre_Trap
+from timbre_trap.framework import TimbreTrap
 
-from timbre_trap.datasets.utils import stream_url_resource, constants
-from timbre_trap.models.utils import filter_non_peaks, threshold
-from evaluate import MultipitchEvaluator
-from ss_mpe.models import HCQT
-from utils import *
+from ss_mpe.framework import HCQT
+from timbre_trap.utils import *
 
 # Regular imports
 from tqdm import tqdm
@@ -86,10 +83,8 @@ bp_midi_freqs = librosa.note_to_midi('A0') + np.arange(264) / (bp_bins_per_octav
 
 # Specify the names of the files to download from GitHub
 script_name, weights_name = 'predict_on_audio.py', 'multif0.h5'
-# Obtain the path to the models directory
-models_dir = os.path.join('..', 'ss_mpe', 'models')
 # Construct a path to a top-level directory for DeepSalience
-deep_salience_dir = os.path.join(models_dir, 'deep_salience')
+deep_salience_dir = os.path.join('..', 'generated', 'deep_salience')
 # Create the necessary file hierarchy if it doesn't exist
 os.makedirs(os.path.join(deep_salience_dir, 'weights'), exist_ok=True)
 # Construct paths for the downloaded files
@@ -97,10 +92,10 @@ script_path = os.path.join(deep_salience_dir, script_name)
 weights_path = os.path.join(deep_salience_dir, 'weights', weights_name)
 try:
     # Attempt to import the DeepSalience inference code
-    from ss_mpe.models.deep_salience.predict_on_audio import (model_def,
-                                                              compute_hcqt,
-                                                              get_single_test_prediction,
-                                                              get_multif0)
+    from generated.deep_salience.predict_on_audio import (model_def,
+                                                          compute_hcqt,
+                                                          get_single_test_prediction,
+                                                          get_multif0)
 except ModuleNotFoundError:
     # Point to the top-level directory containing files to download
     url_dir = 'https://raw.githubusercontent.com/rabitt/ismir2017-deepsalience/master/predict'
@@ -128,10 +123,10 @@ except ModuleNotFoundError:
         f.writelines(lines)
 
     # Retry the original import
-    from ss_mpe.models.deep_salience.predict_on_audio import (model_def,
-                                                              compute_hcqt,
-                                                              get_single_test_prediction,
-                                                              get_multif0)
+    from generated.deep_salience.predict_on_audio import (model_def,
+                                                          compute_hcqt,
+                                                          get_single_test_prediction,
+                                                          get_multif0)
 # Initialize Deep-Salience
 deep_salience = model_def()
 # Load the weights from the paper
@@ -145,13 +140,13 @@ device = torch.device(f'cuda:{gpu_id}' if torch.cuda.is_available() and gpu_id i
 model_path = os.path.join('..', '..', 'timbre-trap', 'generated', 'experiments', 'Base', 'models', 'model-8750.pt')
 
 # Initialize autoencoder model and train from scratch
-tt_mpe = Timbre_Trap(sample_rate=22050,
-                     n_octaves=9,
-                     bins_per_octave=60,
-                     secs_per_block=3,
-                     latent_size=128,
-                     model_complexity=2,
-                     skip_connections=False)
+tt_mpe = TimbreTrap(sample_rate=22050,
+                    n_octaves=9,
+                    bins_per_octave=60,
+                    secs_per_block=3,
+                    latent_size=128,
+                    model_complexity=2,
+                    skip_connections=False)
 
 # Load final checkpoint of the base Timbre-Trap model
 tt_mpe.load_state_dict(torch.load(model_path, map_location=device))

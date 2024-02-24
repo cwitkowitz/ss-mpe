@@ -4,8 +4,8 @@
 from timbre_trap.datasets.MixedMultiPitch import Bach10, URMP, Su, TRIOS
 from timbre_trap.datasets.SoloMultiPitch import GuitarSet
 
-from timbre_trap.datasets.utils import constants
-from ss_mpe.models import SS_MPE
+from ss_mpe.framework import SS_MPE
+from timbre_trap.utils import *
 
 # Regular imports
 from scipy.signal import convolve2d
@@ -14,16 +14,15 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import sys
 import os
 
 
 # Experiment dictionary [tag, checkpoint]
 experiments = {
+    'Energy' : ['Energy', 43000],
     'SS-MPE' : ['SS-MPE', 37000],
-    'Timbre' : ['Timbre-Only', 41750],
-    'Geometric' : ['Geometric-Only', 37000],
-    'Energy' : ['Energy-Only', 43000]
+    'Timbre' : ['Energy + Timbre', 41750],
+    'Geometric' : ['Energy + Geometric', 37000]
 }
 
 # Choose the GPU on which to perform evaluation
@@ -40,10 +39,6 @@ if path_layout == 1:
     experiments_dir = os.path.join('/', 'storage', 'frank', 'self-supervised-pitch')
 else:
     experiments_dir = os.path.join('..', '..', 'generated', 'experiments')
-
-# Import utilities from parent directory
-sys.path.insert(0, os.path.join('..'))
-from utils import *
 
 
 ###########

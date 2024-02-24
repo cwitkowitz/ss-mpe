@@ -1,8 +1,8 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from timbre_trap.datasets.utils import stream_url_resource, unzip_and_remove, change_base_dir
 from timbre_trap.datasets import MPEDataset
+from timbre_trap.utils.data import *
 
 # Regular imports
 import numpy as np

@@ -1,9 +1,9 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from timbre_trap.models import Encoder, EncoderBlock, Decoder, DecoderBlock
+from timbre_trap.framework import *
 
-from . import SS_MPE, ProjectionHead
+from . import SS_MPE
 
 # Regular imports
 import torch.nn as nn

@@ -1,9 +1,13 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
+# My imports
+from timbre_trap.utils import to_array
+from .utils import *
+
+# Regular imports
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 import torch
-import sys
 import os
 
 
@@ -41,10 +45,6 @@ def bce_pos(est, ref):
 
     return loss
 
-
-# Import utilities from parent directory
-sys.path.insert(0, os.path.join('..'))
-from utils import *
 
 # Set number of steps
 n_steps = 2000
