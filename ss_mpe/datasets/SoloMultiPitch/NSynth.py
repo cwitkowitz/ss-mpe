@@ -167,60 +167,65 @@ class NSynth(AMTDataset):
           Array of corresponding onset-offset time pair
         """
 
-        # Extract nominal pitch
-        pitch = self.get_pitch(track)
+        try:
+            # Extract nominal pitch
+            pitch = self.get_pitch(track)
 
-        # Load the track's audio
-        audio = self.get_audio(track).squeeze()
+            # Load the track's audio
+            audio = self.get_audio(track).squeeze()
 
-        # Determine safe lower-bound for frequency content
-        cutoff_low = pitch / 3
+            # Determine safe lower-bound for frequency content
+            cutoff_low = pitch / 3
 
-        if self.midi_range is not None:
-            # Determine minimum allowable frequency in Hertz
-            cutoff_low_global = librosa.midi_to_hz(self.midi_range)[0]
-            # Choose the higher of the two cutoffs for filtering
-            cutoff_low = max(cutoff_low, cutoff_low_global)
+            if self.midi_range is not None:
+                # Determine minimum allowable frequency in Hertz
+                cutoff_low_global = librosa.midi_to_hz(self.midi_range)[0]
+                # Choose the higher of the two cutoffs for filtering
+                cutoff_low = max(cutoff_low, cutoff_low_global)
 
-        # Low-pass filter to remove artifacts before inferring pitch activity
-        audio_highpass = F.highpass_biquad(audio, self.sample_rate, cutoff_low)
+            # Low-pass filter to remove artifacts before inferring pitch activity
+            audio_highpass = F.highpass_biquad(audio, self.sample_rate, cutoff_low)
 
-        # Determine window length in number of samples
-        w_length = round(w_length_t * self.sample_rate)
+            # Determine window length in number of samples
+            w_length = round(w_length_t * self.sample_rate)
 
-        # Compute RMS window
-        w = torch.ones(w_length)
-        # Compute discrete RMS values for filtered signal
-        rms = torch.sqrt((1 / w_length) * F.convolve(audio_highpass ** 2, w, 'same'))
-        # Low-pass filter RMS values to obtain amplitude envelope
-        amplitude = F.lowpass_biquad(rms, self.sample_rate, cutoff_freq=30)
+            # Compute RMS window
+            w = torch.ones(w_length)
+            # Compute discrete RMS values for filtered signal
+            rms = torch.sqrt((1 / w_length) * F.convolve(audio_highpass ** 2, w, 'same'))
+            # Low-pass filter RMS values to obtain amplitude envelope
+            amplitude = F.lowpass_biquad(rms, self.sample_rate, cutoff_freq=30)
 
-        # Compute time corresponding to each sample
-        times = np.arange(len(audio)) / self.sample_rate
-        # Determine where amplitude is within specified % of maximum
-        activity = (amplitude >= a_perc * amplitude.max()).long()
+            # Compute time corresponding to each sample
+            times = np.arange(len(audio)) / self.sample_rate
+            # Determine where amplitude is within specified % of maximum
+            activity = (amplitude >= a_perc * amplitude.max()).long()
 
-        # Determine which samples correspond to onsets and offsets
-        onsets = torch.cat([activity[:1], activity[1:] - activity[:-1]]).relu()
-        offsets = torch.cat([activity[-1:], activity[:-1] - activity[1:]]).relu()
+            # Determine which samples correspond to onsets and offsets
+            onsets = torch.cat([activity[:1], activity[1:] - activity[:-1]]).relu()
+            offsets = torch.cat([activity[-1:], activity[:-1] - activity[1:]]).relu()
 
-        #import matplotlib.pyplot as plt
-        #plt.plot(audio)
-        #plt.title(track)
-        #plt.plot(audio_highpass)
-        #plt.plot(amplitude)
-        #plt.plot(onsets)
-        #plt.plot(offsets)
+            #import matplotlib.pyplot as plt
+            #plt.plot(audio)
+            #plt.title(track)
+            #plt.plot(audio_highpass)
+            #plt.plot(amplitude)
+            #plt.plot(onsets)
+            #plt.plot(offsets)
 
-        # Convert samples to times
-        onsets = times[onsets.bool()]
-        offsets = times[offsets.bool()]
+            # Convert samples to times
+            onsets = times[onsets.bool()]
+            offsets = times[offsets.bool()]
 
-        # Create an array for detected note intervals
-        intervals = np.concatenate(([onsets], [offsets])).T
+            # Create an array for detected note intervals
+            intervals = np.concatenate(([onsets], [offsets])).T
 
-        # Create a corresponding array for pitches
-        pitches = np.array([pitch] * len(intervals))
+            # Create a corresponding array for pitches
+            pitches = np.array([pitch] * len(intervals))
+
+        except Exception as e:
+            # Print offending track and exception to console
+            print(f'Error loading track \'{track}\': {repr(e)}')
 
         return pitches, intervals
 

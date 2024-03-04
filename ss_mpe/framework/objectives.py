@@ -375,9 +375,15 @@ def compute_geometric_loss(model, features, embeddings, max_shift_v, max_shift_h
     return geometric_loss
 
 
-def compute_supervised_loss(embeddings, ground_truth):
+def compute_supervised_loss(embeddings, ground_truth, weight_positive_class=False):
     # Compute supervised loss as BCE of activations with respect to ground-truth
     supervised_loss = F.binary_cross_entropy_with_logits(embeddings, ground_truth, reduction='none')
+
+    if weight_positive_class and ground_truth.any():
+        # Determine the inverse ratio between positive and negative activations
+        positive_weight = torch.sum(1 - ground_truth).item() / torch.sum(ground_truth).item()
+        # Scale transcription loss for positive targets
+        supervised_loss[ground_truth == 1] *= positive_weight
 
     # Sum across frequency bins and average across time and batch
     supervised_loss = supervised_loss.sum(-2).mean(-1).mean(-1)

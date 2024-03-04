@@ -1,8 +1,9 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from timbre_trap.datasets.MixedMultiPitch import URMP as URMP_Mixtures, Bach10 as Bach10_Mixtures, Su, TRIOS
+from timbre_trap.datasets.MixedMultiPitch import URMP as URMP_Mixtures, Bach10 as Bach10_Mixtures, Su, TRIOS, MusicNet
 from timbre_trap.datasets.SoloMultiPitch import GuitarSet
+from timbre_trap.datasets.AudioMixtures import FMA, MedleyDB
 from timbre_trap.datasets import ComboDataset
 
 from ss_mpe.datasets.SoloMultiPitch import NSynth
@@ -44,7 +45,7 @@ def config():
     checkpoint_path = None
 
     # Maximum number of training iterations to conduct
-    max_epochs = 3
+    max_epochs = 1000
 
     # Number of iterations between checkpoints
     checkpoint_interval = 250
@@ -96,7 +97,7 @@ def config():
     n_epochs_cooldown = 0
 
     # Number of epochs without improvement before early stopping (None to disable)
-    n_epochs_early_stop = 1.0
+    n_epochs_early_stop = None
 
     # IDs of the GPUs to use, if available
     gpu_ids = [0]
@@ -194,8 +195,11 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                    'harmonics': harmonics,
                    'weights' : harmonic_weights}
 
+    # Infer the number of bins per semitone
+    bins_per_semitone = bins_per_octave / 12
+
     # Determine maximum supported MIDI frequency
-    fmax = fmin + n_bins / (bins_per_octave / 12)
+    fmax = fmin + n_bins / bins_per_semitone
 
     ###########
     ## MODEL ##
@@ -234,19 +238,15 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ##############
 
     # Point to the datasets within the storage drive containing them or use the default location
-    nsynth_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
-    mnet_base_dir      = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if CONFIG else None
-    mydb_base_dir      = os.path.join('/', 'storage', 'frank', 'MedleyDB') if CONFIG else None
-    magna_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'MagnaTagATune') if CONFIG else None
-    fma_base_dir       = os.path.join('/', 'storageNVME', 'frank', 'FMA') if CONFIG else None
-    mydb_ptch_base_dir = os.path.join('/', 'storage', 'frank', 'MedleyDB-Pitch') if CONFIG else None
-    urmp_base_dir      = os.path.join('/', 'storage', 'frank', 'URMP') if CONFIG else None
-    bch10_base_dir     = os.path.join('/', 'storage', 'frank', 'Bach10') if CONFIG else None
-    gset_base_dir      = os.path.join('/', 'storage', 'frank', 'GuitarSet') if CONFIG else None
-    mstro_base_dir     = os.path.join('/', 'storage', 'frank', 'MAESTRO') if CONFIG else None
-    swd_base_dir       = os.path.join('/', 'storage', 'frank', 'SWD') if CONFIG else None
-    su_base_dir        = os.path.join('/', 'storage', 'frank', 'Su') if CONFIG else None
-    trios_base_dir     = os.path.join('/', 'storage', 'frank', 'TRIOS') if CONFIG else None
+    nsynth_base_dir = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
+    urmp_base_dir   = os.path.join('/', 'storage', 'frank', 'URMP') if CONFIG else None
+    bch10_base_dir  = os.path.join('/', 'storage', 'frank', 'Bach10') if CONFIG else None
+    su_base_dir     = os.path.join('/', 'storage', 'frank', 'Su') if CONFIG else None
+    trios_base_dir  = os.path.join('/', 'storage', 'frank', 'TRIOS') if CONFIG else None
+    gset_base_dir   = os.path.join('/', 'storage', 'frank', 'GuitarSet') if CONFIG else None
+    fma_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'FMA') if CONFIG else None
+    mnet_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if CONFIG else None
+    mydb_base_dir   = os.path.join('/', 'storage', 'frank', 'MedleyDB') if CONFIG else None
 
     # Initialize list to hold all training datasets
     all_train = list()
@@ -273,6 +273,30 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                     seed=seed)
         all_train.append(nsynth_stems_train)
 
+        # Instantiate FMA audio for training
+        fma_train = FMA(base_dir=fma_base_dir,
+                        splits=None,
+                        sample_rate=sample_rate,
+                        n_secs=n_secs,
+                        seed=seed)
+        #all_train.append(fma_train)
+
+        # Instantiate MusicNet audio for training
+        mnet_train = MusicNet(base_dir=mnet_base_dir,
+                              splits=None,
+                              sample_rate=sample_rate,
+                              n_secs=n_secs,
+                              seed=seed)
+        #all_train.append(mnet_train)
+
+        # Instantiate MedleyDB audio for training
+        mydb_train = MedleyDB(base_dir=mydb_base_dir,
+                              splits=None,
+                              sample_rate=sample_rate,
+                              n_secs=n_secs,
+                              seed=seed)
+        #all_train.append(mydb_train)
+
     # Combine all training datasets
     all_train = ComboDataset(all_train)
 
@@ -281,6 +305,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                         batch_size=batch_size,
                         shuffle=True,
                         num_workers=n_workers,
+                        collate_fn=separate_ground_truth,
                         pin_memory=True,
                         drop_last=True)
 
@@ -422,9 +447,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Number of random points to sample per octave
     points_per_octave = 2
 
-    # Infer the number of bins per semitone
-    bins_per_semitone = bins_per_octave / 12
-
     # Determine semitone span of frequency support
     semitone_span = model.hcqt.midi_freqs.max() - model.hcqt.midi_freqs.min()
 
@@ -494,6 +516,19 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         'max_stretch_factor' : max_stretch_factor
     }
 
+    #####################
+    ## SUPERVISED LOSS ##
+    #####################
+
+    # Compute the number of bins within a quarter tone
+    bins_per_quarter = round(bins_per_semitone / 2)
+    # Determine the number of bins for the blur kernel
+    n_bins_blur = 1 + 2 * bins_per_quarter
+    # Create the kernel for Gaussian blur
+    blur = torch.signal.windows.gaussian(n_bins_blur, std=1., device=device)
+    # Add appropriate dimensions and convert to double
+    blur = blur.resize(1, 1, len(blur), 1).double()
+
     ##############################
     ## TRAINING/VALIDATION LOOP ##
     ##############################
@@ -501,7 +536,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Loop through epochs
     for i in range(max_epochs):
         # Loop through batches of audio
-        for data in tqdm(loader, desc=f'Epoch {i + 1}'):
+        for (data_mpe, data_audio, _) in tqdm(loader, desc=f'Epoch {i + 1}'):
             # Increment the batch counter
             batch_count += 1
 
@@ -509,8 +544,31 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 # Step the learning rate warmup scheduler
                 warmup_scheduler.step()
 
-            # Extract audio and add to appropriate device
-            audio = data[constants.KEY_AUDIO].to(device)
+            if data_mpe is not None:
+                # Extract ground-truth pitch salience activations
+                ground_truth = data_mpe[constants.KEY_GROUND_TRUTH].to(device)
+                # Keep track of number of samples with ground-truth
+                n_ground_truth = ground_truth.size(0)
+                # Add a temporary channel dimension
+                ground_truth = ground_truth.unsqueeze(-3)
+                # Apply the Gaussian blurring kernel to the ground-truth salience
+                ground_truth = torch.nn.functional.conv2d(ground_truth, blur, padding='same')
+                # Remove the temporary channel dimension
+                ground_truth = ground_truth.squeeze(-3)
+
+            if data_mpe is None:
+                # Extract audio samples from audio-only data
+                audio = data_audio[constants.KEY_AUDIO]
+            elif data_audio is None:
+                # Extract audio samples from MPE data
+                audio = data_mpe[constants.KEY_AUDIO]
+            else:
+                # Concatenate samples from both sets of data
+                audio = torch.cat((data_mpe[constants.KEY_AUDIO],
+                                   data_audio[constants.KEY_AUDIO]))
+
+            # Add audio to appropriate device
+            audio = audio.to(device)
 
             # Log the current learning rates for this batch
             writer.add_scalar('train/loss/learning_rate/encoder', optimizer.param_groups[0]['lr'], batch_count)
@@ -555,20 +613,20 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 # Log the geometric-invariance loss for this batch
                 writer.add_scalar('train/loss/geometric', geometric_loss.item(), batch_count)
 
-                # Extract ground-truth pitch salience activations
-                psuedo_ground_truth = data[constants.KEY_GROUND_TRUTH].to(device)
-                # Compute supervised BCE loss for the batch
-                supervised_loss = compute_supervised_loss(logits, psuedo_ground_truth)
-                # Log the supervised BCE loss for this batch
-                writer.add_scalar('train/loss/supervised', supervised_loss.item(), batch_count)
-
                 # Compute the total loss for this batch
                 total_loss = multipliers['support'] * support_loss + \
                              multipliers['harmonic'] * harmonic_loss + \
                              multipliers['sparsity'] * sparsity_loss + \
                              multipliers['timbre'] * timbre_loss + \
-                             multipliers['geometric'] * geometric_loss + \
-                             multipliers['supervised'] * supervised_loss
+                             multipliers['geometric'] * geometric_loss
+
+                if data_mpe is not None:
+                    # Compute supervised BCE loss for the batch
+                    supervised_loss = compute_supervised_loss(logits[:n_ground_truth], ground_truth)
+                    # Log the supervised BCE loss for this batch
+                    writer.add_scalar('train/loss/supervised', supervised_loss.item(), batch_count)
+                    # Add supervised loss to the total loss
+                    total_loss += multipliers['supervised'] * supervised_loss
 
                 if i >= n_epochs_late_start:
                     # Currently no late-state losses
