@@ -593,25 +593,35 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 # Log the support loss for this batch
                 writer.add_scalar('train/loss/support', support_loss.item(), batch_count)
 
+                debug_nans(support_loss, 'support')
+
                 # Compute harmonic loss w.r.t. weighted harmonic sum for the batch
                 harmonic_loss = compute_harmonic_loss(logits, features_db_h)
                 # Log the harmonic loss for this batch
                 writer.add_scalar('train/loss/harmonic', harmonic_loss.item(), batch_count)
+
+                debug_nans(harmonic_loss, 'harmonic')
 
                 # Compute sparsity loss for the batch
                 sparsity_loss = compute_sparsity_loss(estimate)
                 # Log the sparsity loss for this batch
                 writer.add_scalar('train/loss/sparsity', sparsity_loss.item(), batch_count)
 
+                debug_nans(sparsity_loss, 'sparsity')
+
                 # Compute timbre-invariance loss for the batch
                 timbre_loss = compute_timbre_loss(model, features_db, logits, eq_fn, **eq_kwargs)
                 # Log the timbre-invariance loss for this batch
                 writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
 
+                debug_nans(timbre_loss, 'timbre')
+
                 # Compute geometric-invariance loss for the batch
                 geometric_loss = compute_geometric_loss(model, features_db, logits, **gm_kwargs)
                 # Log the geometric-invariance loss for this batch
                 writer.add_scalar('train/loss/geometric', geometric_loss.item(), batch_count)
+
+                debug_nans(geometric_loss, 'geometric')
 
                 # Compute the total loss for this batch
                 total_loss = multipliers['support'] * support_loss + \
@@ -622,11 +632,13 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 if data_mpe is not None:
                     # Compute supervised BCE loss for the batch
-                    supervised_loss = compute_supervised_loss(logits[:n_ground_truth], ground_truth)
+                    supervised_loss = compute_supervised_loss(logits[:n_ground_truth], ground_truth, True)
                     # Log the supervised BCE loss for this batch
                     writer.add_scalar('train/loss/supervised', supervised_loss.item(), batch_count)
                     # Add supervised loss to the total loss
                     total_loss += multipliers['supervised'] * supervised_loss
+
+                    debug_nans(supervised_loss, 'supervised')
 
                 if i >= n_epochs_late_start:
                     # Currently no late-state losses
@@ -638,6 +650,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     writer.add_scalar(f'train/loss/{key_loss}', val_loss.item(), batch_count)
                     # Add the model loss to the total loss
                     total_loss += multipliers.get(key_loss, 1) * val_loss
+
+                    debug_nans(val_loss, key_loss)
 
                 # Log the total loss for this batch
                 writer.add_scalar('train/loss/total', total_loss.item(), batch_count)

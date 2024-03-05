@@ -2,6 +2,7 @@
 
 # My imports
 from timbre_trap.framework import *
+from timbre_trap.utils import *
 
 from . import SS_MPE
 
@@ -135,11 +136,15 @@ class TT_Base(SS_MPE):
         # Process features with the encoder
         latents, embeddings, losses = self.encoder(features)
 
+        debug_nans(latents, 'encoder output')
+
         # Apply skip connections if applicable
         embeddings = self.apply_skip_connections(embeddings)
 
         # Process latents with the decoder
         output = self.decoder(latents, embeddings)
+
+        debug_nans(latents, 'decoder output')
 
         # Collapse channel dimension
         output = output.squeeze(-3)
