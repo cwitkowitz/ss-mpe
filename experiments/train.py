@@ -251,6 +251,16 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Initialize list to hold all training datasets
     all_train = list()
 
+    # Set the URMP validation set in accordance with the MT3 paper
+    urmp_val_splits = ['01', '02', '12', '13', '24', '25', '31', '38', '39']
+
+    # Allocate remaining tracks to URMP training set
+    urmp_train_splits = URMP_Mixtures.available_splits()
+
+    for t in urmp_val_splits:
+        # Remove validation tracks
+        urmp_train_splits.remove(t)
+
     if DEBUG:
         # Instantiate NSynth validation split for training
         nsynth_stems_train = NSynth(base_dir=nsynth_base_dir,
@@ -271,15 +281,29 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                     cqt=model.hcqt,
                                     n_secs=n_secs,
                                     seed=seed)
-        all_train.append(nsynth_stems_train)
+        #all_train.append(nsynth_stems_train)
+
+        # Instantiate URMP dataset mixtures for training
+        urmp_mixes_train = URMP_Mixtures(base_dir=urmp_base_dir,
+                                         splits=urmp_train_splits,
+                                         sample_rate=sample_rate,
+                                         cqt=model.hcqt,
+                                         n_secs=n_secs,
+                                         seed=seed)
+        #all_train.append(urmp_mixes_train)
+
+        # Define mostly-harmonic splits for FMA
+        fma_splits = ['Rock', 'Folk', 'Instrumental',
+                      'Pop', 'Classical', 'Jazz',
+                      'Country', 'Soul-RnB', 'Blues']
 
         # Instantiate FMA audio for training
         fma_train = FMA(base_dir=fma_base_dir,
-                        splits=None,
+                        splits=fma_splits,
                         sample_rate=sample_rate,
                         n_secs=n_secs,
                         seed=seed)
-        #all_train.append(fma_train)
+        all_train.append(fma_train)
 
         # Instantiate MusicNet audio for training
         mnet_train = MusicNet(base_dir=mnet_base_dir,
