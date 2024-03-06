@@ -7,6 +7,7 @@ from timbre_trap.datasets.AudioMixtures import FMA, MedleyDB
 from timbre_trap.datasets import ComboDataset
 
 from ss_mpe.datasets.SoloMultiPitch import NSynth
+from ss_mpe.datasets.AudioMixtures import E_GMD
 
 from ss_mpe.framework import SS_MPE, TT_Base
 from ss_mpe.framework.objectives import *
@@ -72,6 +73,7 @@ def config():
         'sparsity' : 1,
         'timbre' : 1,
         'geometric' : 1,
+        'unpitched' : 0,
         'supervised' : 0
     }
 
@@ -247,6 +249,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     fma_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'FMA') if CONFIG else None
     mnet_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if CONFIG else None
     mydb_base_dir   = os.path.join('/', 'storage', 'frank', 'MedleyDB') if CONFIG else None
+    egmd_base_dir   = os.path.join('/', 'storage', 'frank', 'E-GMD') if CONFIG else None
 
     # Initialize list to hold all training datasets
     all_train = list()
@@ -540,6 +543,27 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         'max_stretch_factor' : max_stretch_factor
     }
 
+    ####################
+    ## UNPITCHED LOSS ##
+    ####################
+
+    # Instantiate E-GMD audio for percussion-invariance
+    egmd = E_GMD(base_dir=egmd_base_dir,
+                 splits=['train'],
+                 sample_rate=sample_rate,
+                 n_secs=n_secs,
+                 seed=seed)
+
+    # TODO - combo set with other noise / percussion datasets
+
+    # Initialize a PyTorch dataloader for unpitched data
+    unpitched_loader = DataLoader(dataset=egmd,
+                                  batch_size=batch_size,
+                                  shuffle=True,
+                                  num_workers=n_workers,
+                                  pin_memory=True,
+                                  drop_last=True)
+
     #####################
     ## SUPERVISED LOSS ##
     #####################
@@ -606,6 +630,13 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             features_db_1 = features['db_1']
             features_db_h = features['db_h']
 
+            # Sample a batch of unpitched audio
+            unpitched_data = next(iter(unpitched_loader))
+            # Superimpose unpitched audio onto original audio
+            unpitched_audio = audio + unpitched_data[constants.KEY_AUDIO].to(device)
+            # Compute spectral features for unpitched audio mixture
+            features_unp = model.hcqt.to_decibels(model.hcqt(unpitched_audio))
+
             with torch.autocast(device_type=f'cuda'):
                 # Process features to obtain logits
                 logits, _, losses = model(features_db)
@@ -647,12 +678,20 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 debug_nans(geometric_loss, 'geometric')
 
+                # Compute unpitched-invariance loss for the batch
+                unpitched_loss = compute_unpitched_loss(model, features_unp, logits)
+                # Log the unpitched-invariance loss for this batch
+                writer.add_scalar('train/loss/unpitched', unpitched_loss.item(), batch_count)
+
+                debug_nans(unpitched_loss, 'unpitched')
+
                 # Compute the total loss for this batch
                 total_loss = multipliers['support'] * support_loss + \
                              multipliers['harmonic'] * harmonic_loss + \
                              multipliers['sparsity'] * sparsity_loss + \
                              multipliers['timbre'] * timbre_loss + \
-                             multipliers['geometric'] * geometric_loss
+                             multipliers['geometric'] * geometric_loss + \
+                             multipliers['unpitched'] * unpitched_loss
 
                 if data_mpe is not None:
                     # Compute supervised BCE loss for the batch

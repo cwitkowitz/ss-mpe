@@ -13,7 +13,8 @@ __all__ = [
     'sample_gaussian_equalization',
     'compute_timbre_loss',
     'compute_geometric_loss',
-    'compute_supervised_loss'
+    'compute_supervised_loss',
+    'compute_unpitched_loss'
 ]
 
 
@@ -389,3 +390,21 @@ def compute_supervised_loss(embeddings, ground_truth, weight_positive_class=Fals
     supervised_loss = supervised_loss.sum(-2).mean(-1).mean(-1)
 
     return supervised_loss
+
+
+def compute_unpitched_loss(model, unpitched_features, embeddings):
+    # Process unpitched features with provided model
+    unpitched_embeddings = model(unpitched_features)[0]
+
+    # Convert original logits to activations (implicit pitch salience)
+    original_salience = torch.sigmoid(embeddings)
+
+    # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original activations
+    unpitched_loss = F.binary_cross_entropy_with_logits(unpitched_embeddings, original_salience, reduction='none')
+
+    # Sum across frequency bins and average across time and batch
+    unpitched_loss = unpitched_loss.sum(-2).mean(-1).mean(-1)
+
+    return unpitched_loss
+
+# TODO - abstract invariance / equivariance loss?
