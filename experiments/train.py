@@ -4,7 +4,7 @@
 from timbre_trap.datasets.MixedMultiPitch import URMP as URMP_Mixtures, Bach10 as Bach10_Mixtures, Su, TRIOS, MusicNet
 from timbre_trap.datasets.SoloMultiPitch import GuitarSet
 from timbre_trap.datasets.AudioMixtures import FMA, MedleyDB
-from timbre_trap.datasets import ComboDataset
+from timbre_trap.datasets import ComboDataset, StemMixingDataset
 
 from ss_mpe.datasets.SoloMultiPitch import NSynth
 from ss_mpe.datasets.AudioMixtures import E_GMD
@@ -138,7 +138,7 @@ def config():
 
     # Top-level directory under which to save all experiment files
     if CONFIG == 1:
-        root_dir = os.path.join('/', 'storage', 'frank', 'self-supervised-pitch', EX_NAME)
+        root_dir = os.path.join('/', 'storage', 'frank', 'scaling_ss-mpe', EX_NAME)
     else:
         root_dir = os.path.join('..', 'generated', 'experiments', EX_NAME)
 
@@ -284,7 +284,15 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                     cqt=model.hcqt,
                                     n_secs=n_secs,
                                     seed=seed)
-        #all_train.append(nsynth_stems_train)
+        all_train.append(nsynth_stems_train)
+
+        # Instantiate random NSynth stem mixtures for training
+        nsynth_mixes_train = StemMixingDataset([nsynth_stems_train],
+                                               tracks_per_epoch=10E5,
+                                               n_min=1,
+                                               n_max=5,
+                                               seed=seed)
+        #all_train.append(nsynth_mixes_train)
 
         # Instantiate URMP dataset mixtures for training
         urmp_mixes_train = URMP_Mixtures(base_dir=urmp_base_dir,
@@ -293,6 +301,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                          cqt=model.hcqt,
                                          n_secs=n_secs,
                                          seed=seed)
+        #for i in range(round(len(nsynth_stems_train) / len(urmp_mixes_train))):
         #all_train.append(urmp_mixes_train)
 
         # Define mostly-harmonic splits for FMA
@@ -306,7 +315,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                         sample_rate=sample_rate,
                         n_secs=n_secs,
                         seed=seed)
-        all_train.append(fma_train)
+        #all_train.append(fma_train)
 
         # Instantiate MusicNet audio for training
         mnet_train = MusicNet(base_dir=mnet_base_dir,
