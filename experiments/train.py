@@ -46,16 +46,16 @@ def config():
     checkpoint_path = None
 
     # Maximum number of training iterations to conduct
-    max_epochs = 1000
+    max_epochs = 10000
 
     # Number of iterations between checkpoints
     checkpoint_interval = 250
 
     # Number of samples to gather for a batch
-    batch_size = 4 if DEBUG else 20
+    batch_size = 4 if DEBUG else 8
 
     # Number of seconds of audio per sample
-    n_secs = 4
+    n_secs = 8
 
     # Initial learning rate for encoder
     learning_rate_encoder = 1e-4
@@ -74,7 +74,7 @@ def config():
         'timbre' : 1,
         'geometric' : 1,
         'unpitched' : 0,
-        'supervised' : 0
+        'supervised' : 1
     }
 
     # Number of epochs spanning warmup phase (0 to disable)
@@ -284,25 +284,15 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                     cqt=model.hcqt,
                                     n_secs=n_secs,
                                     seed=seed)
-        all_train.append(nsynth_stems_train)
+        #all_train.append(nsynth_stems_train)
 
         # Instantiate random NSynth stem mixtures for training
         nsynth_mixes_train = StemMixingDataset([nsynth_stems_train],
-                                               tracks_per_epoch=10E5,
+                                               tracks_per_epoch=100000,
                                                n_min=1,
                                                n_max=5,
                                                seed=seed)
         #all_train.append(nsynth_mixes_train)
-
-        # Instantiate URMP dataset mixtures for training
-        urmp_mixes_train = URMP_Mixtures(base_dir=urmp_base_dir,
-                                         splits=urmp_train_splits,
-                                         sample_rate=sample_rate,
-                                         cqt=model.hcqt,
-                                         n_secs=n_secs,
-                                         seed=seed)
-        #for i in range(round(len(nsynth_stems_train) / len(urmp_mixes_train))):
-        #all_train.append(urmp_mixes_train)
 
         # Define mostly-harmonic splits for FMA
         fma_splits = ['Rock', 'Folk', 'Instrumental',
@@ -316,6 +306,16 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                         n_secs=n_secs,
                         seed=seed)
         #all_train.append(fma_train)
+
+        # Instantiate URMP dataset mixtures for training
+        urmp_mixes_train = URMP_Mixtures(base_dir=urmp_base_dir,
+                                         splits=urmp_train_splits,
+                                         sample_rate=sample_rate,
+                                         cqt=model.hcqt,
+                                         n_secs=n_secs,
+                                         seed=seed)
+        #for i in range(round(len(nsynth_stems_train) / len(urmp_mixes_train))):
+        all_train.append(urmp_mixes_train)
 
         # Instantiate MusicNet audio for training
         mnet_train = MusicNet(base_dir=mnet_base_dir,
@@ -363,6 +363,13 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                              cqt=model.hcqt,
                              seed=seed)
 
+    # Instantiate GuitarSet dataset for validation
+    gset_val = GuitarSet(base_dir=gset_base_dir,
+                         splits=['05'],
+                         sample_rate=sample_rate,
+                         cqt=model.hcqt,
+                         seed=seed)
+
     # Instantiate NSynth testing split for evaluation
     nsynth_test = NSynth(base_dir=nsynth_base_dir,
                          splits=['test'],
@@ -405,11 +412,18 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           cqt=model.hcqt,
                           seed=seed)
 
+    # Instantiate MusicNet dataset for evaluation
+    mnet_test = MusicNet(base_dir=mnet_base_dir,
+                         splits=['test'],
+                         sample_rate=sample_rate,
+                         cqt=model.hcqt,
+                         seed=seed)
+
     # Add all validation datasets to a list
-    validation_sets = [nsynth_val, urmp_val, bch10_test, su_test, trios_test]
+    validation_sets = [nsynth_val, urmp_val, bch10_test, su_test, trios_test, gset_val, mnet_test]
 
     # Add all evaluation datasets to a list
-    evaluation_sets = [nsynth_test, bch10_test, su_test, trios_test, urmp_test, gset_test]
+    evaluation_sets = [nsynth_test, bch10_test, su_test, trios_test, urmp_test, gset_test, mnet_test]
 
     #################
     ## PREPARATION ##
