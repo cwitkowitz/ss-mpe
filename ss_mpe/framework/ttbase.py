@@ -48,6 +48,7 @@ class TT_Base(SS_MPE):
         convout_in_channels = self.decoder.convout.in_channels
 
         self.encoder.convin = nn.Sequential(
+            # TODO - overwrites layer normalization
             nn.Conv2d(n_harmonics, convin_out_channels, kernel_size=3, padding='same'),
             nn.ELU(inplace=True)
         )

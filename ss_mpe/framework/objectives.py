@@ -14,7 +14,7 @@ __all__ = [
     'compute_timbre_loss',
     'compute_geometric_loss',
     'compute_supervised_loss',
-    'compute_unpitched_loss'
+    'compute_percussion_loss'
 ]
 
 
@@ -208,7 +208,7 @@ def apply_random_eq(features, hcqt, eq_fn, **eq_kwargs):
     # Round, convert equalization bins to integers, and flatten
     equalization_bins = equalization_bins.round().long().flatten()
     # Obtain indices corresponding to equalization for each sample in the batch
-    equalization_idcs = torch.meshgrid(torch.arange(B, device=device), equalization_bins)
+    equalization_idcs = torch.meshgrid(torch.arange(B, device=device), equalization_bins, indexing='ij')
     # Obtain the equalization for each sample in the batch
     equalization = curves[equalization_idcs].view(B, H, K, -1)
 
@@ -392,7 +392,7 @@ def compute_supervised_loss(embeddings, ground_truth, weight_positive_class=Fals
     return supervised_loss
 
 
-def compute_unpitched_loss(model, unpitched_features, embeddings):
+def compute_percussion_loss(model, unpitched_features, embeddings):
     # Process unpitched features with provided model
     unpitched_embeddings = model(unpitched_features)[0]
 
@@ -407,4 +407,4 @@ def compute_unpitched_loss(model, unpitched_features, embeddings):
 
     return unpitched_loss
 
-# TODO - abstract invariance / equivariance loss?
+# TODO - abstract invariance / equivariance losses?
