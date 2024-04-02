@@ -3,8 +3,8 @@
 # My imports
 from timbre_trap.datasets.MixedMultiPitch import URMP as URMP_Mixtures, Bach10 as Bach10_Mixtures, Su, TRIOS, MusicNet
 from timbre_trap.datasets.SoloMultiPitch import GuitarSet
-from timbre_trap.datasets.AudioMixtures import FMA, MedleyDB
-from timbre_trap.datasets import ComboDataset, StemMixingDataset
+from timbre_trap.datasets.AudioMixtures import FMA
+from timbre_trap.datasets import ComboDataset
 
 from ss_mpe.datasets.SoloMultiPitch import NSynth
 from ss_mpe.datasets.AudioMixtures import E_GMD
@@ -31,7 +31,7 @@ import os
 
 DEBUG = 0 # (0 - off | 1 - on)
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['<EXPERIMENT_NAME>'])
+EX_NAME = '_'.join(['URMP_All+FMA_SS+Perc+MC3'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -52,10 +52,10 @@ def config():
     checkpoint_interval = 250
 
     # Number of samples to gather for a batch
-    batch_size = 4 if DEBUG else 10
+    batch_size = 4 if DEBUG else 8
 
     # Number of seconds of audio per sample
-    n_secs = 12
+    n_secs = 4
 
     # Initial learning rate for encoder
     learning_rate_encoder = 5e-4
@@ -102,7 +102,7 @@ def config():
     n_epochs_early_stop = None
 
     # IDs of the GPUs to use, if available
-    gpu_ids = [0]
+    gpu_ids = [0, 1]
 
     # Random seed for this experiment
     seed = 0
@@ -210,8 +210,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     if checkpoint_path is None:
         # Initialize autoencoder model
         model = TT_Base(hcqt_params,
-                        latent_size=128,
-                        model_complexity=2,
+                        latent_size=256,
+                        model_complexity=3,
                         skip_connections=False)
     else:
         # Load weights of the specified model checkpoint
@@ -452,38 +452,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     #################
     ## TIMBRE LOSS ##
     #################
-
-    # Number of random points to sample per octave
-    points_per_octave = 2
-
-    # Determine semitone span of frequency support
-    semitone_span = model.hcqt.midi_freqs.max() - model.hcqt.midi_freqs.min()
-
-    # Determine how many bins are represented across all harmonics
-    n_psuedo_bins = (bins_per_semitone * semitone_span).round()
-
-    # Determine how many octaves have been covered
-    n_octaves = int(math.ceil(n_psuedo_bins / bins_per_octave))
-
-    # Calculate number of cut/boost points to sample
-    n_points = 1 + points_per_octave * n_octaves
-
-    # Standard deviation of boost/cut
-    std_dev = 0.10
-
-    # Set keyword arguments for random equalization
-    random_kwargs = {
-        'n_points' : n_points,
-        'std_dev' : std_dev
-    }
-
-    # Pointiness for parabolic equalization
-    pointiness = 5
-
-    # Set keyword arguments for parabolic equalization
-    parabolic_kwargs = {
-        'pointiness' : pointiness
-    }
 
     # Maximum amplitude for Gaussian equalization
     max_A = 0.375
