@@ -3,7 +3,6 @@
 # My imports
 from timbre_trap.datasets.MixedMultiPitch import URMP as URMP_Mixtures, Bach10 as Bach10_Mixtures, Su, TRIOS, MusicNet
 from timbre_trap.datasets.SoloMultiPitch import GuitarSet
-from timbre_trap.datasets.AudioMixtures import FMA
 from timbre_trap.datasets import ComboDataset
 
 from ss_mpe.datasets.SoloMultiPitch import NSynth
@@ -31,7 +30,7 @@ import os
 
 DEBUG = 0 # (0 - off | 1 - on)
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['URMP_All+FMA_SS+Perc+MC3'])
+EX_NAME = '_'.join(['URMP_All+MNet_SS+Perc+MC3'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -46,7 +45,7 @@ def config():
     checkpoint_path = None
 
     # Maximum number of training iterations to conduct
-    max_epochs = 15000
+    max_epochs = 10000
 
     # Number of iterations between checkpoints
     checkpoint_interval = 250
@@ -247,8 +246,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     trios_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'TRIOS') if CONFIG else None
     gset_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'GuitarSet') if CONFIG else None
     mnet_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if CONFIG else None
-    fma_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'FMA') if CONFIG else None
-    mydb_base_dir   = os.path.join('/', 'storage', 'frank', 'MedleyDB') if CONFIG else None
     egmd_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'E-GMD') if CONFIG else None
 
     # Initialize lists to hold training datasets
@@ -283,18 +280,13 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                          seed=seed)
         sup_train.append(urmp_mixes_train)
 
-        # Define mostly-harmonic splits for FMA
-        fma_splits = ['Rock', 'Folk', 'Instrumental',
-                      'Pop', 'Classical', 'Jazz',
-                      'Country', 'Soul-RnB', 'Blues']
-
-        # Instantiate FMA audio for training
-        fma_train = FMA(base_dir=fma_base_dir,
-                        splits=fma_splits,
-                        sample_rate=sample_rate,
-                        n_secs=n_secs,
-                        seed=seed)
-        ss_train.append(fma_train)
+        # Instantiate MusicNet audio for training
+        mnet_train = MusicNet(base_dir=mnet_base_dir,
+                              splits=['train'],
+                              sample_rate=sample_rate,
+                              n_secs=n_secs,
+                              seed=seed)
+        ss_train.append(mnet_train)
 
     # Combine supervision and self-supervision datasets
     sup_train = ComboDataset(sup_train)
@@ -371,18 +363,11 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           cqt=model.hcqt,
                           seed=seed)
 
-    # Instantiate MusicNet dataset for evaluation
-    mnet_test = MusicNet(base_dir=mnet_base_dir,
-                         splits=['test'],
-                         sample_rate=sample_rate,
-                         cqt=model.hcqt,
-                         seed=seed)
-
     # Add all validation datasets to a list
-    validation_sets = [nsynth_val, urmp_val, bch10_test, su_test, trios_test, gset_val, mnet_test]
+    validation_sets = [nsynth_val, urmp_val, bch10_test, su_test, trios_test, gset_val]
 
     # Add all evaluation datasets to a list
-    evaluation_sets = [nsynth_val, bch10_test, su_test, trios_test, gset_test, mnet_test]
+    evaluation_sets = [nsynth_val, bch10_test, su_test, trios_test, gset_test]
 
     #################
     ## PREPARATION ##
@@ -520,18 +505,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                    num_workers=n_workers,
                                    pin_memory=True,
                                    drop_last=True)
-    #####################
-    ## SUPERVISED LOSS ##
-    #####################
-
-    # Compute the number of bins within a quarter tone
-    bins_per_quarter = round(bins_per_semitone / 2)
-    # Determine the number of bins for the blur kernel
-    n_bins_blur = 1 + 2 * bins_per_quarter
-    # Create the kernel for Gaussian blur
-    blur = torch.signal.windows.gaussian(n_bins_blur, std=1., device=device)
-    # Add appropriate dimensions and convert to double
-    blur = blur.reshape(1, 1, len(blur), 1).double()
 
     ##############################
     ## TRAINING/VALIDATION LOOP ##
@@ -549,12 +522,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 ground_truth = data_sup[constants.KEY_GROUND_TRUTH].to(device)
                 # Keep track of number of samples with ground-truth
                 n_ground_truth = ground_truth.size(0)
-                # Add a temporary channel dimension
-                ground_truth = ground_truth.unsqueeze(-3)
-                # Apply the Gaussian blurring kernel to the ground-truth salience
-                ground_truth = torch.nn.functional.conv2d(ground_truth, blur, padding='same')
-                # Remove the temporary channel dimension
-                ground_truth = ground_truth.squeeze(-3)
 
             if data_sup is None:
                 # Extract audio samples from audio-only data
