@@ -3,6 +3,7 @@
 # My imports
 from timbre_trap.datasets.MixedMultiPitch import URMP as URMP_Mixtures, Bach10 as Bach10_Mixtures, Su, TRIOS, MusicNet
 from timbre_trap.datasets.SoloMultiPitch import GuitarSet
+from timbre_trap.datasets.AudioMixtures import FMA
 from timbre_trap.datasets import ComboDataset
 
 from ss_mpe.datasets.SoloMultiPitch import NSynth
@@ -30,7 +31,7 @@ import os
 
 DEBUG = 0 # (0 - off | 1 - on)
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['URMP_All+MNet_SS+Perc+MC3'])
+EX_NAME = '_'.join(['MNet_SS+Perc+MC3_5E-4_0'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -45,7 +46,7 @@ def config():
     checkpoint_path = None
 
     # Maximum number of training iterations to conduct
-    max_epochs = 10000
+    max_epochs = 5000
 
     # Number of iterations between checkpoints
     checkpoint_interval = 250
@@ -133,7 +134,7 @@ def config():
     ############
 
     # Number of threads to use for data loading
-    n_workers = 0 if DEBUG else 8 * len(gpu_ids)
+    n_workers = 0 #if DEBUG else 8 * len(gpu_ids)
 
     # Top-level directory under which to save all experiment files
     if CONFIG == 1:
@@ -246,6 +247,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     trios_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'TRIOS') if CONFIG else None
     gset_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'GuitarSet') if CONFIG else None
     mnet_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if CONFIG else None
+    fma_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'FMA') if CONFIG else None
     egmd_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'E-GMD') if CONFIG else None
 
     # Initialize lists to hold training datasets
@@ -278,7 +280,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                          cqt=model.hcqt,
                                          n_secs=n_secs,
                                          seed=seed)
-        sup_train.append(urmp_mixes_train)
+        #sup_train.append(urmp_mixes_train)
 
         # Instantiate MusicNet audio for training
         mnet_train = MusicNet(base_dir=mnet_base_dir,
@@ -288,17 +290,34 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                               seed=seed)
         ss_train.append(mnet_train)
 
+        # Define mostly-harmonic splits for FMA
+        fma_splits = ['Rock', 'Folk', 'Instrumental',
+                      'Pop', 'Classical', 'Jazz',
+                      'Country', 'Soul-RnB', 'Blues']
+
+        # Instantiate FMA audio for training
+        fma_train = FMA(base_dir=fma_base_dir,
+                        splits=fma_splits,
+                        sample_rate=sample_rate,
+                        n_secs=n_secs,
+                        seed=seed)
+        #ss_train.append(fma_train)
+
     # Combine supervision and self-supervision datasets
     sup_train = ComboDataset(sup_train)
     ss_train = ComboDataset(ss_train)
 
-    # Initialize a PyTorch dataloader for supervised data
-    sup_loader = DataLoader(dataset=sup_train,
-                            batch_size=batch_size,
-                            shuffle=True,
-                            num_workers=n_workers,
-                            pin_memory=True,
-                            drop_last=True)
+    if len(sup_train):
+        # Initialize a PyTorch dataloader for supervised data
+        sup_loader = DataLoader(dataset=sup_train,
+                                batch_size=batch_size,
+                                shuffle=True,
+                                num_workers=n_workers,
+                                pin_memory=True,
+                                drop_last=True)
+    else:
+        # Replace dataloader with null list
+        sup_loader = [None] * (len(ss_train) // batch_size)
 
     if len(ss_train):
         # Initialize a PyTorch dataloader for self-supervised data
@@ -310,7 +329,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                drop_last=True)
     else:
         # Replace dataloader with null list
-        ss_loader = [None] * len(sup_loader)
+        ss_loader = [None] * (len(sup_train) // batch_size)
 
     # Instantiate NSynth validation split for validation
     nsynth_val = NSynth(base_dir=nsynth_base_dir,
@@ -498,9 +517,12 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Combine unpitched datasets
     perc_train = ComboDataset(perc_train)
 
+    # Determine how much percussion data to sample for each batch
+    perc_batch_size = batch_size * (bool(len(sup_train)) + bool(len(ss_train)))
+
     # Initialize a PyTorch dataloader for percussion data
     percussion_loader = DataLoader(dataset=perc_train,
-                                   batch_size=batch_size * 2 ** bool(len(ss_train)),
+                                   batch_size=perc_batch_size,
                                    shuffle=True,
                                    num_workers=n_workers,
                                    pin_memory=True,
@@ -685,16 +707,19 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 validation_results = dict()
 
                 for val_set in validation_sets:
-                    # Validate the model checkpoint on each validation dataset
-                    validation_results[val_set.name()] = evaluate(model=model,
-                                                                  eval_set=val_set,
-                                                                  multipliers=multipliers,
-                                                                  writer=writer,
-                                                                  i=batch_count,
-                                                                  device=device,
-                                                                  eq_fn=eq_fn,
-                                                                  eq_kwargs=eq_kwargs,
-                                                                  gm_kwargs=gm_kwargs)
+                    try:
+                        # Validate the model checkpoint on each validation dataset
+                        validation_results[val_set.name()] = evaluate(model=model,
+                                                                      eval_set=val_set,
+                                                                      multipliers=multipliers,
+                                                                      writer=writer,
+                                                                      i=batch_count,
+                                                                      device=device,
+                                                                      eq_fn=eq_fn,
+                                                                      eq_kwargs=eq_kwargs,
+                                                                      gm_kwargs=gm_kwargs)
+                    except Exception as e:
+                        print(f'Error validating \'{val_set.name()}\': {repr(e)}')
 
                 # Make sure model is on correct device and switch to training mode
                 model = model.to(device)
