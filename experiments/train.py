@@ -31,7 +31,7 @@ import os
 
 DEBUG = 0 # (0 - off | 1 - on)
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['MNet_SS+Perc+MC3_5E-4_0'])
+EX_NAME = '_'.join(['MNet_EG_TM_GM_PC+URMP_SU+MC3_5E-4_0'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -280,7 +280,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                          cqt=model.hcqt,
                                          n_secs=n_secs,
                                          seed=seed)
-        #sup_train.append(urmp_mixes_train)
+        sup_train.append(urmp_mixes_train)
 
         # Instantiate MusicNet audio for training
         mnet_train = MusicNet(base_dir=mnet_base_dir,
@@ -585,42 +585,42 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 estimate = torch.sigmoid(logits)
 
                 # Compute support loss w.r.t. first harmonic for the batch
-                support_loss = compute_support_loss(logits, features_db_1)
+                support_loss = compute_support_loss(logits[n_ground_truth:], features_db_1[n_ground_truth:])
                 # Log the support loss for this batch
                 writer.add_scalar('train/loss/support', support_loss.item(), batch_count)
 
                 debug_nans(support_loss, 'support')
 
                 # Compute harmonic loss w.r.t. weighted harmonic sum for the batch
-                harmonic_loss = compute_harmonic_loss(logits, features_db_h)
+                harmonic_loss = compute_harmonic_loss(logits[n_ground_truth:], features_db_h[n_ground_truth:])
                 # Log the harmonic loss for this batch
                 writer.add_scalar('train/loss/harmonic', harmonic_loss.item(), batch_count)
 
                 debug_nans(harmonic_loss, 'harmonic')
 
                 # Compute sparsity loss for the batch
-                sparsity_loss = compute_sparsity_loss(estimate)
+                sparsity_loss = compute_sparsity_loss(estimate[n_ground_truth:])
                 # Log the sparsity loss for this batch
                 writer.add_scalar('train/loss/sparsity', sparsity_loss.item(), batch_count)
 
                 debug_nans(sparsity_loss, 'sparsity')
 
                 # Compute timbre-invariance loss for the batch
-                timbre_loss = compute_timbre_loss(model, features_db, logits, eq_fn, **eq_kwargs)
+                timbre_loss = compute_timbre_loss(model, features_db[n_ground_truth:], logits[n_ground_truth:], eq_fn, **eq_kwargs)
                 # Log the timbre-invariance loss for this batch
                 writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
 
                 debug_nans(timbre_loss, 'timbre')
 
                 # Compute geometric-invariance loss for the batch
-                geometric_loss = compute_geometric_loss(model, features_db, logits, **gm_kwargs)
+                geometric_loss = compute_geometric_loss(model, features_db[n_ground_truth:], logits[n_ground_truth:], **gm_kwargs)
                 # Log the geometric-invariance loss for this batch
                 writer.add_scalar('train/loss/geometric', geometric_loss.item(), batch_count)
 
                 debug_nans(geometric_loss, 'geometric')
 
                 # Compute percussion-invariance loss for the batch
-                percussion_loss = compute_percussion_loss(model, features_perc, logits)
+                percussion_loss = compute_percussion_loss(model, features_perc[n_ground_truth:], logits[n_ground_truth:])
                 # Log the percussion-invariance loss for this batch
                 writer.add_scalar('train/loss/percussion', percussion_loss.item(), batch_count)
 
