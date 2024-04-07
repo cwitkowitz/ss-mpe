@@ -588,7 +588,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 # Convert to (implicit) pitch salience activations
                 estimate = torch.sigmoid(logits)
 
-                # Track total loss
+                # Initialize cumulative loss
                 total_loss = 0
 
                 if data_sup is not None:
@@ -601,7 +601,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                     debug_nans(supervised_loss, 'supervised')
 
-                if data_sup is not None:
+                if data_ss is not None:
                     # Compute support loss w.r.t. first harmonic for the batch
                     support_loss = compute_support_loss(logits[n_ground_truth:], features_db_1[n_ground_truth:])
                     # Log the support loss for this batch
