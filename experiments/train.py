@@ -30,7 +30,7 @@ import os
 
 DEBUG = 0 # (0 - off | 1 - on)
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['URMP_SU_1E-4_0'])
+EX_NAME = '_'.join(['URMP_SU_5E-4_0'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -57,7 +57,7 @@ def config():
     n_secs = 4
 
     # Initial learning rate for encoder
-    learning_rate_encoder = 1e-4
+    learning_rate_encoder = 5e-4
 
     # Initial learning rate for decoder
     learning_rate_decoder = learning_rate_encoder
@@ -90,9 +90,6 @@ def config():
 
     # Select whether the validation criteria should be maximized or minimized
     validation_criteria_maximize = False # (False - minimize | True - maximize)
-
-    # Late starting point (0 to disable)
-    n_epochs_late_start = 0
 
     # Number of epochs without improvement before reducing learning rate (0 to disable)
     n_epochs_decay = 500
@@ -158,9 +155,8 @@ def config():
 @ex.automain
 def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_secs, learning_rates, multipliers,
                 self_supervised_targets, n_epochs_warmup, validation_criteria_set, validation_criteria_metric,
-                validation_criteria_maximize, n_epochs_late_start, n_epochs_decay, n_epochs_cooldown,
-                n_epochs_early_stop, gpu_ids, seed, sample_rate, hop_length, fmin, bins_per_octave,
-                n_bins, harmonics, n_workers, root_dir):
+                validation_criteria_maximize, n_epochs_decay, n_epochs_cooldown, n_epochs_early_stop, gpu_ids,
+                seed, sample_rate, hop_length, fmin, bins_per_octave, n_bins, harmonics, n_workers, root_dir):
     # Discard read-only types
     learning_rates = list(learning_rates)
     multipliers = dict(multipliers)
@@ -212,7 +208,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     if checkpoint_path is None:
         # Initialize autoencoder model
         model = TT_Base(hcqt_params,
-                        latent_size=256,
                         model_complexity=3,
                         skip_connections=False)
     else:
@@ -532,9 +527,12 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
             with torch.autocast(device_type=f'cuda'):
                 # Process features to obtain logits
-                logits, _, losses = model(features_db)
+                logits, _, _ = model(features_db)
                 # Convert to (implicit) pitch salience activations
                 activations = torch.sigmoid(logits)
+
+                # Keep track of total loss
+                #total_loss = 0.
 
                 # Compute support loss w.r.t. first harmonic for the batch
                 support_loss = compute_support_loss(logits, features_db_1)
@@ -543,6 +541,10 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 debug_nans(support_loss, 'support')
 
+                #if multipliers['support']:
+                #    # Add the support loss to the total loss
+                #    total_loss.add(multipliers['support'] * support_loss)
+
                 # Compute harmonic loss w.r.t. weighted harmonic sum for the batch
                 harmonic_loss = compute_harmonic_loss(logits, features_db_h)
                 # Log the harmonic loss for this batch
@@ -550,12 +552,20 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 debug_nans(harmonic_loss, 'harmonic')
 
+                #if multipliers['harmonic']:
+                #    # Add the harmonic loss to the total loss
+                #    total_loss.add(multipliers['harmonic'] * harmonic_loss)
+
                 # Compute sparsity loss for the batch
                 sparsity_loss = compute_sparsity_loss(activations)
                 # Log the sparsity loss for this batch
                 writer.add_scalar('train/loss/sparsity', sparsity_loss.item(), batch_count)
 
                 debug_nans(sparsity_loss, 'sparsity')
+
+                #if multipliers['sparsity']:
+                #    # Add the sparsity loss to the total loss
+                #    total_loss.add(multipliers['sparsity'] * sparsity_loss)
 
                 # Determine whether targets should be logits or ground-truth
                 targets = activations if self_supervised_targets else ground_truth
@@ -567,12 +577,20 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 debug_nans(timbre_loss, 'timbre')
 
-                # Compute geometric-invariance loss for the batch
+                #if multipliers['timbre']:
+                #    # Add the timbre-invariance loss to the total loss
+                #    total_loss.add(multipliers['timbre'] * timbre_loss)
+
+                # Compute geometric-equivariance loss for the batch
                 geometric_loss = compute_geometric_loss(model, features_db, targets, **gm_kwargs)
-                # Log the geometric-invariance loss for this batch
+                # Log the geometric-equivariance loss for this batch
                 writer.add_scalar('train/loss/geometric', geometric_loss.item(), batch_count)
 
                 debug_nans(geometric_loss, 'geometric')
+
+                #if multipliers['geometric']:
+                #    # Add the geometric-equivariance loss to the total loss
+                #    total_loss.add(multipliers['geometric'] * geometric_loss)
 
                 # Compute percussion-invariance loss for the batch
                 percussion_loss = compute_percussion_loss(model, features_perc, targets)
@@ -581,12 +599,20 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 debug_nans(percussion_loss, 'percussion')
 
+                #if multipliers['percussion']:
+                #    # Add the percussion-invariance loss to the total loss
+                #    total_loss.add(multipliers['percussion'] * percussion_loss)
+
                 # Compute supervised BCE loss for the batch
                 supervised_loss = compute_supervised_loss(logits, ground_truth, True)
                 # Log the supervised BCE loss for this batch
                 writer.add_scalar('train/loss/supervised', supervised_loss.item(), batch_count)
 
                 debug_nans(supervised_loss, 'supervised')
+
+                #if multipliers['supervised']:
+                #    # Add the supervised loss to the total loss
+                #    total_loss.add(multipliers['supervised'] * supervised_loss)
 
                 # Compute the total loss for this batch
                 total_loss = multipliers['support'] * support_loss + \
@@ -596,19 +622,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                              multipliers['geometric'] * geometric_loss + \
                              multipliers['percussion'] * percussion_loss + \
                              multipliers['supervised'] * supervised_loss
-
-                if i >= n_epochs_late_start:
-                    # Currently no late-start losses
-                    # TODO - remove if unnecessary
-                    pass
-
-                for key_loss, val_loss in losses.items():
-                    # Log the model loss for this batch
-                    writer.add_scalar(f'train/loss/{key_loss}', val_loss.item(), batch_count)
-                    # Add the model loss to the total loss
-                    total_loss += multipliers.get(key_loss, 1) * val_loss
-
-                    debug_nans(val_loss, key_loss)
 
                 # Log the total loss for this batch
                 writer.add_scalar('train/loss/total', total_loss.item(), batch_count)
@@ -668,9 +681,11 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                                                       writer=writer,
                                                                       i=batch_count,
                                                                       device=device,
+                                                                      self_supervised_targets=self_supervised_targets,
                                                                       eq_fn=eq_fn,
                                                                       eq_kwargs=eq_kwargs,
-                                                                      gm_kwargs=gm_kwargs)
+                                                                      gm_kwargs=gm_kwargs,
+                                                                      pc_set=egmd)
                     except Exception as e:
                         print(f'Error validating \'{val_set.name()}\': {repr(e)}')
 
@@ -682,7 +697,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     # Re-enable benchmarking after validation
                     torch.backends.cudnn.benchmark = True
 
-                if decay_scheduler.patience and not warmup_scheduler.is_active() and i >= n_epochs_late_start:
+                if decay_scheduler.patience and not warmup_scheduler.is_active():
                     # Step the learning rate decay scheduler by logging the validation metric for the checkpoint
                     decay_scheduler.step(validation_results[validation_criteria_set][validation_criteria_metric])
 
@@ -745,9 +760,11 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                      eval_set=eval_set,
                                      multipliers=multipliers,
                                      device=device,
+                                     self_supervised_targets=self_supervised_targets,
                                      eq_fn=eq_fn,
                                      eq_kwargs=eq_kwargs,
-                                     gm_kwargs=gm_kwargs)
+                                     gm_kwargs=gm_kwargs,
+                                     pc_set=egmd)
         except Exception as e:
             print(f'Error evaluating \'{eval_set.name()}\': {repr(e)}')
 

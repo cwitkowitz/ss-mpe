@@ -45,15 +45,17 @@ class TT_Base(SS_MPE):
         self.decoder = DecoderNorm(feature_size=n_bins, latent_size=latent_size, model_complexity=model_complexity)
 
         convin_out_channels = self.encoder.convin[0].out_channels
-        convout_in_channels = self.decoder.convout.in_channels
+        convout_in_channels = self.decoder.convout[0].in_channels
 
         self.encoder.convin = nn.Sequential(
-            # TODO - overwrites layer normalization
             nn.Conv2d(n_harmonics, convin_out_channels, kernel_size=3, padding='same'),
-            nn.ELU(inplace=True)
+            *self.encoder.convin[1:]
         )
 
-        self.decoder.convout = nn.Conv2d(convout_in_channels, 1, kernel_size=3, padding='same')
+        self.decoder.convout = nn.Sequential(
+            nn.Conv2d(convout_in_channels, 1, kernel_size=3, padding='same'),
+            LayerNormPermute(normalized_shape=[1, n_bins])
+        )
 
         latent_channels = self.decoder.convin[0].out_channels
         latent_kernel = self.decoder.convin[0].kernel_size
@@ -293,8 +295,10 @@ class DecoderNorm(Decoder):
             LayerNormPermute(normalized_shape=[channels[4], embedding_sizes[4]])
         )
 
-        # TODO - add layer normalization after final convolution?
-        self.convout = nn.Conv2d(channels[4], 2, kernel_size=3, padding='same')
+        self.convout = nn.Sequential(
+            nn.Conv2d(channels[4], 2, kernel_size=3, padding='same'),
+            LayerNormPermute(normalized_shape=[2, feature_size])
+        )
 
 
 class LayerNormPermute(nn.LayerNorm):
