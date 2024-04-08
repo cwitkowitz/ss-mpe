@@ -2,7 +2,7 @@
 
 # My imports
 from timbre_trap.datasets.MixedMultiPitch import URMP as URMP_Mixtures, Bach10 as Bach10_Mixtures, Su, TRIOS, MusicNet
-from timbre_trap.datasets.SoloMultiPitch import GuitarSet
+from timbre_trap.datasets.SoloMultiPitch import GuitarSet, MAESTRO
 from timbre_trap.datasets.AudioMixtures import FMA
 from timbre_trap.datasets import ComboDataset
 
@@ -31,7 +31,7 @@ import os
 
 DEBUG = 0 # (0 - off | 1 - on)
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['MNet_EG_TM_GM_PC+URMP_SU+MC3_5E-4_0'])
+EX_NAME = '_'.join(['URMP_SU_1E-4_0'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -58,7 +58,7 @@ def config():
     n_secs = 4
 
     # Initial learning rate for encoder
-    learning_rate_encoder = 5e-4
+    learning_rate_encoder = 1e-4
 
     # Initial learning rate for decoder
     learning_rate_decoder = learning_rate_encoder
@@ -68,12 +68,12 @@ def config():
 
     # Scaling factors for each loss term
     multipliers = {
-        'support' : 1,
-        'harmonic' : 1,
-        'sparsity' : 1,
-        'timbre' : 1,
-        'geometric' : 1,
-        'percussion' : 1,
+        'support' : 0,
+        'harmonic' : 0,
+        'sparsity' : 0,
+        'timbre' : 0,
+        'geometric' : 0,
+        'percussion' : 0,
         'supervised' : 1
     }
 
@@ -102,7 +102,7 @@ def config():
     n_epochs_early_stop = None
 
     # IDs of the GPUs to use, if available
-    gpu_ids = [0, 1]
+    gpu_ids = [0]
 
     # Random seed for this experiment
     seed = 0
@@ -138,7 +138,7 @@ def config():
 
     # Top-level directory under which to save all experiment files
     if CONFIG == 1:
-        root_dir = os.path.join('/', 'storage', 'frank', 'leveraging-ss-mpe', EX_NAME)
+        root_dir = os.path.join('/', 'storage', 'frank', 'ss-mpe_leveraging', EX_NAME)
     else:
         root_dir = os.path.join('..', 'generated', 'experiments', EX_NAME)
 
@@ -241,11 +241,12 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     # Point to the datasets within the storage drive containing them or use the default location
     nsynth_base_dir = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
-    urmp_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'URMP') if CONFIG else None
+    urmp_base_dir   = os.path.join('/', 'storage', 'frank', 'URMP') if CONFIG else None
     bch10_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'Bach10') if CONFIG else None
     su_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'Su') if CONFIG else None
     trios_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'TRIOS') if CONFIG else None
     gset_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'GuitarSet') if CONFIG else None
+    mstro_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'MAESTRO') if CONFIG else None
     mnet_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if CONFIG else None
     fma_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'FMA') if CONFIG else None
     egmd_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'E-GMD') if CONFIG else None
@@ -281,7 +282,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                          n_secs=n_secs,
                                          seed=seed)
         sup_train.append(urmp_mixes_train)
-        #ss_train.append(urmp_mixes_train)
 
         # Instantiate MusicNet audio for training
         mnet_train = MusicNet(base_dir=mnet_base_dir,
@@ -289,7 +289,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                               sample_rate=sample_rate,
                               n_secs=n_secs,
                               seed=seed)
-        ss_train.append(mnet_train)
+        #ss_train.append(mnet_train)
 
         # Define mostly-harmonic splits for FMA
         fma_splits = ['Rock', 'Folk', 'Instrumental',
@@ -308,17 +308,13 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     sup_train = ComboDataset(sup_train)
     ss_train = ComboDataset(ss_train)
 
-    if len(sup_train):
-        # Initialize a PyTorch dataloader for supervised data
-        sup_loader = DataLoader(dataset=sup_train,
-                                batch_size=batch_size,
-                                shuffle=True,
-                                num_workers=n_workers,
-                                pin_memory=True,
-                                drop_last=True)
-    else:
-        # Replace dataloader with null list
-        sup_loader = [None] * (len(ss_train) // batch_size)
+    # Initialize a PyTorch dataloader for supervised data
+    sup_loader = DataLoader(dataset=sup_train,
+                            batch_size=batch_size,
+                            shuffle=True,
+                            num_workers=n_workers,
+                            pin_memory=True,
+                            drop_last=True)
 
     if len(ss_train):
         # Initialize a PyTorch dataloader for self-supervised data
@@ -330,7 +326,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                drop_last=True)
     else:
         # Replace dataloader with null list
-        ss_loader = [None] * (len(sup_train) // batch_size)
+        ss_loader = [None] * len(sup_loader)
 
     # Instantiate NSynth validation split for validation
     nsynth_val = NSynth(base_dir=nsynth_base_dir,
@@ -383,11 +379,18 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           cqt=model.hcqt,
                           seed=seed)
 
+    # Instantiate MAESTRO dataset for evaluation
+    mstro_test = MAESTRO(base_dir=mstro_base_dir,
+                         splits=['test'],
+                         sample_rate=sample_rate,
+                         cqt=model.hcqt,
+                         seed=seed)
+
     # Add all validation datasets to a list
     validation_sets = [nsynth_val, urmp_val, bch10_test, su_test, trios_test, gset_val]
 
     # Add all evaluation datasets to a list
-    evaluation_sets = [nsynth_val, bch10_test, su_test, trios_test, gset_test]
+    evaluation_sets = [nsynth_val, bch10_test, su_test, trios_test, gset_test, mstro_test]
 
     #################
     ## PREPARATION ##
@@ -518,12 +521,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Combine unpitched datasets
     perc_train = ComboDataset(perc_train)
 
-    # Determine how much percussion data to sample for each batch
-    perc_batch_size = batch_size * (bool(len(sup_train)) + bool(len(ss_train)))
-
     # Initialize a PyTorch dataloader for percussion data
     percussion_loader = DataLoader(dataset=perc_train,
-                                   batch_size=perc_batch_size,
+                                   batch_size=batch_size * 2 ** bool(len(ss_train)),
                                    shuffle=True,
                                    num_workers=n_workers,
                                    pin_memory=True,
@@ -545,9 +545,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 ground_truth = data_sup[constants.KEY_GROUND_TRUTH].to(device)
                 # Keep track of number of samples with ground-truth
                 n_ground_truth = ground_truth.size(0)
-            else:
-                # No ground-truth samples
-                n_ground_truth = 0
 
             if data_sup is None:
                 # Extract audio samples from audio-only data
@@ -588,8 +585,55 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 # Convert to (implicit) pitch salience activations
                 estimate = torch.sigmoid(logits)
 
-                # Initialize cumulative loss
-                total_loss = 0
+                # Compute support loss w.r.t. first harmonic for the batch
+                support_loss = compute_support_loss(logits, features_db_1)
+                # Log the support loss for this batch
+                writer.add_scalar('train/loss/support', support_loss.item(), batch_count)
+
+                debug_nans(support_loss, 'support')
+
+                # Compute harmonic loss w.r.t. weighted harmonic sum for the batch
+                harmonic_loss = compute_harmonic_loss(logits, features_db_h)
+                # Log the harmonic loss for this batch
+                writer.add_scalar('train/loss/harmonic', harmonic_loss.item(), batch_count)
+
+                debug_nans(harmonic_loss, 'harmonic')
+
+                # Compute sparsity loss for the batch
+                sparsity_loss = compute_sparsity_loss(estimate)
+                # Log the sparsity loss for this batch
+                writer.add_scalar('train/loss/sparsity', sparsity_loss.item(), batch_count)
+
+                debug_nans(sparsity_loss, 'sparsity')
+
+                # Compute timbre-invariance loss for the batch
+                timbre_loss = compute_timbre_loss(model, features_db, logits, eq_fn, **eq_kwargs)
+                # Log the timbre-invariance loss for this batch
+                writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
+
+                debug_nans(timbre_loss, 'timbre')
+
+                # Compute geometric-invariance loss for the batch
+                geometric_loss = compute_geometric_loss(model, features_db, logits, **gm_kwargs)
+                # Log the geometric-invariance loss for this batch
+                writer.add_scalar('train/loss/geometric', geometric_loss.item(), batch_count)
+
+                debug_nans(geometric_loss, 'geometric')
+
+                # Compute percussion-invariance loss for the batch
+                percussion_loss = compute_percussion_loss(model, features_perc, logits)
+                # Log the percussion-invariance loss for this batch
+                writer.add_scalar('train/loss/percussion', percussion_loss.item(), batch_count)
+
+                debug_nans(percussion_loss, 'percussion')
+
+                # Compute the total loss for this batch
+                total_loss = multipliers['support'] * support_loss + \
+                             multipliers['harmonic'] * harmonic_loss + \
+                             multipliers['sparsity'] * sparsity_loss + \
+                             multipliers['timbre'] * timbre_loss + \
+                             multipliers['geometric'] * geometric_loss + \
+                             multipliers['percussion'] * percussion_loss
 
                 if data_sup is not None:
                     # Compute supervised BCE loss for the batch
@@ -600,61 +644,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     total_loss += multipliers['supervised'] * supervised_loss
 
                     debug_nans(supervised_loss, 'supervised')
-
-                if data_ss is not None:
-                    # Compute support loss w.r.t. first harmonic for the batch
-                    support_loss = compute_support_loss(logits[n_ground_truth:], features_db_1[n_ground_truth:])
-                    # Log the support loss for this batch
-                    writer.add_scalar('train/loss/support', support_loss.item(), batch_count)
-                    # Add support loss to the total loss
-                    total_loss += multipliers['support'] * support_loss
-
-                    debug_nans(support_loss, 'support')
-
-                    # Compute harmonic loss w.r.t. weighted harmonic sum for the batch
-                    harmonic_loss = compute_harmonic_loss(logits[n_ground_truth:], features_db_h[n_ground_truth:])
-                    # Log the harmonic loss for this batch
-                    writer.add_scalar('train/loss/harmonic', harmonic_loss.item(), batch_count)
-                    # Add harmonic loss to the total loss
-                    total_loss += multipliers['harmonic'] * harmonic_loss
-
-                    debug_nans(harmonic_loss, 'harmonic')
-
-                    # Compute sparsity loss for the batch
-                    sparsity_loss = compute_sparsity_loss(estimate[n_ground_truth:])
-                    # Log the sparsity loss for this batch
-                    writer.add_scalar('train/loss/sparsity', sparsity_loss.item(), batch_count)
-                    # Add sparsity loss to the total loss
-                    total_loss += multipliers['sparsity'] * sparsity_loss
-
-                    debug_nans(sparsity_loss, 'sparsity')
-
-                    # Compute timbre-invariance loss for the batch
-                    timbre_loss = compute_timbre_loss(model, features_db[n_ground_truth:], logits[n_ground_truth:], eq_fn, **eq_kwargs)
-                    # Log the timbre-invariance loss for this batch
-                    writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
-                    # Add timbre-invariance loss to the total loss
-                    total_loss += multipliers['timbre'] * timbre_loss
-
-                    debug_nans(timbre_loss, 'timbre')
-
-                    # Compute geometric-equivariance loss for the batch
-                    geometric_loss = compute_geometric_loss(model, features_db[n_ground_truth:], logits[n_ground_truth:], **gm_kwargs)
-                    # Log the geometric-equivariance loss for this batch
-                    writer.add_scalar('train/loss/geometric', geometric_loss.item(), batch_count)
-                    # Add geometric-equivariance loss to the total loss
-                    total_loss += multipliers['geometric'] * geometric_loss
-
-                    debug_nans(geometric_loss, 'geometric')
-
-                    # Compute percussion-invariance loss for the batch
-                    percussion_loss = compute_percussion_loss(model, features_perc[n_ground_truth:], logits[n_ground_truth:])
-                    # Log the percussion-invariance loss for this batch
-                    writer.add_scalar('train/loss/percussion', percussion_loss.item(), batch_count)
-                    # Add percussion-invariance loss to the total loss
-                    total_loss += multipliers['percussion'] * percussion_loss
-
-                    debug_nans(percussion_loss, 'percussion')
 
                 if i >= n_epochs_late_start:
                     # Currently no late-start losses
@@ -798,14 +787,17 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         torch.backends.cudnn.benchmark = False
 
     for eval_set in evaluation_sets:
-        # Evaluate the model using testing split
-        final_results = evaluate(model=best_model,
-                                 eval_set=eval_set,
-                                 multipliers=multipliers,
-                                 device=device,
-                                 eq_fn=eq_fn,
-                                 eq_kwargs=eq_kwargs,
-                                 gm_kwargs=gm_kwargs)
+        try:
+            # Evaluate the model using testing split
+            final_results = evaluate(model=best_model,
+                                     eval_set=eval_set,
+                                     multipliers=multipliers,
+                                     device=device,
+                                     eq_fn=eq_fn,
+                                     eq_kwargs=eq_kwargs,
+                                     gm_kwargs=gm_kwargs)
+        except Exception as e:
+            print(f'Error evaluating \'{eval_set.name()}\': {repr(e)}')
 
         # Log the evaluation results for this dataset in metrics.json
         ex.log_scalar(f'Evaluation Results ({eval_set.name()})', final_results, best_model_checkpoint)
