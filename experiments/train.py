@@ -30,7 +30,7 @@ import os
 
 DEBUG = 0 # (0 - off | 1 - on)
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['URMP_SU_5E-4_0'])
+EX_NAME = '_'.join(['URMP_SU_EG_TM_GM_PC_5E-4_0'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -67,12 +67,12 @@ def config():
 
     # Scaling factors for each loss term
     multipliers = {
-        'support' : 0,
-        'harmonic' : 0,
-        'sparsity' : 0,
-        'timbre' : 0,
-        'geometric' : 0,
-        'percussion' : 0,
+        'support' : 1,
+        'harmonic' : 1,
+        'sparsity' : 1,
+        'timbre' : 1,
+        'geometric' : 1,
+        'percussion' : 1,
         'supervised' : 1
     }
 
@@ -238,7 +238,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     # Point to the datasets within the storage drive containing them or use the default location
     nsynth_base_dir = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
-    urmp_base_dir   = os.path.join('/', 'storage', 'frank', 'URMP') if CONFIG else None
+    urmp_base_dir   = os.path.join('/', 'storage', 'frank', '1', 'URMP') if CONFIG else None
     bch10_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'Bach10') if CONFIG else None
     su_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'Su') if CONFIG else None
     trios_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'TRIOS') if CONFIG else None

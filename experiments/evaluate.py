@@ -79,14 +79,6 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', self_
             # Determine whether targets should be logits or ground-truth
             targets = raw_activations if self_supervised_targets else ground_truth
 
-            if eq_fn is not None:
-                # Compute timbre-invariance loss for the track using specified equalization
-                timbre_loss = compute_timbre_loss(model, features_db, targets, eq_fn, **eq_kwargs)
-                # Store the timbre-invariance loss for the track
-                evaluator.append_results({'loss/timbre' : timbre_loss.item()})
-                # Add the timbre-invariance loss to the total loss
-                total_loss += multipliers['timbre'] * timbre_loss
-
             # Compute geometric-equivariance loss for the track
             geometric_loss = compute_geometric_loss(model, features_db, targets, **gm_kwargs)
             # Store the geometric-equivariance loss for the track
@@ -98,6 +90,14 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', self_
                          multipliers['sparsity'] * sparsity_loss + \
                          multipliers['supervised'] * supervised_loss + \
                          multipliers['geometric'] * geometric_loss
+
+            if eq_fn is not None:
+                # Compute timbre-invariance loss for the track using specified equalization
+                timbre_loss = compute_timbre_loss(model, features_db, targets, eq_fn, **eq_kwargs)
+                # Store the timbre-invariance loss for the track
+                evaluator.append_results({'loss/timbre' : timbre_loss.item()})
+                # Add the timbre-invariance loss to the total loss
+                total_loss += multipliers['timbre'] * timbre_loss
 
             if pc_set is not None:
                 # Sample a track of percussion audio
