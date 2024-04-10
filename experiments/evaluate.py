@@ -25,8 +25,8 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', self_
             track = data[constants.KEY_TRACK]
             # Extract audio and add to the appropriate device
             audio = data[constants.KEY_AUDIO].to(device).unsqueeze(0)
-            # Extract ground-truth targets as a Tensor
-            ground_truth = torch.Tensor(data[constants.KEY_GROUND_TRUTH])
+            # Extract ground-truth targets as a Tensor and add to the appropriate device
+            ground_truth = torch.Tensor(data[constants.KEY_GROUND_TRUTH]).to(device).unsqueeze(0)
 
             if isinstance(eval_set, NoteDataset):
                 # Extract frame times of ground-truth targets as reference
@@ -74,7 +74,7 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', self_
             # Compute sparsity loss for the track
             sparsity_loss = compute_sparsity_loss(raw_activations)
             # Compute supervised BCE loss for the batch
-            supervised_loss = compute_supervised_loss(logits, ground_truth.to(device).unsqueeze(0))
+            supervised_loss = compute_supervised_loss(logits, ground_truth)
 
             # Determine whether targets should be logits or ground-truth
             targets = raw_activations if self_supervised_targets else ground_truth
@@ -143,6 +143,7 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', self_
             features_log_h = features_db_h.unsqueeze(-3)
 
             # Remove batch dimension from inputs
+            ground_truth = ground_truth.squeeze(0)
             transcription = transcription.squeeze(0)
             features_log_1 = features_log_1.squeeze(0)
             features_log_h = features_log_h.squeeze(0)

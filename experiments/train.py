@@ -30,7 +30,7 @@ import os
 
 DEBUG = 0 # (0 - off | 1 - on)
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['URMP_SU_EG_TM_GM_PC_5E-4_0'])
+EX_NAME = '_'.join(['URMP_SU_0'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -45,7 +45,7 @@ def config():
     checkpoint_path = None
 
     # Maximum number of training iterations to conduct
-    max_epochs = 5000
+    max_epochs = 2500
 
     # Number of iterations between checkpoints
     checkpoint_interval = 250
@@ -57,7 +57,7 @@ def config():
     n_secs = 4
 
     # Initial learning rate for encoder
-    learning_rate_encoder = 5e-4
+    learning_rate_encoder = 1e-3
 
     # Initial learning rate for decoder
     learning_rate_decoder = learning_rate_encoder
@@ -67,12 +67,12 @@ def config():
 
     # Scaling factors for each loss term
     multipliers = {
-        'support' : 1,
-        'harmonic' : 1,
-        'sparsity' : 1,
-        'timbre' : 1,
-        'geometric' : 1,
-        'percussion' : 1,
+        'support' : 0,
+        'harmonic' : 0,
+        'sparsity' : 0,
+        'timbre' : 0,
+        'geometric' : 0,
+        'percussion' : 0,
         'supervised' : 1
     }
 
@@ -80,16 +80,16 @@ def config():
     self_supervised_targets = True
 
     # Number of epochs spanning warmup phase (0 to disable)
-    n_epochs_warmup = 0
+    n_epochs_warmup = 50
 
     # Set validation dataset to compare for learning rate decay and early stopping
     validation_criteria_set = URMP_Mixtures.name()
 
     # Set validation metric to compare for learning rate decay and early stopping
-    validation_criteria_metric = 'loss/total'
+    validation_criteria_metric = 'mpe/f1-score'
 
     # Select whether the validation criteria should be maximized or minimized
-    validation_criteria_maximize = False # (False - minimize | True - maximize)
+    validation_criteria_maximize = True # (False - minimize | True - maximize)
 
     # Number of epochs without improvement before reducing learning rate (0 to disable)
     n_epochs_decay = 500
@@ -362,7 +362,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                    {'params' : model.decoder_parameters(), 'lr' : learning_rates[1]}])
 
     # Determine the amount of batches in one epoch
-    epoch_steps = len(all_train)
+    epoch_steps = len(loader)
 
     # Compute number of validation checkpoints corresponding to learning rate decay cooldown and window
     n_checkpoints_cooldown = math.ceil(n_epochs_cooldown * epoch_steps / checkpoint_interval)
@@ -383,7 +383,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                                                  mode='max' if validation_criteria_maximize else 'min',
                                                                  factor=0.5,
                                                                  patience=n_checkpoints_decay,
-                                                                 threshold=5E-3,
+                                                                 threshold=1E-3,
                                                                  cooldown=n_checkpoints_cooldown)
 
     # Enable anomaly detection to debug any NaNs (can increase overhead)
