@@ -30,7 +30,7 @@ import os
 
 DEBUG = 0 # (0 - off | 1 - on)
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['URMP_SU_0'])
+EX_NAME = '_'.join(['URMP_SU_EG_TM_GM_PC_1'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -45,7 +45,7 @@ def config():
     checkpoint_path = None
 
     # Maximum number of training iterations to conduct
-    max_epochs = 2500
+    max_epochs = 5000
 
     # Number of iterations between checkpoints
     checkpoint_interval = 250
@@ -67,12 +67,12 @@ def config():
 
     # Scaling factors for each loss term
     multipliers = {
-        'support' : 0,
-        'harmonic' : 0,
-        'sparsity' : 0,
-        'timbre' : 0,
-        'geometric' : 0,
-        'percussion' : 0,
+        'support' : 1,
+        'harmonic' : 1,
+        'sparsity' : 1,
+        'timbre' : 1,
+        'geometric' : 1,
+        'percussion' : 1,
         'supervised' : 1
     }
 
@@ -101,10 +101,10 @@ def config():
     n_epochs_early_stop = None
 
     # IDs of the GPUs to use, if available
-    gpu_ids = [0]
+    gpu_ids = [1]
 
     # Random seed for this experiment
-    seed = 0
+    seed = 1
 
     ########################
     ## FEATURE EXTRACTION ##
@@ -340,18 +340,11 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           cqt=model.hcqt,
                           seed=seed)
 
-    # Instantiate MAESTRO dataset for evaluation
-    mstro_test = MAESTRO(base_dir=mstro_base_dir,
-                         splits=['test'],
-                         sample_rate=sample_rate,
-                         cqt=model.hcqt,
-                         seed=seed)
-
     # Add all validation datasets to a list
     validation_sets = [nsynth_val, urmp_val, bch10_test, su_test, trios_test, gset_val]
 
     # Add all evaluation datasets to a list
-    evaluation_sets = [nsynth_val, bch10_test, su_test, trios_test, gset_test, mstro_test]
+    evaluation_sets = [nsynth_val, bch10_test, su_test, trios_test, gset_test]
 
     #################
     ## PREPARATION ##
@@ -387,7 +380,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                                                  cooldown=n_checkpoints_cooldown)
 
     # Enable anomaly detection to debug any NaNs (can increase overhead)
-    #torch.autograd.set_detect_anomaly(True)
+    torch.autograd.set_detect_anomaly(True)
 
     # Enable cuDNN auto-tuner to optimize CUDA kernel (might improve
     # performance, but adds initial overhead to find the best kernel)
@@ -422,6 +415,33 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ## TIMBRE LOSS ##
     #################
 
+    # Number of random points to sample per octave
+    points_per_octave = 3
+
+    # Infer the number of bins per semitone
+    bins_per_semitone = bins_per_octave / 12
+
+    # Determine semitone span of frequency support
+    semitone_span = model.hcqt.midi_freqs.max() - model.hcqt.midi_freqs.min()
+
+    # Determine how many bins are represented across all harmonics
+    n_psuedo_bins = (bins_per_semitone * semitone_span).round()
+
+    # Determine how many octaves have been covered
+    n_octaves = int(math.ceil(n_psuedo_bins / bins_per_octave))
+
+    # Calculate number of cut/boost points to sample
+    n_points = 1 + points_per_octave * n_octaves
+
+    # Standard deviation of boost/cut
+    std_dev = 0.25
+
+    # Set keyword arguments for random equalization
+    random_kwargs = {
+        'n_points' : n_points,
+        'std_dev' : std_dev
+    }
+
     # Maximum amplitude for Gaussian equalization
     max_A = 0.375
 
@@ -439,7 +459,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     }
 
     # Set equalization type and corresponding parameter values
-    eq_fn, eq_kwargs = sample_gaussian_equalization, gaussian_kwargs
+    eq_fn, eq_kwargs = sample_random_equalization, random_kwargs
 
     ####################
     ## GEOMETRIC LOSS ##
@@ -520,8 +540,10 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
             # Sample a batch of percussion audio
             percussion_data = next(iter(percussion_loader))
+            # Sample random volumes for percussion audio
+            volumes = 2.0 * torch.rand((batch_size, 1, 1), device=device)
             # Superimpose percussion audio onto original audio
-            percussion_audio = audio + percussion_data[constants.KEY_AUDIO].to(device)
+            percussion_audio = audio + volumes * percussion_data[constants.KEY_AUDIO].to(device)
             # Compute spectral features for percussion audio mixture
             features_perc = model.hcqt.to_decibels(model.hcqt(percussion_audio))
 

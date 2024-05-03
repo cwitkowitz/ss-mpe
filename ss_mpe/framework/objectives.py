@@ -377,11 +377,20 @@ def compute_supervised_loss(embeddings, ground_truth, weight_positive_class=Fals
     # Compute supervised loss as BCE of activations with respect to ground-truth
     supervised_loss = F.binary_cross_entropy_with_logits(embeddings, ground_truth, reduction='none')
 
-    if weight_positive_class and ground_truth.any():
-        # Determine the inverse ratio between positive and negative activations
-        positive_weight = torch.sum(1 - ground_truth).item() / torch.sum(ground_truth).item()
-        # Scale transcription loss for positive targets
-        supervised_loss[ground_truth == 1] *= positive_weight
+    if weight_positive_class:
+        # Sum ground-truth and its complement for weights
+        positive_weight = torch.sum(ground_truth, dim=-2, keepdim=True)
+        negative_weight = torch.sum(1 - ground_truth, dim=-2, keepdim=True)
+        # Compute multi-class imbalance ratio for each frame
+        positive_scaling = negative_weight / (positive_weight + torch.finfo().eps)
+        # Determine scaling for each loss element
+        #scaling = positive_scaling * (ground_truth > 0) # scales all positive activations equally
+        #scaling = positive_scaling * ground_truth # scales positive activations proportionally
+        scaling = positive_scaling * (ground_truth == 1) # only scales maximally positive activations
+        # Correct scaling for negative activations
+        scaling[scaling == 0] = 1
+        # Scale transcription loss
+        supervised_loss *= scaling
 
     # Sum across frequency bins and average across time and batch
     supervised_loss = supervised_loss.sum(-2).mean(-1).mean(-1)
