@@ -153,11 +153,12 @@ class SS_MPE(nn.Module):
           Batch of pitch salience activations
         """
 
-        # Compute HCQT features (dB) and re-scale to probability-like
-        features = self.hcqt.to_decibels(self.hcqt(audio), rescale=True)
+        with torch.no_grad():
+            # Compute HCQT features (dB) and re-scale to probability-like
+            features = self.hcqt.to_decibels(self.hcqt(audio), rescale=True)
 
-        # Process features and convert to activations
-        salience = torch.sigmoid(self(features)[0])
+            # Process features and convert to activations
+            salience = torch.sigmoid(self(features)[0])
 
         return salience
 

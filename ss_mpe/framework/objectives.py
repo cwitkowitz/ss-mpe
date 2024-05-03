@@ -384,9 +384,7 @@ def compute_supervised_loss(embeddings, ground_truth, weight_positive_class=Fals
         # Compute multi-class imbalance ratio for each frame
         positive_scaling = negative_weight / (positive_weight + torch.finfo().eps)
         # Determine scaling for each loss element
-        #scaling = positive_scaling * (ground_truth > 0) # scales all positive activations equally
-        #scaling = positive_scaling * ground_truth # scales positive activations proportionally
-        scaling = positive_scaling * (ground_truth == 1) # only scales maximally positive activations
+        scaling = positive_scaling * (ground_truth == 1)
         # Correct scaling for negative activations
         scaling[scaling == 0] = 1
         # Scale transcription loss
