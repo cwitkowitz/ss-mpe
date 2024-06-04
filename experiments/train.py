@@ -1,12 +1,23 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from timbre_trap.datasets.MixedMultiPitch import URMP as URMP_Mixtures, Bach10 as Bach10_Mixtures, Su, TRIOS
-from timbre_trap.datasets.SoloMultiPitch import GuitarSet, MAESTRO
+from timbre_trap.datasets.MixedMultiPitch import (URMP as URMP_Mixtures,
+                                                  Bach10 as Bach10_Mixtures,
+                                                  MusicNet,
+                                                  Su,
+                                                  TRIOS)
+from timbre_trap.datasets.SoloMultiPitch import (MAESTRO,
+                                                 GuitarSet,
+                                                 MedleyDB_Pitch)
+from timbre_trap.datasets.AudioMixtures import (FMA,
+                                                MedleyDB)
 from timbre_trap.datasets import ComboDataset
 
-from ss_mpe.datasets.SoloMultiPitch import NSynth
-from ss_mpe.datasets.AudioMixtures import E_GMD
+from ss_mpe.datasets.SoloMultiPitch import (NSynth,
+                                            SWD,
+                                            MIR_1K)
+from ss_mpe.datasets.AudioMixtures import (E_GMD,
+                                           MagnaTagATune)
 
 from ss_mpe.framework import SS_MPE, TT_Base
 from ss_mpe.framework.objectives import *
@@ -28,9 +39,8 @@ import math
 import os
 
 
-DEBUG = 0 # (0 - off | 1 - on)
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['URMP_SU_EG_TM_GM_PC_1'])
+EX_NAME = '_'.join(['SS-MPE_Journal'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -45,13 +55,13 @@ def config():
     checkpoint_path = None
 
     # Maximum number of training iterations to conduct
-    max_epochs = 5000
+    max_epochs = 1000
 
     # Number of iterations between checkpoints
     checkpoint_interval = 250
 
     # Number of samples to gather for a batch
-    batch_size = 4 if DEBUG else 8
+    batch_size = 20
 
     # Number of seconds of audio per sample
     n_secs = 4
@@ -70,17 +80,17 @@ def config():
         'support' : 1,
         'harmonic' : 1,
         'sparsity' : 1,
-        'timbre' : 1,
-        'geometric' : 1,
-        'percussion' : 1,
-        'supervised' : 1
+        'timbre' : 0,
+        'geometric' : 0,
+        'percussion' : 0,
+        'supervised' : 0
     }
 
     # Whether to formulate objectives as self-supervision or augmentation
     self_supervised_targets = True
 
     # Number of epochs spanning warmup phase (0 to disable)
-    n_epochs_warmup = 50
+    n_epochs_warmup = 1
 
     # Set validation dataset to compare for learning rate decay and early stopping
     validation_criteria_set = URMP_Mixtures.name()
@@ -92,19 +102,19 @@ def config():
     validation_criteria_maximize = True # (False - minimize | True - maximize)
 
     # Number of epochs without improvement before reducing learning rate (0 to disable)
-    n_epochs_decay = 500
+    n_epochs_decay = 10
 
     # Number of epochs before starting epoch counter for learning rate decay
-    n_epochs_cooldown = 100
+    n_epochs_cooldown = 1
 
     # Number of epochs without improvement before early stopping (None to disable)
     n_epochs_early_stop = None
 
     # IDs of the GPUs to use, if available
-    gpu_ids = [1]
+    gpu_ids = [1, 0]
 
     # Random seed for this experiment
-    seed = 1
+    seed = 0
 
     ########################
     ## FEATURE EXTRACTION ##
@@ -133,20 +143,16 @@ def config():
     ############
 
     # Number of threads to use for data loading
-    n_workers = 0 #if DEBUG else 8 * len(gpu_ids)
+    n_workers = 0 #8 * len(gpu_ids)
 
     # Top-level directory under which to save all experiment files
     if CONFIG == 1:
-        root_dir = os.path.join('/', 'storage', 'frank', 'ss-mpe_leveraging', EX_NAME)
+        root_dir = os.path.join('/', 'storage', 'frank', 'ss-mpe_journal', EX_NAME)
     else:
         root_dir = os.path.join('..', 'generated', 'experiments', EX_NAME)
 
     # Create the root directory
     os.makedirs(root_dir, exist_ok=True)
-
-    if DEBUG:
-        # Print a warning message indicating debug mode is active
-        warnings.warn('Running in DEBUG mode...', RuntimeWarning)
 
     # Add a file storage observer for the log directory
     ex.observers.append(FileStorageObserver(root_dir))
@@ -174,6 +180,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ## FEATURE EXTRACTION ##
     ########################
 
+    # TODO - consider alternate harmonics
     # Create weighting for harmonics (harmonic loss)
     harmonic_weights = 1 / torch.Tensor(harmonics) ** 2
     # Apply zero weight to sub-harmonics (harmonic loss)
@@ -208,7 +215,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     if checkpoint_path is None:
         # Initialize autoencoder model
         model = TT_Base(hcqt_params,
-                        model_complexity=3,
+                        model_complexity=2,
                         skip_connections=False)
     else:
         # Load weights of the specified model checkpoint
@@ -236,15 +243,25 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ## DATASETS ##
     ##############
 
-    # Point to the datasets within the storage drive containing them or use the default location
-    nsynth_base_dir = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
-    urmp_base_dir   = os.path.join('/', 'storage', 'frank', '1', 'URMP') if CONFIG else None
-    bch10_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'Bach10') if CONFIG else None
-    su_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'Su') if CONFIG else None
-    trios_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'TRIOS') if CONFIG else None
-    gset_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'GuitarSet') if CONFIG else None
-    mstro_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'MAESTRO') if CONFIG else None
+    # Audio dataset paths
+    fma_base_dir    = os.path.join('/', 'storageNVME', 'anon', 'FMA') if CONFIG else None
+    mydb_base_dir   = os.path.join('/', 'storage', 'frank', 'MedleyDB') if CONFIG else None
+    magna_base_dir  = os.path.join('/', 'storageNVME', 'anon', 'MagnaTagATune') if CONFIG else None
     egmd_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'E-GMD') if CONFIG else None
+    nsynth_base_dir = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
+
+    # MPE dataset paths
+    urmp_base_dir      = os.path.join('/', 'storage', 'frank', 'URMP') if CONFIG else None
+    bch10_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'Bach10') if CONFIG else None
+    gset_base_dir      = os.path.join('/', 'storageNVME', 'frank', 'GuitarSet') if CONFIG else None
+    mydb_ptch_base_dir = os.path.join('/', 'storage', 'anon', 'MedleyDB-Pitch') if CONFIG else None
+
+    # AMT dataset paths
+    mstro_base_dir = os.path.join('/', 'storageNVME', 'frank', 'MAESTRO') if CONFIG else None
+    mnet_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if CONFIG else None
+    swd_base_dir   = os.path.join('/', 'storage', 'anon', 'SWD') if CONFIG else None
+    su_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'Su') if CONFIG else None
+    trios_base_dir = os.path.join('/', 'storageNVME', 'frank', 'TRIOS') if CONFIG else None
 
     # Initialize list to hold training datasets
     all_train = list()
@@ -259,24 +276,13 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         # Remove validation tracks
         urmp_train_splits.remove(t)
 
-    if DEBUG:
-        # Instantiate URMP dataset (validation) mixtures for training
-        urmp_mixes_train = URMP_Mixtures(base_dir=urmp_base_dir,
-                                         splits=urmp_val_splits,
-                                         sample_rate=sample_rate,
-                                         cqt=model.hcqt,
-                                         n_secs=n_secs,
-                                         seed=seed)
-        all_train.append(urmp_mixes_train)
-    else:
-        # Instantiate URMP dataset mixtures for training
-        urmp_mixes_train = URMP_Mixtures(base_dir=urmp_base_dir,
-                                         splits=urmp_train_splits,
-                                         sample_rate=sample_rate,
-                                         cqt=model.hcqt,
-                                         n_secs=n_secs,
-                                         seed=seed)
-        all_train.append(urmp_mixes_train)
+    # Instantiate MusicNet audio (training) mixtures for training
+    mnet_audio = MusicNet(base_dir=mnet_base_dir,
+                          splits=['train'],
+                          sample_rate=sample_rate,
+                          n_secs=n_secs,
+                          seed=seed)
+    all_train.append(mnet_audio)
 
     # Combine training datasets
     all_train = ComboDataset(all_train)
@@ -344,7 +350,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     validation_sets = [nsynth_val, urmp_val, bch10_test, su_test, trios_test, gset_val]
 
     # Add all evaluation datasets to a list
-    evaluation_sets = [nsynth_val, bch10_test, su_test, trios_test, gset_test]
+    evaluation_sets = [bch10_test, su_test, trios_test, gset_test]
 
     #################
     ## PREPARATION ##
@@ -380,7 +386,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                                                  cooldown=n_checkpoints_cooldown)
 
     # Enable anomaly detection to debug any NaNs (can increase overhead)
-    torch.autograd.set_detect_anomaly(True)
+    #torch.autograd.set_detect_anomaly(True)
 
     # Enable cuDNN auto-tuner to optimize CUDA kernel (might improve
     # performance, but adds initial overhead to find the best kernel)
@@ -442,22 +448,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         'std_dev' : std_dev
     }
 
-    # Maximum amplitude for Gaussian equalization
-    max_A = 0.375
-
-    # Maximum standard deviation for Gaussian equalization
-    max_std_dev = 2 * bins_per_octave
-
-    # Whether to sample fixed rather than varied shapes
-    fixed_shape = False
-
-    # Set keyword arguments for Gaussian equalization
-    gaussian_kwargs = {
-        'max_A' : max_A,
-        'max_std_dev' : max_std_dev,
-        'fixed_shape' : fixed_shape
-    }
-
     # Set equalization type and corresponding parameter values
     eq_fn, eq_kwargs = sample_random_equalization, random_kwargs
 
@@ -497,18 +487,18 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                  seed=seed)
     perc_train.append(egmd)
 
-    # TODO - other noise / percussion datasets
+    # TODO - include other noise / percussion datasets
 
     # Combine unpitched datasets
     perc_train = ComboDataset(perc_train)
 
     # Initialize a PyTorch dataloader for percussion data
-    percussion_loader = DataLoader(dataset=perc_train,
-                                   batch_size=batch_size,
-                                   shuffle=True,
-                                   num_workers=n_workers,
-                                   pin_memory=True,
-                                   drop_last=True)
+    loader_pc = DataLoader(dataset=perc_train,
+                           batch_size=batch_size,
+                           shuffle=True,
+                           num_workers=n_workers,
+                           pin_memory=True,
+                           drop_last=True)
 
     ##############################
     ## TRAINING/VALIDATION LOOP ##
@@ -524,7 +514,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             # Extract audio and add audio to appropriate device
             audio = data[constants.KEY_AUDIO].to(device)
             # Extract ground-truth pitch salience activations
-            ground_truth = data[constants.KEY_GROUND_TRUTH].to(device)
+            #ground_truth = data[constants.KEY_GROUND_TRUTH].to(device)
 
             # Log the current learning rates for this batch
             writer.add_scalar('train/loss/learning_rate/encoder', optimizer.param_groups[0]['lr'], batch_count)
@@ -539,22 +529,19 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             features_db_h = features['db_h']
 
             # Sample a batch of percussion audio
-            percussion_data = next(iter(percussion_loader))
+            data_pc = next(iter(loader_pc))
             # Sample random volumes for percussion audio
             volumes = 2.0 * torch.rand((batch_size, 1, 1), device=device)
             # Superimpose percussion audio onto original audio
-            percussion_audio = audio + volumes * percussion_data[constants.KEY_AUDIO].to(device)
+            audio_pc = audio + volumes * data_pc[constants.KEY_AUDIO].to(device)
             # Compute spectral features for percussion audio mixture
-            features_perc = model.hcqt.to_decibels(model.hcqt(percussion_audio))
+            features_pc = model.hcqt.to_decibels(model.hcqt(audio_pc))
 
             with torch.autocast(device_type=f'cuda'):
                 # Process features to obtain logits
                 logits, _, _ = model(features_db)
                 # Convert to (implicit) pitch salience activations
                 activations = torch.sigmoid(logits)
-
-                # Keep track of total loss
-                #total_loss = 0.
 
                 # Compute support loss w.r.t. first harmonic for the batch
                 support_loss = compute_support_loss(logits, features_db_1)
@@ -563,10 +550,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 debug_nans(support_loss, 'support')
 
-                #if multipliers['support']:
-                #    # Add the support loss to the total loss
-                #    total_loss.add(multipliers['support'] * support_loss)
-
                 # Compute harmonic loss w.r.t. weighted harmonic sum for the batch
                 harmonic_loss = compute_harmonic_loss(logits, features_db_h)
                 # Log the harmonic loss for this batch
@@ -574,20 +557,12 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 debug_nans(harmonic_loss, 'harmonic')
 
-                #if multipliers['harmonic']:
-                #    # Add the harmonic loss to the total loss
-                #    total_loss.add(multipliers['harmonic'] * harmonic_loss)
-
                 # Compute sparsity loss for the batch
                 sparsity_loss = compute_sparsity_loss(activations)
                 # Log the sparsity loss for this batch
                 writer.add_scalar('train/loss/sparsity', sparsity_loss.item(), batch_count)
 
                 debug_nans(sparsity_loss, 'sparsity')
-
-                #if multipliers['sparsity']:
-                #    # Add the sparsity loss to the total loss
-                #    total_loss.add(multipliers['sparsity'] * sparsity_loss)
 
                 # Determine whether targets should be logits or ground-truth
                 targets = activations if self_supervised_targets else ground_truth
@@ -599,10 +574,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 debug_nans(timbre_loss, 'timbre')
 
-                #if multipliers['timbre']:
-                #    # Add the timbre-invariance loss to the total loss
-                #    total_loss.add(multipliers['timbre'] * timbre_loss)
-
                 # Compute geometric-equivariance loss for the batch
                 geometric_loss = compute_geometric_loss(model, features_db, targets, **gm_kwargs)
                 # Log the geometric-equivariance loss for this batch
@@ -610,31 +581,19 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 debug_nans(geometric_loss, 'geometric')
 
-                #if multipliers['geometric']:
-                #    # Add the geometric-equivariance loss to the total loss
-                #    total_loss.add(multipliers['geometric'] * geometric_loss)
-
                 # Compute percussion-invariance loss for the batch
-                percussion_loss = compute_percussion_loss(model, features_perc, targets)
+                percussion_loss = compute_percussion_loss(model, features_pc, targets)
                 # Log the percussion-invariance loss for this batch
                 writer.add_scalar('train/loss/percussion', percussion_loss.item(), batch_count)
 
                 debug_nans(percussion_loss, 'percussion')
 
-                #if multipliers['percussion']:
-                #    # Add the percussion-invariance loss to the total loss
-                #    total_loss.add(multipliers['percussion'] * percussion_loss)
-
                 # Compute supervised BCE loss for the batch
-                supervised_loss = compute_supervised_loss(logits, ground_truth, True)
+                #supervised_loss = compute_supervised_loss(logits, ground_truth, True)
                 # Log the supervised BCE loss for this batch
-                writer.add_scalar('train/loss/supervised', supervised_loss.item(), batch_count)
+                #writer.add_scalar('train/loss/supervised', supervised_loss.item(), batch_count)
 
-                debug_nans(supervised_loss, 'supervised')
-
-                #if multipliers['supervised']:
-                #    # Add the supervised loss to the total loss
-                #    total_loss.add(multipliers['supervised'] * supervised_loss)
+                #debug_nans(supervised_loss, 'supervised')
 
                 # Compute the total loss for this batch
                 total_loss = multipliers['support'] * support_loss + \
@@ -642,8 +601,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                              multipliers['sparsity'] * sparsity_loss + \
                              multipliers['timbre'] * timbre_loss + \
                              multipliers['geometric'] * geometric_loss + \
-                             multipliers['percussion'] * percussion_loss + \
-                             multipliers['supervised'] * supervised_loss
+                             multipliers['percussion'] * percussion_loss# + \
+                             #multipliers['supervised'] * supervised_loss
 
                 # Log the total loss for this batch
                 writer.add_scalar('train/loss/total', total_loss.item(), batch_count)
