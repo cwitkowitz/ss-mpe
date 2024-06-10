@@ -19,7 +19,7 @@ from ss_mpe.datasets.SoloMultiPitch import (NSynth,
 from ss_mpe.datasets.AudioMixtures import (E_GMD,
                                            MagnaTagATune)
 
-from ss_mpe.framework import SS_MPE, TT_Base
+from ss_mpe.framework import SS_MPE, TT_Base, TT_Enc
 from ss_mpe.framework.objectives import *
 from timbre_trap.utils import *
 from evaluate import evaluate
@@ -40,7 +40,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['EG_FMA'])
+EX_NAME = '_'.join(['ScaleUp_EG'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -55,7 +55,7 @@ def config():
     checkpoint_path = None
 
     # Maximum number of training iterations to conduct
-    max_epochs = 100
+    max_epochs = 5000
 
     # Number of iterations between checkpoints
     checkpoint_interval = 250
@@ -90,7 +90,7 @@ def config():
     self_supervised_targets = True
 
     # Number of epochs spanning warmup phase (0 to disable)
-    n_epochs_warmup = 0.2
+    n_epochs_warmup = 5
 
     # Set validation dataset to compare for learning rate decay and early stopping
     validation_criteria_set = URMP_Mixtures.name()
@@ -102,10 +102,10 @@ def config():
     validation_criteria_maximize = True # (False - minimize | True - maximize)
 
     # Number of epochs without improvement before reducing learning rate (0 to disable)
-    n_epochs_decay = 1
+    n_epochs_decay = 0
 
     # Number of epochs before starting epoch counter for learning rate decay
-    n_epochs_cooldown = 0.2
+    n_epochs_cooldown = 0
 
     # Number of epochs without improvement before early stopping (None to disable)
     n_epochs_early_stop = None
@@ -217,6 +217,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         model = TT_Base(hcqt_params,
                         model_complexity=2,
                         skip_connections=False)
+        # Initialize Timbre-Trap encoder
+        #model = TT_Enc(hcqt_params,
+        #               model_complexity=2)
     else:
         # Load weights of the specified model checkpoint
         model = SS_MPE.load(checkpoint_path, device=device)
@@ -245,16 +248,16 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     # Audio dataset paths
     fma_base_dir    = os.path.join('/', 'storageNVME', 'anon', 'FMA') if CONFIG else None
-    mydb_base_dir   = os.path.join('/', 'storage', 'frank', 'MedleyDB') if CONFIG else None
+    mdb_base_dir    = os.path.join('/', 'storage', 'frank', 'MedleyDB') if CONFIG else None
     magna_base_dir  = os.path.join('/', 'storageNVME', 'anon', 'MagnaTagATune') if CONFIG else None
     egmd_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'E-GMD') if CONFIG else None
     nsynth_base_dir = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
 
     # MPE dataset paths
-    urmp_base_dir      = os.path.join('/', 'storage', 'frank', 'URMP') if CONFIG else None
-    bch10_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'Bach10') if CONFIG else None
-    gset_base_dir      = os.path.join('/', 'storageNVME', 'frank', 'GuitarSet') if CONFIG else None
-    mydb_ptch_base_dir = os.path.join('/', 'storage', 'anon', 'MedleyDB-Pitch') if CONFIG else None
+    urmp_base_dir     = os.path.join('/', 'storage', 'frank', 'URMP') if CONFIG else None
+    bch10_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'Bach10') if CONFIG else None
+    gset_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'GuitarSet') if CONFIG else None
+    mdb_ptch_base_dir = os.path.join('/', 'storage', 'anon', 'MedleyDB-Pitch') if CONFIG else None
 
     # AMT dataset paths
     mstro_base_dir = os.path.join('/', 'storageNVME', 'frank', 'MAESTRO') if CONFIG else None
@@ -282,7 +285,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           sample_rate=sample_rate,
                           n_secs=n_secs,
                           seed=seed)
-    #all_train.append(mnet_audio)
+    all_train.append(mnet_audio)
 
     # Define mostly-harmonic splits for FMA
     fma_genres_harmonic = ['Rock', 'Folk', 'Instrumental', 'Pop', 'Classical','Jazz', 'Country', 'Soul-RnB', 'Blues']
@@ -293,7 +296,14 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     sample_rate=sample_rate,
                     n_secs=n_secs,
                     seed=seed)
-    all_train.append(fma_audio)
+    #all_train.append(fma_audio)
+
+    # Instantiate MedleyDB audio mixtures for training
+    mdb_audio = MedleyDB(base_dir=mdb_base_dir,
+                         sample_rate=sample_rate,
+                         n_secs=n_secs,
+                         seed=seed)
+    #all_train.append(mdb_audio)
 
     # Combine training datasets
     all_train = ComboDataset(all_train)
@@ -576,7 +586,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 debug_nans(sparsity_loss, 'sparsity')
 
                 # Determine whether targets should be logits or ground-truth
-                targets = activations if self_supervised_targets else ground_truth
+                targets = activations #if self_supervised_targets else ground_truth
 
                 # Compute timbre-invariance loss for the batch
                 timbre_loss = compute_timbre_loss(model, features_db, targets, eq_fn=eq_fn, **eq_kwargs)

@@ -11,6 +11,12 @@ import torch.nn as nn
 import torch
 
 
+all = ['TT_Base',
+       'EncoderNorm',
+       'DecoderNorm',
+       'LayerNormPermute']
+
+
 class TT_Base(SS_MPE):
     """
     Implements base model from Timbre-Trap (https://arxiv.org/abs/2309.15717).
