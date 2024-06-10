@@ -247,9 +247,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ##############
 
     # Audio dataset paths
-    fma_base_dir    = os.path.join('/', 'storageNVME', 'anon', 'FMA') if CONFIG else None
+    fma_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'FMA') if CONFIG else None
     mdb_base_dir    = os.path.join('/', 'storage', 'frank', 'MedleyDB') if CONFIG else None
-    magna_base_dir  = os.path.join('/', 'storageNVME', 'anon', 'MagnaTagATune') if CONFIG else None
+    magna_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'MagnaTagATune') if CONFIG else None
     egmd_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'E-GMD') if CONFIG else None
     nsynth_base_dir = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
 
@@ -257,27 +257,26 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     urmp_base_dir     = os.path.join('/', 'storage', 'frank', 'URMP') if CONFIG else None
     bch10_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'Bach10') if CONFIG else None
     gset_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'GuitarSet') if CONFIG else None
-    mdb_ptch_base_dir = os.path.join('/', 'storage', 'anon', 'MedleyDB-Pitch') if CONFIG else None
+    mdb_ptch_base_dir = os.path.join('/', 'storage', 'frank', 'MedleyDB-Pitch') if CONFIG else None
 
     # AMT dataset paths
     mstro_base_dir = os.path.join('/', 'storageNVME', 'frank', 'MAESTRO') if CONFIG else None
     mnet_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if CONFIG else None
-    swd_base_dir   = os.path.join('/', 'storage', 'anon', 'SWD') if CONFIG else None
+    swd_base_dir   = os.path.join('/', 'storage', 'frank', 'SWD') if CONFIG else None
     su_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'Su') if CONFIG else None
     trios_base_dir = os.path.join('/', 'storageNVME', 'frank', 'TRIOS') if CONFIG else None
 
     # Initialize list to hold training datasets
     all_train = list()
 
-    # Set the URMP validation set in accordance with the MT3 paper
-    urmp_val_splits = ['01', '02', '12', '13', '24', '25', '31', '38', '39']
-
-    # Allocate remaining tracks to URMP training set
-    urmp_train_splits = URMP_Mixtures.available_splits()
-
-    for t in urmp_val_splits:
-        # Remove validation tracks
-        urmp_train_splits.remove(t)
+    # Instantiate NSynth training split for training
+    nsynth_train = NSynth(base_dir=nsynth_base_dir,
+                          splits=['train'],
+                          midi_range=np.array([fmin, fmax]),
+                          sample_rate=sample_rate,
+                          n_secs=n_secs,
+                          seed=seed)
+    all_train.append(nsynth_train)
 
     # Instantiate MusicNet audio (training) mixtures for training
     mnet_audio = MusicNet(base_dir=mnet_base_dir,
@@ -285,7 +284,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           sample_rate=sample_rate,
                           n_secs=n_secs,
                           seed=seed)
-    all_train.append(mnet_audio)
+    #all_train.append(mnet_audio)
 
     # Define mostly-harmonic splits for FMA
     fma_genres_harmonic = ['Rock', 'Folk', 'Instrumental', 'Pop', 'Classical','Jazz', 'Country', 'Soul-RnB', 'Blues']
@@ -324,6 +323,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                         sample_rate=sample_rate,
                         cqt=model.hcqt,
                         seed=seed)
+
+    # Set the URMP validation set in accordance with the MT3 paper
+    urmp_val_splits = ['01', '02', '12', '13', '24', '25', '31', '38', '39']
 
     # Instantiate URMP dataset mixtures for validation
     urmp_val = URMP_Mixtures(base_dir=urmp_base_dir,
