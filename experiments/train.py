@@ -40,7 +40,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['ScaleUp_EG'])
+EX_NAME = '_'.join(['ScaleUp_ENC_EG'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -67,7 +67,7 @@ def config():
     n_secs = 4
 
     # Initial learning rate for encoder
-    learning_rate_encoder = 1e-3
+    learning_rate_encoder = 5e-4
 
     # Initial learning rate for decoder
     learning_rate_decoder = learning_rate_encoder
@@ -111,7 +111,7 @@ def config():
     n_epochs_early_stop = None
 
     # IDs of the GPUs to use, if available
-    gpu_ids = [1, 0]
+    gpu_ids = [0]
 
     # Random seed for this experiment
     seed = 0
@@ -143,7 +143,7 @@ def config():
     ############
 
     # Number of threads to use for data loading
-    n_workers = 0 #8 * len(gpu_ids)
+    n_workers = 0 * len(gpu_ids)
 
     # Top-level directory under which to save all experiment files
     if CONFIG == 1:
@@ -214,12 +214,12 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     if checkpoint_path is None:
         # Initialize autoencoder model
-        model = TT_Base(hcqt_params,
-                        model_complexity=2,
-                        skip_connections=False)
+        #model = TT_Base(hcqt_params,
+        #                model_complexity=2,
+        #                skip_connections=False)
         # Initialize Timbre-Trap encoder
-        #model = TT_Enc(hcqt_params,
-        #               model_complexity=2)
+        model = TT_Enc(hcqt_params,
+                       model_complexity=2)
     else:
         # Load weights of the specified model checkpoint
         model = SS_MPE.load(checkpoint_path, device=device)
@@ -276,7 +276,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           sample_rate=sample_rate,
                           n_secs=n_secs,
                           seed=seed)
-    all_train.append(nsynth_train)
+    #all_train.append(nsynth_train)
 
     # Instantiate MusicNet audio (training) mixtures for training
     mnet_audio = MusicNet(base_dir=mnet_base_dir,
@@ -284,7 +284,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           sample_rate=sample_rate,
                           n_secs=n_secs,
                           seed=seed)
-    #all_train.append(mnet_audio)
+    all_train.append(mnet_audio)
 
     # Define mostly-harmonic splits for FMA
     fma_genres_harmonic = ['Rock', 'Folk', 'Instrumental', 'Pop', 'Classical','Jazz', 'Country', 'Soul-RnB', 'Blues']
@@ -645,13 +645,13 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 writer.add_scalar('train/max_norm/encoder', max_norm_encoder, batch_count)
 
                 # Compute the average gradient norm across the decoder
-                avg_norm_decoder = average_gradient_norms(model.decoder)
+                #avg_norm_decoder = average_gradient_norms(model.decoder)
                 # Log the average gradient norm of the decoder for this batch
-                writer.add_scalar('train/avg_norm/decoder', avg_norm_decoder, batch_count)
+                #writer.add_scalar('train/avg_norm/decoder', avg_norm_decoder, batch_count)
                 # Determine the maximum gradient norm across decoder
-                max_norm_decoder = get_max_gradient_norm(model.decoder)
+                #max_norm_decoder = get_max_gradient_norm(model.decoder)
                 # Log the maximum gradient norm of the decoder for this batch
-                writer.add_scalar('train/max_norm/decoder', max_norm_decoder, batch_count)
+                #writer.add_scalar('train/max_norm/decoder', max_norm_decoder, batch_count)
 
                 # Apply gradient clipping for training stability
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
