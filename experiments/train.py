@@ -31,6 +31,7 @@ from torch.utils.data import DataLoader
 from sacred import Experiment
 from tqdm import tqdm
 
+import torch.nn.functional as F
 import numpy as np
 import warnings
 import librosa
@@ -135,15 +136,15 @@ def config():
     # Number of frequency bins per CQT
     n_bins = 440
 
-    # Harmonics to stack along channel dimension of HCQT
-    harmonics = [0.5, 1, 2, 3, 4, 5]
+    # Harmonics to stack along channel dimension
+    harmonics = [0.5, 1, 2, 3, 4, 5, 7, 11, 13]
 
     ############
     ## OTHERS ##
     ############
 
     # Number of threads to use for data loading
-    n_workers = 0 * len(gpu_ids)
+    n_workers = 4 * len(gpu_ids)
 
     # Top-level directory under which to save all experiment files
     if CONFIG == 1:
@@ -180,9 +181,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ## FEATURE EXTRACTION ##
     ########################
 
-    # TODO - consider alternate harmonics
     # Create weighting for harmonics (harmonic loss)
-    harmonic_weights = 1 / torch.Tensor(harmonics) ** 2
+    harmonic_weights = 1 / torch.Tensor(harmonics)
     # Apply zero weight to sub-harmonics (harmonic loss)
     harmonic_weights[harmonic_weights > 1] = 0
     # Normalize the harmonic weights
@@ -213,10 +213,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ###########
 
     if checkpoint_path is None:
-        # Initialize autoencoder model
-        #model = TT_Base(hcqt_params,
-        #                model_complexity=2,
-        #                skip_connections=False)
         # Initialize Timbre-Trap encoder
         model = TT_Enc(hcqt_params,
                        model_complexity=2)
@@ -248,21 +244,21 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     # Audio dataset paths
     fma_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'FMA') if CONFIG else None
-    mdb_base_dir    = os.path.join('/', 'storage', 'frank', 'MedleyDB') if CONFIG else None
+    mdb_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'MedleyDB') if CONFIG else None
     magna_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'MagnaTagATune') if CONFIG else None
     egmd_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'E-GMD') if CONFIG else None
     nsynth_base_dir = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
 
     # MPE dataset paths
-    urmp_base_dir     = os.path.join('/', 'storage', 'frank', 'URMP') if CONFIG else None
+    urmp_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'URMP') if CONFIG else None
     bch10_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'Bach10') if CONFIG else None
     gset_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'GuitarSet') if CONFIG else None
-    mdb_ptch_base_dir = os.path.join('/', 'storage', 'frank', 'MedleyDB-Pitch') if CONFIG else None
+    mdb_ptch_base_dir = os.path.join('/', 'storageNVME', 'frank', 'MedleyDB-Pitch') if CONFIG else None
 
     # AMT dataset paths
     mstro_base_dir = os.path.join('/', 'storageNVME', 'frank', 'MAESTRO') if CONFIG else None
     mnet_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if CONFIG else None
-    swd_base_dir   = os.path.join('/', 'storage', 'frank', 'SWD') if CONFIG else None
+    swd_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'SWD') if CONFIG else None
     su_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'Su') if CONFIG else None
     trios_base_dir = os.path.join('/', 'storageNVME', 'frank', 'TRIOS') if CONFIG else None
 
@@ -561,6 +557,11 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             features_pc = model.hcqt.to_decibels(model.hcqt(audio_pc))
 
             with torch.autocast(device_type=f'cuda'):
+                # TODO - add corresponding augmentations here
+                # TODO - apply for all subsequent objectives or just energy-based?
+                # Apply harmonic dropout to input features
+                #features_aug = F.dropout2d(0.5 * features_db)
+
                 # Process features to obtain logits
                 logits, _, _ = model(features_db)
                 # Convert to (implicit) pitch salience activations
