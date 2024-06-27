@@ -84,12 +84,18 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', self_
             # Store the geometric-equivariance loss for the track
             evaluator.append_results({'loss/geometric' : geometric_loss.item()})
 
+            # Compute channel-invariance loss for the track
+            channel_loss = compute_channel_loss(model, features_db, targets)
+            # Store the channel-invariance loss for the track
+            evaluator.append_results({'loss/channel' : channel_loss.item()})
+
             # Compute the total loss for the track
             total_loss = multipliers['support'] * support_loss + \
                          multipliers['harmonic'] * harmonic_loss + \
                          multipliers['sparsity'] * sparsity_loss + \
                          multipliers['supervised'] * supervised_loss + \
-                         multipliers['geometric'] * geometric_loss
+                         multipliers['geometric'] * geometric_loss + \
+                         multipliers['channel'] * channel_loss
 
             if eq_fn is not None:
                 # Compute timbre-invariance loss for the track using specified equalization

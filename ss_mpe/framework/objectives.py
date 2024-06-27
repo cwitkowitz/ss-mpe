@@ -14,7 +14,8 @@ __all__ = [
     'compute_timbre_loss',
     'compute_geometric_loss',
     'compute_supervised_loss',
-    'compute_percussion_loss'
+    'compute_percussion_loss',
+    'compute_channel_loss'
 ]
 
 
@@ -400,12 +401,28 @@ def compute_percussion_loss(model, unpitched_features, targets):
     # Process unpitched features with provided model
     unpitched_embeddings = model(unpitched_features)[0]
 
-    # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original targets
+    # Compute percussion loss as BCE of embeddings computed from equalized features with respect to original targets
     unpitched_loss = F.binary_cross_entropy_with_logits(unpitched_embeddings, targets, reduction='none')
 
     # Sum across frequency bins and average across time and batch
     unpitched_loss = unpitched_loss.sum(-2).mean(-1).mean(-1)
 
     return unpitched_loss
+
+
+def compute_channel_loss(model, features, targets):
+    # Randomly drop harmonic channels of features
+    dropped_features = F.dropout2d(0.5 * features)
+
+    # Process dropped features with provided model
+    dropped_embeddings = model(dropped_features)[0]
+
+    # Compute channel loss as BCE of embeddings computed from dropped features with respect to original targets
+    channel_loss = F.binary_cross_entropy_with_logits(dropped_embeddings, targets, reduction='none')
+
+    # Sum across frequency bins and average across time and batch
+    channel_loss = channel_loss.sum(-2).mean(-1).mean(-1)
+
+    return channel_loss
 
 # TODO - abstract invariance / equivariance losses?

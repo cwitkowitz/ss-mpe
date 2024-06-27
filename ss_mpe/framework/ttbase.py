@@ -172,12 +172,7 @@ class EncoderNorm(Encoder):
 
         Parameters
         ----------
-        feature_size : int
-          Dimensionality of input features
-        latent_size : int or None (Optional)
-          Dimensionality of latent space
-        model_complexity : int
-          Scaling factor for number of filters
+        See Encoder class...
         """
 
         nn.Module.__init__(self)

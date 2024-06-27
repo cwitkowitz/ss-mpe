@@ -28,6 +28,7 @@ from evaluate import evaluate
 from torch.utils.tensorboard import SummaryWriter
 from sacred.observers import FileStorageObserver
 from torch.utils.data import DataLoader
+from torch_audiomentations import *
 from sacred import Experiment
 from tqdm import tqdm
 
@@ -41,7 +42,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['ScaleUp_ENC_EG'])
+EX_NAME = '_'.join(['ScaleUp_Base'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -84,6 +85,7 @@ def config():
         'timbre' : 0,
         'geometric' : 0,
         'percussion' : 0,
+        'channel' : 0,
         'supervised' : 0
     }
 
@@ -283,7 +285,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     all_train.append(mnet_audio)
 
     # Define mostly-harmonic splits for FMA
-    fma_genres_harmonic = ['Rock', 'Folk', 'Instrumental', 'Pop', 'Classical','Jazz', 'Country', 'Soul-RnB', 'Blues']
+    fma_genres_harmonic = ['Rock', 'Folk', 'Instrumental', 'Pop', 'Classical', 'Jazz', 'Country', 'Soul-RnB', 'Blues']
 
     # Instantiate FMA audio mixtures for training
     fma_audio = FMA(base_dir=fma_base_dir,
@@ -436,6 +438,38 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Flag to indicate early stopping criteria has been met
     early_stop_criteria = False
 
+    #######################
+    ## DATA AUGMENTATION ##
+    #######################
+
+    # Whether to augment input features
+    augment_features = False
+
+    # Whether to apply augmentations to training targets
+    augment_targets = False
+
+    # Set up augmentations
+    augmentations = Compose(
+        transforms=[
+            AddColoredNoise(),
+            PolarityInversion()
+        ]
+    )
+
+    # TODO - other ideas from audiomentations
+    # AddGaussianNoise: Adds gaussian noise to the audio samples
+    # AddGaussianSNR: Injects gaussian noise using a randomly chosen signal-to-noise ratio
+    # AirAbsorption: Applies frequency-dependent attenuation simulating air absorption
+    # Aliasing: Produces aliasing artifacts by downsampling without low-pass filtering and then upsampling
+    # BitCrush: Applies bit reduction without dithering
+    # Clip: Clips audio samples to specified minimum and maximum values
+    # ClippingDistortion: Distorts the signal by clipping a random percentage of samples
+    # GainTransition: Gradually changes the gain over a random time span
+    # Limiter: Applies dynamic range compression limiting the audio signal
+    # Mp3Compression: Compresses the audio to lower the quality
+    # SevenBandParametricEQ: Adjusts the volume of 7 frequency bands
+    # TanhDistortion: Applies tanh distortion to distort the signal
+
     #################
     ## TIMBRE LOSS ##
     #################
@@ -530,38 +564,45 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             # Increment the batch counter
             batch_count += 1
 
-            # Extract audio and add audio to appropriate device
-            audio = data[constants.KEY_AUDIO].to(device)
-            # Extract ground-truth pitch salience activations
-            #ground_truth = data[constants.KEY_GROUND_TRUTH].to(device)
-
             # Log the current learning rates for this batch
             writer.add_scalar('train/loss/learning_rate/encoder', optimizer.param_groups[0]['lr'], batch_count)
             writer.add_scalar('train/loss/learning_rate/decoder', optimizer.param_groups[1]['lr'], batch_count)
 
+            # Extract audio and add to appropriate device
+            audio = data[constants.KEY_AUDIO].to(device)
             # Compute full set of spectral features
             features = model.get_all_features(audio)
 
-            # Extract relevant feature sets
-            features_db   = features['db']
-            features_db_1 = features['db_1']
-            features_db_h = features['db_h']
+            if augment_features:
+                # Feed the audio through the augmentation pipeline
+                audio_aug = augmentations(audio, sample_rate=sample_rate)
+                # Compute spectral features for augmented audio
+                features_aug = model.get_all_features(audio_aug)
+
+                # TODO - add parallel invariance / equivariance augmentations here
+                # TODO - apply for all subsequent objectives or just energy-based?
+                # Apply harmonic dropout to input features
+                #features_aug = F.dropout2d(0.5 * features_aug)
+
+            # Extract relevant feature sets for input and targets
+            features_db = features['db'] if not augment_features else features_aug['db']
+            features_db_1 = features['db_1'] if not (augment_features and augment_targets) else features_aug['db_1']
+            features_db_h = features['db_h'] if not (augment_features and augment_targets) else features_aug['db_h']
+
+            # Extract ground-truth pitch salience activations
+            #ground_truth = data[constants.KEY_GROUND_TRUTH].to(device)
 
             # Sample a batch of percussion audio
             data_pc = next(iter(loader_pc))
             # Sample random volumes for percussion audio
             volumes = 2.0 * torch.rand((batch_size, 1, 1), device=device)
             # Superimpose percussion audio onto original audio
+            # TODO - original or augmented audio?
             audio_pc = audio + volumes * data_pc[constants.KEY_AUDIO].to(device)
             # Compute spectral features for percussion audio mixture
             features_pc = model.hcqt.to_decibels(model.hcqt(audio_pc))
 
             with torch.autocast(device_type=f'cuda'):
-                # TODO - add corresponding augmentations here
-                # TODO - apply for all subsequent objectives or just energy-based?
-                # Apply harmonic dropout to input features
-                #features_aug = F.dropout2d(0.5 * features_db)
-
                 # Process features to obtain logits
                 logits, _, _ = model(features_db)
                 # Convert to (implicit) pitch salience activations
@@ -612,6 +653,13 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 debug_nans(percussion_loss, 'percussion')
 
+                # Compute channel-invariance loss for the batch
+                channel_loss = compute_channel_loss(model, features_db, targets)
+                # Log the channel-invariance loss for this batch
+                writer.add_scalar('train/loss/channel', channel_loss.item(), batch_count)
+
+                debug_nans(channel_loss, 'channel')
+
                 # Compute supervised BCE loss for the batch
                 #supervised_loss = compute_supervised_loss(logits, ground_truth, True)
                 # Log the supervised BCE loss for this batch
@@ -625,7 +673,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                              multipliers['sparsity'] * sparsity_loss + \
                              multipliers['timbre'] * timbre_loss + \
                              multipliers['geometric'] * geometric_loss + \
-                             multipliers['percussion'] * percussion_loss# + \
+                             multipliers['percussion'] * percussion_loss + \
+                             multipliers['channel'] * channel_loss# + \
                              #multipliers['supervised'] * supervised_loss
 
                 # Log the total loss for this batch
