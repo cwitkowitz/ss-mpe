@@ -18,6 +18,7 @@ from ss_mpe.datasets.SoloMultiPitch import (NSynth,
                                             MIR_1K)
 from ss_mpe.datasets.AudioMixtures import (E_GMD,
                                            MagnaTagATune)
+from ss_mpe.datasets.AudioStems import (ESC_50)
 
 from ss_mpe.framework import SS_MPE, TT_Base, TT_Enc
 from ss_mpe.framework.objectives import *
@@ -84,7 +85,7 @@ def config():
         'sparsity' : 1,
         'timbre' : 0,
         'geometric' : 0,
-        'percussion' : 0,
+        'percussion' : 1,
         'channel' : 0,
         'supervised' : 0
     }
@@ -249,6 +250,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     mdb_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'MedleyDB') if CONFIG else None
     magna_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'MagnaTagATune') if CONFIG else None
     egmd_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'E-GMD') if CONFIG else None
+    esc50_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'ESC-50') if CONFIG else None
     nsynth_base_dir = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
 
     # MPE dataset paths
@@ -540,7 +542,31 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                  seed=seed)
     perc_train.append(egmd)
 
-    # TODO - include other noise / percussion datasets
+    # Obtain all environmental classes in ESC-50
+    esc50_splits = ESC_50.available_splits()
+    # Remove classes with potentially pitched audio
+    esc50_splits.remove('Rooster')
+    esc50_splits.remove('Cow')
+    esc50_splits.remove('Cat')
+    esc50_splits.remove('Hen')
+    esc50_splits.remove('Crow')
+    esc50_splits.remove('Crickets')
+    esc50_splits.remove('Chirping Birds')
+    esc50_splits.remove('Crying Baby')
+    esc50_splits.remove('Laughing')
+    esc50_splits.remove('Clock Alarm')
+    esc50_splits.remove('Siren')
+    esc50_splits.remove('Car Horn')
+    esc50_splits.remove('Train')
+    esc50_splits.remove('Church Bells')
+
+    # Instantiate ESC-50 audio for percussion-invariance
+    esc50 = ESC_50(base_dir=esc50_base_dir,
+                   splits=esc50_splits,
+                   sample_rate=sample_rate,
+                   n_secs=n_secs,
+                   seed=seed)
+    #perc_train.append(esc50)
 
     # Combine unpitched datasets
     perc_train = ComboDataset(perc_train)
@@ -592,10 +618,16 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             # Extract ground-truth pitch salience activations
             #ground_truth = data[constants.KEY_GROUND_TRUTH].to(device)
 
-            # Sample a batch of percussion audio
+            # TODO - it would be better to fold the following into the loss function
+            #        - parameterize the dataset and the original audio
+            #        - keyword arguments for maximum volume and the ComboDataset object
+            #        - randomly sample a batch (ideally validation does not affect training randomness)
+            #        - slice, apply random volume, and add to original audio
+            #        - compute percussive features and proceed with loss
+            # Sample a batch of unpitched audio
             data_pc = next(iter(loader_pc))
             # Sample random volumes for percussion audio
-            volumes = 2.0 * torch.rand((batch_size, 1, 1), device=device)
+            volumes = torch.rand((batch_size, 1, 1), device=device)
             # Superimpose percussion audio onto original audio
             # TODO - original or augmented audio?
             audio_pc = audio + volumes * data_pc[constants.KEY_AUDIO].to(device)
@@ -739,7 +771,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                                                       eq_fn=eq_fn,
                                                                       eq_kwargs=eq_kwargs,
                                                                       gm_kwargs=gm_kwargs,
-                                                                      pc_set=egmd)
+                                                                      pc_set=perc_train)
                     except Exception as e:
                         print(f'Error validating \'{val_set.name()}\': {repr(e)}')
 
@@ -818,7 +850,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                      eq_fn=eq_fn,
                                      eq_kwargs=eq_kwargs,
                                      gm_kwargs=gm_kwargs,
-                                     pc_set=egmd)
+                                     pc_set=perc_train)
         except Exception as e:
             print(f'Error evaluating \'{eval_set.name()}\': {repr(e)}')
 

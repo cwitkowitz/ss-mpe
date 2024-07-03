@@ -110,7 +110,7 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', self_
                 # TODO - make these operations compatible with ComboDataset
                 percussion_audio = pc_set.get_audio(pc_set.tracks[torch.randint(len(pc_set), (1,))])
                 # Sample random volume for percussion audio
-                volume = 2.0 * torch.rand((1,), device=device)
+                volume = torch.rand((1,), device=device)
                 # Superimpose percussion audio onto original audio
                 percussion_audio = audio + volume * pc_set.slice_audio(percussion_audio.to(device), audio.size(-1))[0].unsqueeze(0)
                 # Compute spectral features for percussion audio mixture

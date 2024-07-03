@@ -9,10 +9,10 @@ import pandas as pd
 import os
 
 
-class E_GMD(AudioDataset):
+class ESC_50(AudioDataset):
     """
-    Implements a wrapper for the expanded Groove MIDI Dataset
-    (https://magenta.tensorflow.org/datasets/e-gmd).
+    Implements a wrapper for the ESC-50 dataset
+    (https://github.com/karolpiczak/ESC-50).
     """
 
     @classmethod
@@ -42,7 +42,25 @@ class E_GMD(AudioDataset):
           Names of originally proposed splits
         """
 
-        splits = ['train', 'validation', 'test']
+        # Animals
+        splits = ['Dog', 'Rooster', 'Pig', 'Cow', 'Frog',
+                  'Cat', 'Hen', 'Insects', 'Sheep', 'Crow']
+
+        # Natural soundscapes & water sounds
+        splits += ['Rain', 'Sea Waves', 'Crackling Fire', 'Crickets', 'Chirping Birds',
+                   'Water Drops', 'Wind', 'Pouring Water', 'Toilet Flush', 'Thunderstorm']
+
+        # Human, non-speech sounds
+        splits += ['Crying Baby', 'Sneezing', 'Clapping', 'Breathing', 'Coughing',
+                   'Footsteps', 'Laughing', 'Brushing Teeth', 'Snoring', 'Drinking Sipping']
+
+        # Interior/domestic sounds
+        splits += ['Door Wood Knock', 'Mouse Click', 'Keyboard Typing', 'Door Wood Creaks', 'Can Opening',
+                   'Washing Machine', 'Vacuum Cleaner', 'Clock Alarm', 'Clock Tick', 'Glass Breaking']
+
+        # Exterior/urban noises
+        splits += ['Helicopter', 'Chainsaw', 'Siren', 'Car Horn', 'Engine',
+                   'Train', 'Church Bells', 'Airplane', 'Fireworks', 'Hand Saw']
 
         return splits
 
@@ -53,7 +71,7 @@ class E_GMD(AudioDataset):
         Parameters
         ----------
         split : string
-          String indicating train, validation, or test split
+          String indicating environmental sound class
 
         Returns
         ----------
@@ -61,13 +79,16 @@ class E_GMD(AudioDataset):
           Names of tracks belonging to the split
         """
 
+        # Make sure the split matches the csv file format
+        split = split.replace(' ', '_').lower()
+
         # Load tabulated metadata from the csv file under the top-level directory
-        csv_data = pd.read_csv(os.path.join(self.base_dir, 'e-gmd-v1.0.0.csv'))
+        csv_data = pd.read_csv(os.path.join(self.base_dir, 'meta', 'esc50.csv'))
 
         # Obtain a list of the track names and their corresponding splits
-        names, associations = csv_data['audio_filename'], csv_data['split']
+        names, categories = csv_data['filename'], csv_data['category']
         # Filter out tracks that do not belong to the specified data split
-        tracks = [t for t, a in zip(names, associations) if a == split]
+        tracks = [t for t, a in zip(names, categories) if a == split]
         # Remove the file extensions from each track and sort the list
         tracks = sorted([os.path.splitext(track)[0] for track in tracks])
 
@@ -89,47 +110,35 @@ class E_GMD(AudioDataset):
         """
 
         # Construct the path to the audio
-        wav_path = os.path.join(self.base_dir, f'{track}.wav')
+        wav_path = os.path.join(self.base_dir, 'audio', f'{track}.wav')
 
         return wav_path
 
     @classmethod
     def download(cls, save_dir):
         """
-        Download the E-GMD dataset to a specified location.
+        Download the ESC-50 dataset to a specified location.
 
         Parameters
         ----------
         save_dir : string
-          Directory under which to save the contents of E-GMD
+          Directory under which to save the contents of ESC-50
         """
 
         # Create top-level directory
         super().download(save_dir)
 
-        # URL pointing to the zip file containing MIDI for all tracks
-        midi_url = 'https://storage.googleapis.com/magentadata/datasets/e-gmd/v1.0.0/e-gmd-v1.0.0-midi.zip'
+        # URL pointing to the zip file containing data for all tracks
+        url = f'https://github.com/karoldvl/ESC-50/archive/master.zip'
 
-        # Construct a path for saving the MIDI
-        midi_path = os.path.join(save_dir, os.path.basename(midi_url))
+        # Construct a path for saving the file
+        zip_path = os.path.join(save_dir, os.path.basename(url))
 
-        # Download the MIDI zip file
-        stream_url_resource(midi_url, midi_path, 1000 * 1024)
-
-        # Unzip the downloaded file and remove it
-        unzip_and_remove(midi_path)
-
-        # URL pointing to the zip file containing audio for all tracks
-        audio_url = f'https://storage.googleapis.com/magentadata/datasets/e-gmd/v1.0.0/e-gmd-v1.0.0.zip'
-
-        # Construct a path for saving the audio
-        audio_path = os.path.join(save_dir, os.path.basename(audio_url))
-
-        # Download the audio zip file
-        stream_url_resource(audio_url, audio_path, 1000 * 1024)
+        # Download the zip file
+        stream_url_resource(url, zip_path, 1000 * 1024)
 
         # Unzip the downloaded file and remove it
-        unzip_and_remove(audio_path)
+        unzip_and_remove(zip_path)
 
         # Move contents of unzipped directory to the base directory
-        change_base_dir(save_dir, os.path.join(save_dir, f'e-gmd-v1.0.0'))
+        change_base_dir(save_dir, os.path.join(save_dir, 'ESC-50-master'))
