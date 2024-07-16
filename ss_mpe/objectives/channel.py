@@ -1,14 +1,6 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
-# My imports
-from timbre_trap.utils import constants
-
-# Regular imports
-from torch.utils.data import DataLoader
-from copy import deepcopy
-
 import torch.nn.functional as F
-import torch
 
 
 __all__ = [
@@ -29,7 +21,7 @@ def compute_channel_loss(model, features, targets):
     dropped_features = drop_random_channels(features)
 
     # Process dropped features with provided model
-    dropped_embeddings = model(dropped_features)[0]
+    dropped_embeddings = model(dropped_features)
 
     # Compute channel loss as BCE of embeddings computed from dropped features with respect to original targets
     channel_loss = F.binary_cross_entropy_with_logits(dropped_embeddings, targets, reduction='none')

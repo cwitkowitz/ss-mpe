@@ -189,7 +189,7 @@ def compute_timbre_loss(model, features, targets, **eq_kwargs):
     equalized_features = apply_random_equalizations(features, model.hcqt, **eq_kwargs)
 
     # Process equalized features with provided model
-    equalization_embeddings = model(equalized_features)[0]
+    equalization_embeddings = model(equalized_features)
 
     # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original targets
     timbre_loss = F.binary_cross_entropy_with_logits(equalization_embeddings, targets, reduction='none')

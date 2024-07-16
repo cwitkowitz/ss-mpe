@@ -144,7 +144,7 @@ def compute_geometric_loss(model, features, targets, **gm_kwargs):
     transformed_features, (vs, hs, sfs) = apply_random_transformations(features, **gm_kwargs)
 
     # Process transformed features with provided model
-    transformation_embeddings = model(transformed_features)[0]
+    transformation_embeddings = model(transformed_features)
 
     # Add a temporary channel dimension
     targets = targets.unsqueeze(-3)
