@@ -55,18 +55,14 @@ class TT_Enc(SS_MPE):
         ----------
         output : Tensor (B x F X T)
           Batch of (implicit) pitch salience logits
-        latents : Tensor (B x D_lat x T)
-          Batch of latent codes
-        losses : dict containing
-          ...
         """
 
         # Process features with the encoder
-        output, _, losses = self.encoder(features)
+        output, _, _ = self.encoder(features)
 
         debug_nans(output, 'encoder output')
 
-        return output, None, losses
+        return output
 
     def decoder_parameters(self):
         """

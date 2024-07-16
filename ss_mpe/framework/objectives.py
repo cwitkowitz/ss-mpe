@@ -1,5 +1,12 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
+# My imports
+from timbre_trap.utils import constants
+
+# Regular imports
+from torch.utils.data import DataLoader
+from copy import deepcopy
+
 import torch.nn.functional as F
 import torch
 
@@ -11,25 +18,17 @@ __all__ = [
     'sample_random_equalization',
     'sample_parabolic_equalization',
     'sample_gaussian_equalization',
+    'apply_random_equalizations',
     'compute_timbre_loss',
+    'apply_geometric_transformations',
+    'apply_random_transformations',
     'compute_geometric_loss',
-    'compute_supervised_loss',
+    'mix_random_percussion',
     'compute_percussion_loss',
-    'compute_channel_loss'
+    'drop_random_channels',
+    'compute_channel_loss',
+    'compute_supervised_loss'
 ]
-
-
-def compute_support_loss(embeddings, h1_features):
-    # Set the weight for positive activations to zero
-    pos_weight = torch.tensor(0)
-
-    # Compute support loss as BCE of activations with respect to features (negative activations only)
-    support_loss = F.binary_cross_entropy_with_logits(embeddings, h1_features, reduction='none', pos_weight=pos_weight)
-
-    # Sum across frequency bins and average across time and batch
-    support_loss = support_loss.sum(-2).mean(-1).mean(-1)
-
-    return support_loss
 
 
 def compute_harmonic_loss(embeddings, salience):
@@ -43,6 +42,19 @@ def compute_harmonic_loss(embeddings, salience):
     harmonic_loss = harmonic_loss.sum(-2).mean(-1).mean(-1)
 
     return harmonic_loss
+
+
+def compute_support_loss(embeddings, h1_features):
+    # Set the weight for positive activations to zero
+    pos_weight = torch.tensor(0)
+
+    # Compute support loss as BCE of activations with respect to features (negative activations only)
+    support_loss = F.binary_cross_entropy_with_logits(embeddings, h1_features, reduction='none', pos_weight=pos_weight)
+
+    # Sum across frequency bins and average across time and batch
+    support_loss = support_loss.sum(-2).mean(-1).mean(-1)
+
+    return support_loss
 
 
 def compute_sparsity_loss(activations):
@@ -176,15 +188,15 @@ def sample_gaussian_equalization(n_bins, batch_size=1, max_A=0.25, max_std_dev=N
     return curves
 
 
-def apply_random_eq(features, hcqt, eq_fn, **eq_kwargs):
+def apply_random_equalizations(features, hcqt_module, **eq_kwargs):
     # Obtain dimensionality of features and appropriate device
     (B, H, K, _), device = features.size(), features.device
 
-    # Extract relevant HCQT parameters
-    bins_per_octave = hcqt.bins_per_octave
+    # Determine expected number of bins per octave
+    bins_per_octave = hcqt_module.bins_per_octave
 
     # Obtain center frequencies (MIDI) associated with each HCQT bin
-    midi_freqs = torch.from_numpy(hcqt.midi_freqs).to(device)
+    midi_freqs = torch.from_numpy(hcqt_module.midi_freqs).to(device)
 
     # Infer the number of bins per semitone
     bins_per_semitone = bins_per_octave / 12
@@ -201,8 +213,13 @@ def apply_random_eq(features, hcqt, eq_fn, **eq_kwargs):
     # Perform equalization over full octave
     n_total_bins = n_octaves * bins_per_octave
 
+    # Extract the equalization function
+    eq_fn = eq_kwargs.pop('eq_fn')
+
     # Randomly sample an equalization curve for each sample in batch
     curves = eq_fn(n_total_bins, batch_size=B, device=device, **eq_kwargs)
+
+    # TODO - apply EQ curves function?
 
     # Determine nearest equalization corresponding to each frequency bin
     equalization_bins = bins_per_semitone * (midi_freqs - midi_freqs.min())
@@ -216,12 +233,14 @@ def apply_random_eq(features, hcqt, eq_fn, **eq_kwargs):
     # Apply sampled equalization curves to the batch and clamp features
     equalized_features = torch.clip(equalization * features, min=0, max=1)
 
+    # TODO - return EQ curves?
+
     return equalized_features
 
 
-def compute_timbre_loss(model, features, targets, eq_fn=sample_gaussian_equalization, **eq_kwargs):
+def compute_timbre_loss(model, features, targets, **eq_kwargs):
     # Perform random equalizations on batch of features
-    equalized_features = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
+    equalized_features = apply_random_equalizations(features, model.hcqt, **eq_kwargs)
 
     # Process equalized features with provided model
     equalization_embeddings = model(equalized_features)[0]
@@ -325,31 +344,47 @@ def apply_distortion(tensor, stretch_factors):
     return distorted
 
 
-def compute_geometric_loss(model, features, targets, max_shift_v, max_shift_h, max_stretch_factor):
+def apply_geometric_transformations(tensor, vs, hs, sfs):
+    # Apply vertical and horizontal translations
+    transformed_features = apply_translation(tensor, vs, axis=-2, val=0)
+    transformed_features = apply_translation(transformed_features, hs, axis=-1, val=0)
+    # Apply horizontal stretching while keeping original dimensionality
+    transformed_features = apply_distortion(transformed_features, sfs)
+
+    return transformed_features
+
+
+def apply_random_transformations(features, max_shift_v, max_shift_h, max_stretch_factor):
     # Determine batch size
     B = features.size(0)
 
     # Sample a random vertical / horizontal shift for each sample in the batch
-    v_shifts = torch.randint(low=-max_shift_v, high=max_shift_v + 1, size=(B,))
-    h_shifts = torch.randint(low=-max_shift_h, high=max_shift_h + 1, size=(B,))
+    vs = torch.randint(low=-max_shift_v, high=max_shift_v + 1, size=(B,))
+    hs = torch.randint(low=-max_shift_h, high=max_shift_h + 1, size=(B,))
 
     # Compute inverse of maximum stretch factor
     min_stretch_factor = 1 / max_stretch_factor
 
-    # Sample a random stretch factor for each sample in the batch, starting at minimum
-    stretch_factors, stretch_factors_ = min_stretch_factor, torch.rand(size=(B,))
+    # Sample a random stretch factor for each sample in the batch
+    sfs, stretch_factors_ = min_stretch_factor, torch.rand(size=(B,))
+
     # Split sampled values into piecewise ranges
     neg_perc = 2 * stretch_factors_.clip(max=0.5)
     pos_perc = 2 * (stretch_factors_ - 0.5).relu()
-    # Scale stretch factor evenly across effective range
-    stretch_factors += neg_perc * (1 - min_stretch_factor)
-    stretch_factors += pos_perc * (max_stretch_factor - 1)
 
-    # Apply vertical and horizontal translations, inserting zero at empties
-    transformed_features = apply_translation(features, v_shifts, axis=-2, val=0)
-    transformed_features = apply_translation(transformed_features, h_shifts, axis=-1, val=0)
-    # Apply time distortion, maintaining original dimensionality and padding with zeros
-    transformed_features = apply_distortion(transformed_features, stretch_factors)
+    # Scale stretch factors evenly across range
+    sfs += neg_perc * (1 - min_stretch_factor)
+    sfs += pos_perc * (max_stretch_factor - 1)
+
+    # Apply the sampled geometric transformations to the provided features
+    transformed_features = apply_geometric_transformations(features, vs, hs, sfs)
+
+    return transformed_features, (vs, hs, sfs)
+
+
+def compute_geometric_loss(model, features, targets, **gm_kwargs):
+    # Perform random geometric transformations on batch of features
+    transformed_features, (vs, hs, sfs) = apply_random_transformations(features, **gm_kwargs)
 
     # Process transformed features with provided model
     transformation_embeddings = model(transformed_features)[0]
@@ -357,10 +392,8 @@ def compute_geometric_loss(model, features, targets, max_shift_v, max_shift_h, m
     # Add a temporary channel dimension
     targets = targets.unsqueeze(-3)
 
-    # Apply same transformations to activations produced for original features
-    transformed_targets = apply_translation(targets, v_shifts, axis=-2, val=0)
-    transformed_targets = apply_translation(transformed_targets, h_shifts, axis=-1, val=0)
-    transformed_targets = apply_distortion(transformed_targets, stretch_factors)
+    # Apply parallel geometric transformation to provided targets
+    transformed_targets = apply_geometric_transformations(targets, vs, hs, sfs)
 
     # Remove temporarily added channel dimension
     transformed_targets = transformed_targets.squeeze(-3)
@@ -372,6 +405,82 @@ def compute_geometric_loss(model, features, targets, max_shift_v, max_shift_h, m
     geometric_loss = geometric_loss.sum(-2).mean(-1).mean(-1)
 
     return geometric_loss
+
+
+def mix_random_percussion(audio, percussive_set_combo, max_volume=1.0, n_workers=0):
+    # Determine batch size
+    B = audio.size(0)
+
+    # Create copy of datasets to avoid overwriting attributes
+    percussive_set_combo = deepcopy(percussive_set_combo)
+
+    for d in percussive_set_combo.datasets:
+        # TODO - add function to ComboDataset?
+        # Update sequence length to match audio
+        d.n_secs = audio.size(-1) / d.sample_rate
+
+    # Initialize a PyTorch dataloader for percussion data
+    loader_pc = DataLoader(dataset=percussive_set_combo,
+                           batch_size=B,
+                           shuffle=True,
+                           num_workers=n_workers,
+                           pin_memory=True,
+                           drop_last=True)
+
+    # Sample a batch of percussive data
+    percussive_data = next(iter(loader_pc))
+    # Extract audio from the sampled data and add to the appropriate device
+    percussive_audio = percussive_data[constants.KEY_AUDIO].to(audio.device)
+
+    # Sample random volumes for percussion audio
+    volumes = max_volume * torch.rand((B, 1, 1), device=audio.device)
+
+    # Mix sampled percussive audio with original audio
+    mixtures = audio + volumes * percussive_audio
+
+    return mixtures
+
+
+def compute_percussion_loss(model, audio, targets, **pc_kwargs):
+    # Superimpose random percussive audio onto original audio
+    percussive_audio = mix_random_percussion(audio, **pc_kwargs)
+
+    # Compute spectral features for percussive audio mixture
+    percussive_features = model.hcqt.to_decibels(model.hcqt(percussive_audio))
+
+    # Process percussive features with provided model
+    percussive_embeddings = model(percussive_features)[0]
+
+    # Compute percussion loss as BCE of embeddings computed from percussive features with respect to original targets
+    percussion_loss = F.binary_cross_entropy_with_logits(percussive_embeddings, targets, reduction='none')
+
+    # Sum across frequency bins and average across time and batch
+    percussion_loss = percussion_loss.sum(-2).mean(-1).mean(-1)
+
+    return percussion_loss
+
+
+def drop_random_channels(features):
+    # Perform channel-wise dropout and correct values
+    dropped_features = F.dropout2d(0.5 * features)
+
+    return dropped_features
+
+
+def compute_channel_loss(model, features, targets):
+    # Randomly drop harmonic channels of features
+    dropped_features = drop_random_channels(features)
+
+    # Process dropped features with provided model
+    dropped_embeddings = model(dropped_features)[0]
+
+    # Compute channel loss as BCE of embeddings computed from dropped features with respect to original targets
+    channel_loss = F.binary_cross_entropy_with_logits(dropped_embeddings, targets, reduction='none')
+
+    # Sum across frequency bins and average across time and batch
+    channel_loss = channel_loss.sum(-2).mean(-1).mean(-1)
+
+    return channel_loss
 
 
 def compute_supervised_loss(embeddings, ground_truth, weight_positive_class=False):
@@ -397,32 +506,5 @@ def compute_supervised_loss(embeddings, ground_truth, weight_positive_class=Fals
     return supervised_loss
 
 
-def compute_percussion_loss(model, unpitched_features, targets):
-    # Process unpitched features with provided model
-    unpitched_embeddings = model(unpitched_features)[0]
-
-    # Compute percussion loss as BCE of embeddings computed from equalized features with respect to original targets
-    unpitched_loss = F.binary_cross_entropy_with_logits(unpitched_embeddings, targets, reduction='none')
-
-    # Sum across frequency bins and average across time and batch
-    unpitched_loss = unpitched_loss.sum(-2).mean(-1).mean(-1)
-
-    return unpitched_loss
-
-
-def compute_channel_loss(model, features, targets):
-    # Randomly drop harmonic channels of features
-    dropped_features = F.dropout2d(0.5 * features)
-
-    # Process dropped features with provided model
-    dropped_embeddings = model(dropped_features)[0]
-
-    # Compute channel loss as BCE of embeddings computed from dropped features with respect to original targets
-    channel_loss = F.binary_cross_entropy_with_logits(dropped_embeddings, targets, reduction='none')
-
-    # Sum across frequency bins and average across time and batch
-    channel_loss = channel_loss.sum(-2).mean(-1).mean(-1)
-
-    return channel_loss
-
+# TODO - parameterize seed to separate randomization for training / validation?
 # TODO - abstract invariance / equivariance losses?

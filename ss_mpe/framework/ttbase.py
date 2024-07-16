@@ -136,14 +136,10 @@ class TT_Base(SS_MPE):
         ----------
         output : Tensor (B x F X T)
           Batch of (implicit) pitch salience logits
-        latents : Tensor (B x D_lat x T)
-          Batch of latent codes
-        losses : dict containing
-          ...
         """
 
         # Process features with the encoder
-        latents, embeddings, losses = self.encoder(features)
+        latents, embeddings, _ = self.encoder(features)
 
         debug_nans(latents, 'encoder output')
 
@@ -158,7 +154,7 @@ class TT_Base(SS_MPE):
         # Collapse channel dimension
         output = output.squeeze(-3)
 
-        return output, latents, losses
+        return output
 
 
 class EncoderNorm(Encoder):

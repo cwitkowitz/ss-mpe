@@ -33,7 +33,6 @@ from torch_audiomentations import *
 from sacred import Experiment
 from tqdm import tqdm
 
-import torch.nn.functional as F
 import numpy as np
 import warnings
 import librosa
@@ -85,7 +84,7 @@ def config():
         'sparsity' : 1,
         'timbre' : 0,
         'geometric' : 0,
-        'percussion' : 1,
+        'percussion' : 0,
         'channel' : 0,
         'supervised' : 0
     }
@@ -447,9 +446,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Whether to augment input features
     augment_features = False
 
-    # Whether to apply augmentations to training targets
-    augment_targets = False
-
     # Set up augmentations
     augmentations = Compose(
         transforms=[
@@ -497,14 +493,15 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Standard deviation of boost/cut
     std_dev = 0.25
 
-    # Set keyword arguments for random equalization
+    # Set random equalization arguments
     random_kwargs = {
+        'eq_fn' : sample_random_equalization,
         'n_points' : n_points,
         'std_dev' : std_dev
     }
 
-    # Set equalization type and corresponding parameter values
-    eq_fn, eq_kwargs = sample_random_equalization, random_kwargs
+    # Use random equalization
+    eq_kwargs = random_kwargs
 
     ####################
     ## GEOMETRIC LOSS ##
@@ -532,15 +529,14 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     #####################
 
     # Initialize list to hold unpitched datasets
-    perc_train = list()
+    percussive_sets = list()
 
     # Instantiate E-GMD audio for percussion-invariance
     egmd = E_GMD(base_dir=egmd_base_dir,
                  splits=['train'],
                  sample_rate=sample_rate,
-                 n_secs=n_secs,
                  seed=seed)
-    perc_train.append(egmd)
+    percussive_sets.append(egmd)
 
     # Obtain all environmental classes in ESC-50
     esc50_splits = ESC_50.available_splits()
@@ -564,20 +560,22 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     esc50 = ESC_50(base_dir=esc50_base_dir,
                    splits=esc50_splits,
                    sample_rate=sample_rate,
-                   n_secs=n_secs,
                    seed=seed)
-    #perc_train.append(esc50)
+    #percussive_sets.append(esc50)
 
-    # Combine unpitched datasets
-    perc_train = ComboDataset(perc_train)
+    # Combine percussive and noise datasets
+    percussive_set_combo = ComboDataset(percussive_sets)
 
-    # Initialize a PyTorch dataloader for percussion data
-    loader_pc = DataLoader(dataset=perc_train,
-                           batch_size=batch_size,
-                           shuffle=True,
-                           num_workers=n_workers,
-                           pin_memory=True,
-                           drop_last=True)
+    # Maximum volume of percussion relative to original audio
+    max_volume = 1.0
+
+    # Set keyword arguments for percussion mixtures
+    pc_kwargs = {
+        'percussive_set_combo' : percussive_set_combo,
+        'max_volume' : max_volume,
+        'n_workers' : n_workers
+        # TODO - add n_secs?
+    }
 
     ##############################
     ## TRAINING/VALIDATION LOOP ##
@@ -602,41 +600,33 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             if augment_features:
                 # Feed the audio through the augmentation pipeline
                 audio_aug = augmentations(audio, sample_rate=sample_rate)
+                # Superimpose percussion audio onto augmented audio
+                audio_aug = mix_random_percussion(audio_aug, **pc_kwargs)
                 # Compute spectral features for augmented audio
-                features_aug = model.get_all_features(audio_aug)
-
-                # TODO - add parallel invariance / equivariance augmentations here
-                # TODO - apply for all subsequent objectives or just energy-based?
+                features_db = model.get_all_features(audio_aug)['db']
+                # Apply random equalizations to augmented audio
+                features_db = apply_random_equalizations(features_db, model.hcqt, **eq_kwargs)
+                # Apply random geometric transformations to augmentation audio
+                #features_db, _ = apply_random_transformations(features_db, **gm_kwargs)
                 # Apply harmonic dropout to input features
-                #features_aug = F.dropout2d(0.5 * features_aug)
+                features_db = drop_random_channels(features_db)
+                # TODO - note that augmented features are currently used for ss losses
+                #        - this may not be desirable (can just use for eg losses)
+            else:
+                # Use spectral features for original audio
+                features_db = features['db']
 
-            # Extract relevant feature sets for input and targets
-            features_db = features['db'] if not augment_features else features_aug['db']
-            features_db_1 = features['db_1'] if not (augment_features and augment_targets) else features_aug['db_1']
-            features_db_h = features['db_h'] if not (augment_features and augment_targets) else features_aug['db_h']
+            # TODO - equivariance transformations need to be applied to targets and ground-truth
+            # Extract features used for targets
+            features_db_1 = features['db_1']
+            features_db_h = features['db_h']
 
             # Extract ground-truth pitch salience activations
             #ground_truth = data[constants.KEY_GROUND_TRUTH].to(device)
 
-            # TODO - it would be better to fold the following into the loss function
-            #        - parameterize the dataset and the original audio
-            #        - keyword arguments for maximum volume and the ComboDataset object
-            #        - randomly sample a batch (ideally validation does not affect training randomness)
-            #        - slice, apply random volume, and add to original audio
-            #        - compute percussive features and proceed with loss
-            # Sample a batch of unpitched audio
-            data_pc = next(iter(loader_pc))
-            # Sample random volumes for percussion audio
-            volumes = torch.rand((batch_size, 1, 1), device=device)
-            # Superimpose percussion audio onto original audio
-            # TODO - original or augmented audio?
-            audio_pc = audio + volumes * data_pc[constants.KEY_AUDIO].to(device)
-            # Compute spectral features for percussion audio mixture
-            features_pc = model.hcqt.to_decibels(model.hcqt(audio_pc))
-
             with torch.autocast(device_type=f'cuda'):
                 # Process features to obtain logits
-                logits, _, _ = model(features_db)
+                logits = model(features_db)
                 # Convert to (implicit) pitch salience activations
                 activations = torch.sigmoid(logits)
 
@@ -665,7 +655,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 targets = activations #if self_supervised_targets else ground_truth
 
                 # Compute timbre-invariance loss for the batch
-                timbre_loss = compute_timbre_loss(model, features_db, targets, eq_fn=eq_fn, **eq_kwargs)
+                timbre_loss = compute_timbre_loss(model, features_db, targets, **eq_kwargs)
                 # Log the timbre-invariance loss for this batch
                 writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
 
@@ -679,7 +669,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 debug_nans(geometric_loss, 'geometric')
 
                 # Compute percussion-invariance loss for the batch
-                percussion_loss = compute_percussion_loss(model, features_pc, targets)
+                percussion_loss = compute_percussion_loss(model, audio, targets, **pc_kwargs)
                 # Log the percussion-invariance loss for this batch
                 writer.add_scalar('train/loss/percussion', percussion_loss.item(), batch_count)
 
@@ -768,10 +758,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                                                       i=batch_count,
                                                                       device=device,
                                                                       self_supervised_targets=self_supervised_targets,
-                                                                      eq_fn=eq_fn,
                                                                       eq_kwargs=eq_kwargs,
                                                                       gm_kwargs=gm_kwargs,
-                                                                      pc_set=perc_train)
+                                                                      pc_kwargs=pc_kwargs)
                     except Exception as e:
                         print(f'Error validating \'{val_set.name()}\': {repr(e)}')
 
@@ -847,10 +836,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                      multipliers=multipliers,
                                      device=device,
                                      self_supervised_targets=self_supervised_targets,
-                                     eq_fn=eq_fn,
                                      eq_kwargs=eq_kwargs,
                                      gm_kwargs=gm_kwargs,
-                                     pc_set=perc_train)
+                                     pc_kwargs=pc_kwargs)
         except Exception as e:
             print(f'Error evaluating \'{eval_set.name()}\': {repr(e)}')
 
