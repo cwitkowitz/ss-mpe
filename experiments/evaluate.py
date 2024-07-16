@@ -2,7 +2,7 @@
 
 # My imports
 from timbre_trap.datasets import NoteDataset
-from ss_mpe.framework.objectives import *
+from ss_mpe.objectives import *
 from timbre_trap.utils import *
 
 # Regular imports

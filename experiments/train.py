@@ -20,8 +20,8 @@ from ss_mpe.datasets.AudioMixtures import (E_GMD,
                                            MagnaTagATune)
 from ss_mpe.datasets.AudioStems import (ESC_50)
 
-from ss_mpe.framework import SS_MPE, TT_Base, TT_Enc
-from ss_mpe.framework.objectives import *
+from ss_mpe.framework import SS_MPE, TT_Enc
+from ss_mpe.objectives import *
 from timbre_trap.utils import *
 from evaluate import evaluate
 
