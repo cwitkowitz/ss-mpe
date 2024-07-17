@@ -5,7 +5,6 @@ from timbre_trap.utils import constants
 
 # Regular imports
 from torch.utils.data import DataLoader
-from copy import deepcopy
 
 import torch.nn.functional as F
 import torch
@@ -17,33 +16,45 @@ __all__ = [
 ]
 
 
-def mix_random_percussion(audio, percussive_set_combo, max_volume=1.0, n_workers=0):
+def mix_random_percussion(audio, percussive_set_combo, max_volume=1.0):
     # Determine batch size
     B = audio.size(0)
 
-    # Create copy of datasets to avoid overwriting attributes
-    percussive_set_combo = deepcopy(percussive_set_combo)
-
-    for d in percussive_set_combo.datasets:
-        # TODO - add function to ComboDataset?
-        # Update sequence length to match audio
-        d.n_secs = audio.size(-1) / d.sample_rate
-
-    # Initialize a PyTorch dataloader for percussion data
-    loader_pc = DataLoader(dataset=percussive_set_combo,
-                           batch_size=B,
-                           shuffle=True,
-                           num_workers=n_workers,
-                           pin_memory=True,
-                           drop_last=True)
-
-    # Sample a batch of percussive data
-    percussive_data = next(iter(loader_pc))
-    # Extract audio from the sampled data and add to the appropriate device
-    percussive_audio = percussive_data[constants.KEY_AUDIO].to(audio.device)
-
     # Sample random volumes for percussion audio
     volumes = max_volume * torch.rand((B, 1, 1), device=audio.device)
+
+    # Initialize list for sampled percussive audio
+    percussive_audio = list()
+
+    # Sample indices for a batch of percussive audio
+    idcs = torch.randperm(len(percussive_set_combo))[:B]
+
+    for i in idcs:
+        # Keep track of relative index
+        local_idx, dataset_idx = i, 0
+
+        while local_idx >= len(percussive_set_combo.datasets[dataset_idx]):
+            # Subtract length of current sub-dataset from global index
+            local_idx -= len(percussive_set_combo.datasets[dataset_idx])
+            # Check next dataset
+            dataset_idx += 1
+
+        # Obtain a reference to the dataset of the sampled track
+        percussive_dataset = percussive_set_combo.datasets[dataset_idx]
+
+        # Determine which track was sampled from the dataset
+        percussive_track = percussive_dataset.tracks[local_idx]
+
+        # Obtain the full-length audio corresponding to the sampled track
+        percussive_audio_ = percussive_dataset.get_audio(percussive_track)
+        # Slice the sampled audio to match duration of the provided audio
+        percussive_audio_ = percussive_dataset.slice_audio(percussive_audio_,
+                                                           n_samples=audio.size(-1))[0]
+        # Add percussive audio with batch dimension to overall list for the batch
+        percussive_audio.append(percussive_audio_.unsqueeze(0).to(audio.device))
+
+    # Combine percussive audio along the batch dimension
+    percussive_audio = torch.cat(percussive_audio, dim=0)
 
     # Mix sampled percussive audio with original audio
     mixtures = audio + volumes * percussive_audio

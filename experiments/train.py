@@ -572,9 +572,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Set keyword arguments for percussion mixtures
     pc_kwargs = {
         'percussive_set_combo' : percussive_set_combo,
-        'max_volume' : max_volume,
-        'n_workers' : n_workers
-        # TODO - add n_secs?
+        'max_volume' : max_volume
     }
 
     ##############################
