@@ -500,6 +500,32 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         'std_dev' : std_dev
     }
 
+    # Pointiness for parabolic equalization
+    pointiness = 5
+
+    # Set keyword arguments for parabolic equalization
+    parabolic_kwargs = {
+        'eq_fn' : sample_parabolic_equalization,
+        'pointiness': pointiness
+    }
+
+    # Maximum amplitude for Gaussian equalization
+    max_A = 0.375
+
+    # Maximum standard deviation for Gaussian equalization
+    max_std_dev = 2 * bins_per_octave
+
+    # Whether to sample fixed rather than varied shapes
+    fixed_shape = False
+
+    # Set keyword arguments for Gaussian equalization
+    gaussian_kwargs = {
+        'eq_fn' : sample_gaussian_equalization,
+        'max_A': max_A,
+        'max_std_dev': max_std_dev,
+        'fixed_shape': fixed_shape
+    }
+
     # Use random equalization
     eq_kwargs = random_kwargs
 

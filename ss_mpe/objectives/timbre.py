@@ -13,6 +13,9 @@ __all__ = [
 ]
 
 
+# TODO - butterworth equalization
+
+
 def sample_random_equalization(n_bins, batch_size=1, n_points=None, std_dev=0.10, device='cpu'):
     """
     Uniformly sample multiplicative equalization factors and upsample to cover whole frequency spectrum.
