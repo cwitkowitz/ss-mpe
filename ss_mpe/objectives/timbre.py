@@ -6,14 +6,12 @@ import torch
 
 __all__ = [
     'sample_random_equalization',
+    'sample_butterworth_equalization',
     'sample_parabolic_equalization',
     'sample_gaussian_equalization',
     'apply_random_equalizations',
     'compute_timbre_loss'
 ]
-
-
-# TODO - butterworth equalization
 
 
 def sample_random_equalization(n_bins, batch_size=1, n_points=None, std_dev=0.10, device='cpu'):
@@ -52,6 +50,26 @@ def sample_random_equalization(n_bins, batch_size=1, n_points=None, std_dev=0.10
 
     # Remove channel dimension
     curves = curves.squeeze(-2)
+
+    return curves
+
+
+def sample_butterworth_equalization(n_bins, batch_size=1, device=None):
+    # Randomly sample bins for the indices corresponding to the cutoff frequencies
+    cutoff_bins = torch.randint(high=n_bins + 1, size=(batch_size, 1), device=device)
+    # Sample binary values to indicate orientation (i.e. lowpass vs. highpass)
+    orientation = torch.rand(size=(batch_size, 1), device=device).round()
+
+    # Initialize allpass filter curves for each sample in batch
+    curves = torch.ones(n_bins, device=device).repeat((batch_size, 1))
+
+    for i in range(batch_size):
+        # Create lowpass filter curves
+        curves[i, cutoff_bins[i]:] = 0
+
+        if orientation[i]:
+            # Reverse orientation for highpass filter curves
+            curves[i] = curves[i].flip(dims=[-1])
 
     return curves
 

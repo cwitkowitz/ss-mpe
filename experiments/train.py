@@ -472,32 +472,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ## TIMBRE LOSS ##
     #################
 
-    # Number of random points to sample per octave
-    points_per_octave = 3
-
-    # Infer the number of bins per semitone
-    bins_per_semitone = bins_per_octave / 12
-
-    # Determine semitone span of frequency support
-    semitone_span = model.hcqt.midi_freqs.max() - model.hcqt.midi_freqs.min()
-
-    # Determine how many bins are represented across all harmonics
-    n_psuedo_bins = (bins_per_semitone * semitone_span).round()
-
-    # Determine how many octaves have been covered
-    n_octaves = int(math.ceil(n_psuedo_bins / bins_per_octave))
-
-    # Calculate number of cut/boost points to sample
-    n_points = 1 + points_per_octave * n_octaves
-
-    # Standard deviation of boost/cut
-    std_dev = 0.25
-
-    # Set random equalization arguments
-    random_kwargs = {
-        'eq_fn' : sample_random_equalization,
-        'n_points' : n_points,
-        'std_dev' : std_dev
+    # Set keyword arguments for butterworth equalization
+    butterworth_kwargs = {
+        'eq_fn' : sample_butterworth_equalization
     }
 
     # Pointiness for parabolic equalization
@@ -524,6 +501,34 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         'max_A': max_A,
         'max_std_dev': max_std_dev,
         'fixed_shape': fixed_shape
+    }
+
+    # Number of random points to sample per octave
+    points_per_octave = 3
+
+    # Infer the number of bins per semitone
+    bins_per_semitone = bins_per_octave / 12
+
+    # Determine semitone span of frequency support
+    semitone_span = model.hcqt.midi_freqs.max() - model.hcqt.midi_freqs.min()
+
+    # Determine how many bins are represented across all harmonics
+    n_psuedo_bins = (bins_per_semitone * semitone_span).round()
+
+    # Determine how many octaves have been covered
+    n_octaves = int(math.ceil(n_psuedo_bins / bins_per_octave))
+
+    # Calculate number of cut/boost points to sample
+    n_points = 1 + points_per_octave * n_octaves
+
+    # Standard deviation of boost/cut
+    std_dev = 0.25
+
+    # Set random equalization arguments
+    random_kwargs = {
+        'eq_fn' : sample_random_equalization,
+        'n_points' : n_points,
+        'std_dev' : std_dev
     }
 
     # Use random equalization
