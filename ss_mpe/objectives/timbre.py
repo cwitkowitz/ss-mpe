@@ -10,6 +10,7 @@ __all__ = [
     'sample_parabolic_equalization',
     'sample_gaussian_equalization',
     'apply_random_equalizations',
+    'apply_equalizations',
     'compute_timbre_loss'
 ]
 
@@ -173,9 +174,38 @@ def sample_gaussian_equalization(n_bins, batch_size=1, max_A=0.25, max_std_dev=N
     return curves
 
 
-def apply_random_equalizations(features, hcqt_module, **eq_kwargs):
+def apply_equalizations(features, curves, hcqt_module):
     # Obtain dimensionality of features and appropriate device
     (B, H, K, T), device = features.size(), features.device
+
+    # Determine expected number of bins per semitone
+    bins_per_semitone = hcqt_module.bins_per_octave / 12
+
+    # Obtain center frequencies (MIDI) associated with each HCQT bin
+    midi_freqs = torch.from_numpy(hcqt_module.midi_freqs).to(device)
+
+    # Determine nearest equalization corresponding to each frequency bin
+    equalization_bins = bins_per_semitone * (midi_freqs - midi_freqs.min())
+    # Round, convert equalization bins to integers, and flatten
+    equalization_bins = equalization_bins.round().long().flatten()
+    # Obtain indices corresponding to equalization for each sample in the batch
+    equalization_idcs = torch.meshgrid(torch.arange(B, device=device), equalization_bins, indexing='ij')
+
+    # Obtain the equalization for each sample in the batch
+    equalization = curves[equalization_idcs].view(B, H, K, -1)
+
+    # Interpolate between equalization curves for each sample
+    equalization = F.interpolate(equalization, size=(K, T), mode='bilinear', align_corners=True)
+
+    # Apply sampled equalization curves to the batch and clamp features
+    equalized_features = torch.clip(equalization * features, min=0, max=1)
+
+    return equalized_features
+
+
+def apply_random_equalizations(features, hcqt_module, **eq_kwargs):
+    # Determine batch size and appropriate device
+    B, device = features.size(0), features.device
 
     # Determine expected number of bins per octave
     bins_per_octave = hcqt_module.bins_per_octave
@@ -204,41 +234,21 @@ def apply_random_equalizations(features, hcqt_module, **eq_kwargs):
     # Extract density of equalization curves
     density = max(1, eq_kwargs.pop('density', 0))
 
-    # Determine number of curves to sample
-    n_curves = density * B
-
     # Randomly sample equalization curves for each sample in batch
-    curves = eq_fn(n_total_bins, batch_size=n_curves, device=device, **eq_kwargs)
+    curves = eq_fn(n_total_bins, batch_size=density * B, device=device, **eq_kwargs)
 
-    # TODO - apply EQ curves function
+    # Unroll curve dimension and shift it to the end
+    curves = curves.view(B, density, -1).transpose(-2, -1)
 
-    # Determine nearest equalization corresponding to each frequency bin
-    equalization_bins = bins_per_semitone * (midi_freqs - midi_freqs.min())
-    # Round, convert equalization bins to integers, and flatten
-    equalization_bins = equalization_bins.round().long().flatten()
-    # Obtain indices corresponding to equalization for each sample in the batch
-    equalization_idcs = torch.meshgrid(torch.arange(n_curves, device=device), equalization_bins, indexing='ij')
+    # Apply the sampled equalizations to the provided features
+    equalized_features = apply_equalizations(features, curves, hcqt_module)
 
-    # Obtain the equalization for each sample in the batch
-    equalization = curves[equalization_idcs].view(B, -1, H, K)
-
-    # Treat curve dimension as time and re-order appropriately
-    equalization = equalization.transpose(-3, -2).transpose(-2, -1)
-
-    # Interpolate between equalization curves for each sample
-    equalization = F.interpolate(equalization, size=(K, T), mode='bilinear', align_corners=True)
-
-    # Apply sampled equalization curves to the batch and clamp features
-    equalized_features = torch.clip(equalization * features, min=0, max=1)
-
-    # TODO - return EQ curves
-
-    return equalized_features
+    return equalized_features, curves
 
 
 def compute_timbre_loss(model, features, targets, **eq_kwargs):
     # Perform random equalizations on batch of features
-    equalized_features = apply_random_equalizations(features, model.hcqt, **eq_kwargs)
+    equalized_features, _ = apply_random_equalizations(features, model.hcqt, **eq_kwargs)
 
     # Process equalized features with provided model
     equalization_embeddings = model(equalized_features)

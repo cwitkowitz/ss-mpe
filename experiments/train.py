@@ -637,7 +637,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 # Compute spectral features for augmented audio
                 features_db = model.get_all_features(audio_aug)['db']
                 # Apply random equalizations to augmented audio
-                features_db = apply_random_equalizations(features_db, model.hcqt, **eq_kwargs)
+                features_db, _ = apply_random_equalizations(features_db, model.hcqt, **eq_kwargs)
                 # Apply random geometric transformations to augmentation audio
                 #features_db, _ = apply_random_transformations(features_db, **gm_kwargs)
                 # Apply harmonic dropout to input features
