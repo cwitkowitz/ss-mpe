@@ -21,7 +21,7 @@ def sample_random_equalization(n_bins, batch_size=1, n_points=None, std_dev=0.10
     Parameters
     ----------
     n_bins : int
-      Final number of frequency bins
+      Number of frequency bins
     batch_size : int
       Number of curves to sample
     n_points : int or None (optional)
@@ -55,6 +55,24 @@ def sample_random_equalization(n_bins, batch_size=1, n_points=None, std_dev=0.10
 
 
 def sample_butterworth_equalization(n_bins, batch_size=1, device=None):
+    """
+    Randomly sample lowpass and highpass filters covering whole frequency spectrum.
+
+    Parameters
+    ----------
+    n_bins : int
+      Number of frequency bins
+    batch_size : int
+      Number of curves to sample
+    device : string
+      Device on which to initialize curves
+
+    Returns
+    ----------
+    curves : Tensor (B x F)
+      Sampled equalization curves
+    """
+
     # Randomly sample bins for the indices corresponding to the cutoff frequencies
     cutoff_bins = torch.randint(high=n_bins + 1, size=(batch_size, 1), device=device)
     # Sample binary values to indicate orientation (i.e. lowpass vs. highpass)
@@ -157,7 +175,7 @@ def sample_gaussian_equalization(n_bins, batch_size=1, max_A=0.25, max_std_dev=N
 
 def apply_random_equalizations(features, hcqt_module, **eq_kwargs):
     # Obtain dimensionality of features and appropriate device
-    (B, H, K, _), device = features.size(), features.device
+    (B, H, K, T), device = features.size(), features.device
 
     # Determine expected number of bins per octave
     bins_per_octave = hcqt_module.bins_per_octave
@@ -180,27 +198,40 @@ def apply_random_equalizations(features, hcqt_module, **eq_kwargs):
     # Perform equalization over full octave
     n_total_bins = n_octaves * bins_per_octave
 
-    # Extract the equalization function
+    # Extract equalization function
     eq_fn = eq_kwargs.pop('eq_fn')
 
-    # Randomly sample an equalization curve for each sample in batch
-    curves = eq_fn(n_total_bins, batch_size=B, device=device, **eq_kwargs)
+    # Extract density of equalization curves
+    density = max(1, eq_kwargs.pop('density', 0))
 
-    # TODO - apply EQ curves function?
+    # Determine number of curves to sample
+    n_curves = density * B
+
+    # Randomly sample equalization curves for each sample in batch
+    curves = eq_fn(n_total_bins, batch_size=n_curves, device=device, **eq_kwargs)
+
+    # TODO - apply EQ curves function
 
     # Determine nearest equalization corresponding to each frequency bin
     equalization_bins = bins_per_semitone * (midi_freqs - midi_freqs.min())
     # Round, convert equalization bins to integers, and flatten
     equalization_bins = equalization_bins.round().long().flatten()
     # Obtain indices corresponding to equalization for each sample in the batch
-    equalization_idcs = torch.meshgrid(torch.arange(B, device=device), equalization_bins, indexing='ij')
+    equalization_idcs = torch.meshgrid(torch.arange(n_curves, device=device), equalization_bins, indexing='ij')
+
     # Obtain the equalization for each sample in the batch
-    equalization = curves[equalization_idcs].view(B, H, K, -1)
+    equalization = curves[equalization_idcs].view(B, -1, H, K)
+
+    # Treat curve dimension as time and re-order appropriately
+    equalization = equalization.transpose(-3, -2).transpose(-2, -1)
+
+    # Interpolate between equalization curves for each sample
+    equalization = F.interpolate(equalization, size=(K, T), mode='bilinear', align_corners=True)
 
     # Apply sampled equalization curves to the batch and clamp features
     equalized_features = torch.clip(equalization * features, min=0, max=1)
 
-    # TODO - return EQ curves?
+    # TODO - return EQ curves
 
     return equalized_features
 

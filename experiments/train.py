@@ -487,7 +487,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     }
 
     # Maximum amplitude for Gaussian equalization
-    max_A = 0.375
+    max_A = 0.5
 
     # Maximum standard deviation for Gaussian equalization
     max_std_dev = 2 * bins_per_octave
@@ -532,7 +532,10 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     }
 
     # Use random equalization
-    eq_kwargs = random_kwargs
+    eq_kwargs = parabolic_kwargs
+
+    # Insert equalization density argument
+    eq_kwargs.update({'density' : 1})
 
     ####################
     ## GEOMETRIC LOSS ##
