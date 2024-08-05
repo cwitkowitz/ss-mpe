@@ -478,7 +478,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     }
 
     # Pointiness for parabolic equalization
-    pointiness = 5
+    pointiness = 2.5
 
     # Set keyword arguments for parabolic equalization
     parabolic_kwargs = {
@@ -522,7 +522,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     n_points = 1 + points_per_octave * n_octaves
 
     # Standard deviation of boost/cut
-    std_dev = 0.25
+    std_dev = 0.125
 
     # Set random equalization arguments
     random_kwargs = {
@@ -629,36 +629,37 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             # Compute full set of spectral features
             features = model.get_all_features(audio)
 
-            if augment_features:
-                # Feed the audio through the augmentation pipeline
-                audio_aug = augmentations(audio, sample_rate=sample_rate)
-                # Superimpose percussion audio onto augmented audio
-                audio_aug = mix_random_percussion(audio_aug, **pc_kwargs)
-                # Compute spectral features for augmented audio
-                features_db = model.get_all_features(audio_aug)['db']
-                # Apply random equalizations to augmented audio
-                features_db, _ = apply_random_equalizations(features_db, model.hcqt, **eq_kwargs)
-                # Apply random geometric transformations to augmentation audio
-                #features_db, _ = apply_random_transformations(features_db, **gm_kwargs)
-                # Apply harmonic dropout to input features
-                features_db = drop_random_channels(features_db)
-                # TODO - note that augmented features are currently used for ss losses
-                #        - this may not be desirable (can just use for eg losses)
-            else:
-                # Use spectral features for original audio
-                features_db = features['db']
-
+            # Extract spectral features from original audio
+            features_db = features['db']
             # TODO - equivariance transformations need to be applied to targets and ground-truth
-            # Extract features used for targets
             features_db_1 = features['db_1']
             features_db_h = features['db_h']
 
             # Extract ground-truth pitch salience activations
             #ground_truth = data[constants.KEY_GROUND_TRUTH].to(device)
 
+            if augment_features:
+                # Feed the audio through the augmentation pipeline
+                audio_aug = augmentations(audio, sample_rate=sample_rate)
+                # Superimpose percussion audio onto augmented audio
+                audio_aug = mix_random_percussion(audio_aug, **pc_kwargs)
+                # Compute spectral features for augmented audio
+                features_db_aug = model.get_all_features(audio_aug)['db']
+                # Apply random equalizations to augmented audio
+                features_db_aug, _ = apply_random_equalizations(features_db_aug, model.hcqt, **eq_kwargs)
+                # Apply random geometric transformations to augmentation audio
+                #features_db_aug, _ = apply_random_transformations(features_db_aug, **gm_kwargs)
+                # Apply harmonic dropout to input features
+                features_db_aug = drop_random_channels(features_db_aug)
+                # Compute energy-based losses using augmented spectral features
+                features_eg = features_db_aug
+            else:
+                # Compute energy-based losses using original spectral features
+                features_eg = features_db
+
             with torch.autocast(device_type=f'cuda'):
                 # Process features to obtain logits
-                logits = model(features_db)
+                logits = model(features_eg)
                 # Convert to (implicit) pitch salience activations
                 activations = torch.sigmoid(logits)
 
