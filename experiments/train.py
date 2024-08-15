@@ -545,7 +545,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     n_frames = int(n_secs * sample_rate / hop_length)
 
     # Define maximum time and frequency shift
-    max_shift_v = 2 * bins_per_octave
+    max_shift_v = round(0.5 * bins_per_octave)
     max_shift_h = n_frames // 4
 
     # Maximum rate by which audio can be sped up or slowed down
