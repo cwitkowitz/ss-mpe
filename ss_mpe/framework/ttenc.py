@@ -14,7 +14,7 @@ class TT_Enc(SS_MPE):
     Encoder-only variant of modified Timbre-Trap (see TT_Base...).
     """
 
-    def __init__(self, hcqt_params, model_complexity=1):
+    def __init__(self, hcqt_params, n_blocks=4, model_complexity=1):
         """
         Initialize the full autoencoder.
 
@@ -24,6 +24,8 @@ class TT_Enc(SS_MPE):
 
         latent_size : int or None (Optional)
           Dimensionality of latent space
+        n_blocks : int
+          Number of blocks for encoder
         model_complexity : int
           Scaling factor for number of filters and embedding sizes
         """
@@ -33,7 +35,7 @@ class TT_Enc(SS_MPE):
         # Extract HCQT parameters to infer dimensionality of input features
         n_bins, n_harmonics = hcqt_params['n_bins'], len(hcqt_params['harmonics'])
 
-        self.encoder = EncoderNorm(feature_size=n_bins, latent_size=n_bins, model_complexity=model_complexity)
+        self.encoder = EncoderNorm(feature_size=n_bins, latent_size=n_bins, n_blocks=n_blocks, model_complexity=model_complexity)
 
         convin_out_channels = self.encoder.convin[0].out_channels
 

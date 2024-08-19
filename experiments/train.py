@@ -217,7 +217,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     if checkpoint_path is None:
         # Initialize Timbre-Trap encoder
         model = TT_Enc(hcqt_params,
-                       model_complexity=2)
+                       n_blocks=5,
+                       model_complexity=3)
     else:
         # Load weights of the specified model checkpoint
         model = SS_MPE.load(checkpoint_path, device=device)
@@ -631,7 +632,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
             # Extract spectral features from original audio
             features_db = features['db']
-            # TODO - equivariance transformations need to be applied to targets and ground-truth
             features_db_1 = features['db_1']
             features_db_h = features['db_h']
 
@@ -648,7 +648,11 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 # Apply random equalizations to augmented audio
                 features_db_aug, _ = apply_random_equalizations(features_db_aug, model.hcqt, **eq_kwargs)
                 # Apply random geometric transformations to augmentation audio
-                #features_db_aug, _ = apply_random_transformations(features_db_aug, **gm_kwargs)
+                features_db_aug, (vs, hs, sfs) = apply_random_transformations(features_db_aug, **gm_kwargs)
+                # Apply parallel geometric transformations to targets and ground-truth
+                features_db_1 = apply_geometric_transformations(features_db_1, vs, hs, sfs)
+                features_db_h = apply_geometric_transformations(features_db_h, vs, hs, sfs)
+                # TODO - ground-truth
                 # Apply harmonic dropout to input features
                 features_db_aug = drop_random_channels(features_db_aug)
                 # Compute energy-based losses using augmented spectral features
