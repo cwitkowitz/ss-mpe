@@ -236,6 +236,7 @@ class EncoderNorm(nn.Module):
         embeddings.append(self.convin(coefficients))
 
         for block in self.blocks:
+            # Feed embeddings through next encoder block
             embeddings.append(block(embeddings[-1]))
 
         # Compute latent vectors from embeddings
@@ -266,7 +267,7 @@ class DecoderNorm(nn.Module):
 
         nn.Module.__init__(self)
 
-        channels = [2 ** (i + 1) * 2 ** (model_complexity - 1) for i in range(n_blocks + 1)]
+        channels = [2 ** (n_blocks + 1 - i) * 2 ** (model_complexity - 1) for i in range(n_blocks + 1)]
 
         # Make sure all channel sizes are integers
         channels = tuple([round(c) for c in channels])
@@ -295,8 +296,10 @@ class DecoderNorm(nn.Module):
             LayerNormPermute(normalized_shape=[channels[0], embedding_sizes[0]])
         )
 
+        self.blocks = nn.ModuleList()
+
         for i in range(n_blocks):
-            self.block.append(nn.Sequential(
+            self.blocks.append(nn.Sequential(
                 DecoderBlock(channels[i], channels[i + 1], stride=2, padding=padding[i]),
                 LayerNormPermute(normalized_shape=[channels[i + 1], embedding_sizes[i + 1]])
             ))
@@ -330,12 +333,15 @@ class DecoderNorm(nn.Module):
         embeddings = self.convin(latents)
 
         if encoder_embeddings is not None:
+            # Add encoder embeddings through skip connection
             embeddings = embeddings + encoder_embeddings[-1]
 
         for i, block in enumerate(self.blocks):
-            embeddings = self.block(embeddings)
+            # Feed embeddings through next decoder block
+            embeddings = block(embeddings)
 
             if encoder_embeddings is not None:
+                # Add encoder embeddings through skip connection
                 embeddings = embeddings + encoder_embeddings[-2 - i]
 
         # Decode embeddings into spectral logits

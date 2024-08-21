@@ -20,7 +20,7 @@ from ss_mpe.datasets.AudioMixtures import (E_GMD,
                                            MagnaTagATune)
 from ss_mpe.datasets.AudioStems import (ESC_50)
 
-from ss_mpe.framework import SS_MPE, TT_Enc
+from ss_mpe.framework import SS_MPE, TT_Base, TT_Enc
 from ss_mpe.objectives import *
 from timbre_trap.utils import *
 from evaluate import evaluate
@@ -57,6 +57,7 @@ def config():
     checkpoint_path = None
 
     # Maximum number of training iterations to conduct
+    #max_epochs = 3
     max_epochs = 5000
 
     # Number of iterations between checkpoints
@@ -69,6 +70,7 @@ def config():
     n_secs = 4
 
     # Initial learning rate for encoder
+    #learning_rate_encoder = 1e-4
     learning_rate_encoder = 5e-4
 
     # Initial learning rate for decoder
@@ -82,8 +84,8 @@ def config():
         'support' : 1,
         'harmonic' : 1,
         'sparsity' : 1,
-        'timbre' : 0,
-        'geometric' : 0,
+        'timbre' : 1,
+        'geometric' : 1,
         'percussion' : 0,
         'channel' : 0,
         'supervised' : 0
@@ -93,6 +95,7 @@ def config():
     self_supervised_targets = True
 
     # Number of epochs spanning warmup phase (0 to disable)
+    #n_epochs_warmup = 0
     n_epochs_warmup = 5
 
     # Set validation dataset to compare for learning rate decay and early stopping
@@ -105,16 +108,18 @@ def config():
     validation_criteria_maximize = True # (False - minimize | True - maximize)
 
     # Number of epochs without improvement before reducing learning rate (0 to disable)
+    #n_epochs_decay = 0.5
     n_epochs_decay = 0
 
     # Number of epochs before starting epoch counter for learning rate decay
     n_epochs_cooldown = 0
 
     # Number of epochs without improvement before early stopping (None to disable)
+    #n_epochs_early_stop = 1.0
     n_epochs_early_stop = None
 
     # IDs of the GPUs to use, if available
-    gpu_ids = [0]
+    gpu_ids = [0, 1]
 
     # Random seed for this experiment
     seed = 0
@@ -139,6 +144,7 @@ def config():
     n_bins = 440
 
     # Harmonics to stack along channel dimension
+    #harmonics = [0.5, 1, 2, 3, 4, 5]
     harmonics = [0.5, 1, 2, 3, 4, 5, 7, 11, 13]
 
     ############
@@ -184,6 +190,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ########################
 
     # Create weighting for harmonics (harmonic loss)
+    #harmonic_weights = 1 / torch.Tensor(harmonics) ** 2
     harmonic_weights = 1 / torch.Tensor(harmonics)
     # Apply zero weight to sub-harmonics (harmonic loss)
     harmonic_weights[harmonic_weights > 1] = 0
@@ -216,9 +223,13 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     if checkpoint_path is None:
         # Initialize Timbre-Trap encoder
+        #model = TT_Base(hcqt_params,
+        #                latent_size=128,
+        #                model_complexity=2,
+        #                skip_connections=False)
         model = TT_Enc(hcqt_params,
-                       n_blocks=5,
-                       model_complexity=3)
+                       n_blocks=4,
+                       model_complexity=2)
     else:
         # Load weights of the specified model checkpoint
         model = SS_MPE.load(checkpoint_path, device=device)
@@ -405,6 +416,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                                                  mode='max' if validation_criteria_maximize else 'min',
                                                                  factor=0.5,
                                                                  patience=n_checkpoints_decay,
+                                                                 #threshold=2E-3,
                                                                  threshold=1E-3,
                                                                  cooldown=n_checkpoints_cooldown)
 
@@ -488,6 +500,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     }
 
     # Maximum amplitude for Gaussian equalization
+    #max_A = 0.375
     max_A = 0.5
 
     # Maximum standard deviation for Gaussian equalization
@@ -533,6 +546,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     }
 
     # Use random equalization
+    #eq_kwargs = gaussian_kwargs
     eq_kwargs = parabolic_kwargs
 
     # Insert equalization density argument
@@ -546,6 +560,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     n_frames = int(n_secs * sample_rate / hop_length)
 
     # Define maximum time and frequency shift
+    #max_shift_v = 2 * bins_per_octave
     max_shift_v = round(0.5 * bins_per_octave)
     max_shift_h = n_frames // 4
 
