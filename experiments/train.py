@@ -1,24 +1,19 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from timbre_trap.datasets.MixedMultiPitch import (URMP as URMP_Mixtures,
-                                                  Bach10 as Bach10_Mixtures,
+from timbre_trap.datasets.MixedMultiPitch import (URMP,
+                                                  Bach10,
                                                   MusicNet,
                                                   Su,
                                                   TRIOS)
 from timbre_trap.datasets.SoloMultiPitch import (MAESTRO,
-                                                 GuitarSet,
-                                                 MedleyDB_Pitch)
+                                                 GuitarSet)
 from timbre_trap.datasets.AudioMixtures import (FMA,
                                                 MedleyDB)
 from timbre_trap.datasets import ComboDataset
 
-from ss_mpe.datasets.SoloMultiPitch import (NSynth,
-                                            SWD,
-                                            MIR_1K)
-from ss_mpe.datasets.AudioMixtures import (E_GMD,
-                                           MagnaTagATune)
-from ss_mpe.datasets.AudioStems import (ESC_50)
+from ss_mpe.datasets.SoloMultiPitch import NSynth
+from ss_mpe.datasets.AudioMixtures import E_GMD
 
 from ss_mpe.framework import SS_MPE, TT_Enc
 from ss_mpe.objectives import *
@@ -29,7 +24,6 @@ from evaluate import evaluate
 from torch.utils.tensorboard import SummaryWriter
 from sacred.observers import FileStorageObserver
 from torch.utils.data import DataLoader
-from torch_audiomentations import *
 from sacred import Experiment
 from tqdm import tqdm
 
@@ -83,15 +77,14 @@ def config():
         'supervised' : 0
     }
 
-    # Whether to formulate objectives as self-supervision or augmentation
-    # TODO - still necessary?
-    self_supervised_targets = True
+    # Perform augmentations on input features for energy-based and/or supervised objectives
+    augment_features = False
 
     # Number of epochs spanning warmup phase (0 to disable)
     n_epochs_warmup = 0
 
     # Set validation dataset to compare for learning rate decay and early stopping
-    validation_criteria_set = URMP_Mixtures.name()
+    validation_criteria_set = URMP.name()
 
     # Set validation metric to compare for learning rate decay and early stopping
     validation_criteria_metric = 'mpe/f1-score'
@@ -158,7 +151,7 @@ def config():
 
 @ex.automain
 def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_secs, learning_rate, multipliers,
-                self_supervised_targets, n_epochs_warmup, validation_criteria_set, validation_criteria_metric,
+                augment_features, n_epochs_warmup, validation_criteria_set, validation_criteria_metric,
                 validation_criteria_maximize, n_epochs_decay, n_epochs_cooldown, n_epochs_early_stop, gpu_ids,
                 seed, sample_rate, hop_length, fmin, bins_per_octave, n_bins, harmonics, n_workers, root_dir):
     # Discard read-only types
@@ -298,6 +291,26 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                          seed=seed)
     #all_train.append(mdb_audio)
 
+    # Set the URMP validation set in accordance with the MT3 paper
+    urmp_val_splits = ['01', '02', '12', '13', '24', '25', '31', '38', '39']
+
+    # Allocate remaining tracks to URMP training set
+    urmp_train_splits = URMP.available_splits()
+
+    for t in urmp_val_splits:
+        # Remove validation tracks
+        urmp_train_splits.remove(t)
+
+
+    # Instantiate URMP dataset mixtures for training
+    urmp_mixes_train = URMP(base_dir=urmp_base_dir,
+                            splits=urmp_train_splits,
+                            sample_rate=sample_rate,
+                            cqt=model.hcqt,
+                            n_secs=n_secs,
+                            seed=seed)
+    #all_train.append(urmp_mixes_train)
+
     # Combine training datasets
     all_train = ComboDataset(all_train)
 
@@ -318,22 +331,19 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                         cqt=model.hcqt,
                         seed=seed)
 
-    # Set the URMP validation set in accordance with the MT3 paper
-    urmp_val_splits = ['01', '02', '12', '13', '24', '25', '31', '38', '39']
-
     # Instantiate URMP dataset mixtures for validation
-    urmp_val = URMP_Mixtures(base_dir=urmp_base_dir,
-                             splits=urmp_val_splits,
-                             sample_rate=sample_rate,
-                             cqt=model.hcqt,
-                             seed=seed)
+    urmp_val = URMP(base_dir=urmp_base_dir,
+                    splits=urmp_val_splits,
+                    sample_rate=sample_rate,
+                    cqt=model.hcqt,
+                    seed=seed)
 
     # Instantiate Bach10 dataset mixtures for evaluation
-    bch10_test = Bach10_Mixtures(base_dir=bch10_base_dir,
-                                 splits=None,
-                                 sample_rate=sample_rate,
-                                 cqt=model.hcqt,
-                                 seed=seed)
+    bch10_test = Bach10(base_dir=bch10_base_dir,
+                        splits=None,
+                        sample_rate=sample_rate,
+                        cqt=model.hcqt,
+                        seed=seed)
 
     # Instantiate Su dataset for evaluation
     su_test = Su(base_dir=su_base_dir,
@@ -363,11 +373,18 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           cqt=model.hcqt,
                           seed=seed)
 
+    # Instantiate MAESTRO dataset for evaluation
+    mstro_test = MAESTRO(base_dir=mstro_base_dir,
+                         splits=['test'],
+                         sample_rate=sample_rate,
+                         cqt=model.hcqt,
+                         seed=seed)
+
     # Add all validation datasets to a list
     validation_sets = [nsynth_val, urmp_val, bch10_test, su_test, trios_test, gset_val]
 
     # Add all evaluation datasets to a list
-    evaluation_sets = [bch10_test, su_test, trios_test, gset_test]
+    evaluation_sets = [bch10_test, su_test, trios_test, gset_test, mstro_test]
 
     #################
     ## PREPARATION ##
@@ -433,43 +450,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Flag to indicate early stopping criteria has been met
     early_stop_criteria = False
 
-    #######################
-    ## DATA AUGMENTATION ##
-    #######################
-
-    # Whether to augment input features
-    augment_features = False
-
-    # Set up augmentations
-    augmentations = Compose(
-        transforms=[
-            AddColoredNoise(),
-            PolarityInversion()
-        ]
-    )
-
-    # TODO - other ideas from audiomentations
-    # AddGaussianNoise: Adds gaussian noise to the audio samples
-    # AddGaussianSNR: Injects gaussian noise using a randomly chosen signal-to-noise ratio
-    # AirAbsorption: Applies frequency-dependent attenuation simulating air absorption
-    # Aliasing: Produces aliasing artifacts by downsampling without low-pass filtering and then upsampling
-    # BitCrush: Applies bit reduction without dithering
-    # Clip: Clips audio samples to specified minimum and maximum values
-    # ClippingDistortion: Distorts the signal by clipping a random percentage of samples
-    # GainTransition: Gradually changes the gain over a random time span
-    # Limiter: Applies dynamic range compression limiting the audio signal
-    # Mp3Compression: Compresses the audio to lower the quality
-    # SevenBandParametricEQ: Adjusts the volume of 7 frequency bands
-    # TanhDistortion: Applies tanh distortion to distort the signal
-
     #################
     ## TIMBRE LOSS ##
     #################
-
-    # Set keyword arguments for butterworth equalization
-    butterworth_kwargs = {
-        'eq_fn' : sample_butterworth_equalization
-    }
 
     # Pointiness for parabolic equalization
     pointiness = 2
@@ -546,7 +529,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
             # Log the current learning rates for this batch
             writer.add_scalar('train/loss/learning_rate/encoder', optimizer.param_groups[0]['lr'], batch_count)
-            writer.add_scalar('train/loss/learning_rate/decoder', optimizer.param_groups[1]['lr'], batch_count)
 
             # Extract audio and add to appropriate device
             audio = data[constants.KEY_AUDIO].to(device)
@@ -562,10 +544,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             #ground_truth = data[constants.KEY_GROUND_TRUTH].to(device)
 
             if augment_features:
-                # Feed the audio through the augmentation pipeline
-                audio_aug = augmentations(audio, sample_rate=sample_rate)
                 # Superimpose percussion audio onto augmented audio
-                audio_aug = mix_random_percussion(audio_aug, **pc_kwargs)
+                audio_aug = mix_random_percussion(audio, **pc_kwargs)
                 # Compute spectral features for augmented audio
                 features_db_aug = model.get_all_features(audio_aug)['db']
                 # Apply random equalizations to augmented audio
@@ -611,32 +591,29 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 debug_nans(sparsity_loss, 'sparsity')
 
-                # Determine whether targets should be logits or ground-truth
-                targets = activations #if self_supervised_targets else ground_truth
-
                 # Compute timbre-invariance loss for the batch
-                timbre_loss = compute_timbre_loss(model, features_db, targets, **eq_kwargs)
+                timbre_loss = compute_timbre_loss(model, features_db, activations, **eq_kwargs)
                 # Log the timbre-invariance loss for this batch
                 writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
 
                 debug_nans(timbre_loss, 'timbre')
 
                 # Compute geometric-equivariance loss for the batch
-                geometric_loss = compute_geometric_loss(model, features_db, targets, **gm_kwargs)
+                geometric_loss = compute_geometric_loss(model, features_db, activations, **gm_kwargs)
                 # Log the geometric-equivariance loss for this batch
                 writer.add_scalar('train/loss/geometric', geometric_loss.item(), batch_count)
 
                 debug_nans(geometric_loss, 'geometric')
 
                 # Compute percussion-invariance loss for the batch
-                percussion_loss = compute_percussion_loss(model, audio, targets, **pc_kwargs)
+                percussion_loss = compute_percussion_loss(model, audio, activations, **pc_kwargs)
                 # Log the percussion-invariance loss for this batch
                 writer.add_scalar('train/loss/percussion', percussion_loss.item(), batch_count)
 
                 debug_nans(percussion_loss, 'percussion')
 
                 # Compute channel-invariance loss for the batch
-                channel_loss = compute_channel_loss(model, features_db, targets)
+                channel_loss = compute_channel_loss(model, features_db, activations)
                 # Log the channel-invariance loss for this batch
                 writer.add_scalar('train/loss/channel', channel_loss.item(), batch_count)
 
@@ -676,15 +653,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 # Log the maximum gradient norm of the encoder for this batch
                 writer.add_scalar('train/max_norm/encoder', max_norm_encoder, batch_count)
 
-                # Compute the average gradient norm across the decoder
-                #avg_norm_decoder = average_gradient_norms(model.decoder)
-                # Log the average gradient norm of the decoder for this batch
-                #writer.add_scalar('train/avg_norm/decoder', avg_norm_decoder, batch_count)
-                # Determine the maximum gradient norm across decoder
-                #max_norm_decoder = get_max_gradient_norm(model.decoder)
-                # Log the maximum gradient norm of the decoder for this batch
-                #writer.add_scalar('train/max_norm/decoder', max_norm_decoder, batch_count)
-
                 # Apply gradient clipping for training stability
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
 
@@ -717,7 +685,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                                                       writer=writer,
                                                                       i=batch_count,
                                                                       device=device,
-                                                                      self_supervised_targets=self_supervised_targets,
                                                                       eq_kwargs=eq_kwargs,
                                                                       gm_kwargs=gm_kwargs,
                                                                       pc_kwargs=pc_kwargs)
@@ -795,7 +762,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                      eval_set=eval_set,
                                      multipliers=multipliers,
                                      device=device,
-                                     self_supervised_targets=self_supervised_targets,
                                      eq_kwargs=eq_kwargs,
                                      gm_kwargs=gm_kwargs,
                                      pc_kwargs=pc_kwargs)

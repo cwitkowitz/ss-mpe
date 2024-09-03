@@ -1,6 +1,5 @@
 torchaudio
 torch
-torch-audiomentations
 git+https://github.com/sony/timbre-trap
 #cqt_pytorch
 #basic-pitch
