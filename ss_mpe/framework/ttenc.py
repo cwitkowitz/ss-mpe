@@ -44,6 +44,9 @@ class TT_Enc(SS_MPE):
             *self.encoder.convin[1:]
         )
 
+        # Remove final layer normalization
+        self.encoder.convlat = self.encoder.convlat[:-1]
+
     def forward(self, features):
         """
         Process spectral features to obtain pitch salience logits (for training/evaluation).

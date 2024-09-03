@@ -60,7 +60,6 @@ class TT_Base(SS_MPE):
 
         self.decoder.convout = nn.Sequential(
             nn.Conv2d(convout_in_channels, 1, kernel_size=3, padding='same'),
-            LayerNormPermute(normalized_shape=[1, n_bins])
         )
 
         latent_channels = self.decoder.convin[0].out_channels
@@ -306,7 +305,6 @@ class DecoderNorm(nn.Module):
 
         self.convout = nn.Sequential(
             nn.Conv2d(channels[-1], 2, kernel_size=3, padding='same'),
-            LayerNormPermute(normalized_shape=[2, feature_size])
         )
 
     def forward(self, latents, encoder_embeddings=None):

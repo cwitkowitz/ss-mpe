@@ -20,7 +20,7 @@ from ss_mpe.datasets.AudioMixtures import (E_GMD,
                                            MagnaTagATune)
 from ss_mpe.datasets.AudioStems import (ESC_50)
 
-from ss_mpe.framework import SS_MPE, TT_Base, TT_Enc
+from ss_mpe.framework import SS_MPE, TT_Enc
 from ss_mpe.objectives import *
 from timbre_trap.utils import *
 from evaluate import evaluate
@@ -57,7 +57,6 @@ def config():
     checkpoint_path = None
 
     # Maximum number of training iterations to conduct
-    #max_epochs = 3
     max_epochs = 5000
 
     # Number of iterations between checkpoints
@@ -69,15 +68,8 @@ def config():
     # Number of seconds of audio per sample
     n_secs = 4
 
-    # Initial learning rate for encoder
-    #learning_rate_encoder = 1e-4
-    learning_rate_encoder = 5e-4
-
-    # Initial learning rate for decoder
-    learning_rate_decoder = learning_rate_encoder
-
-    # Group together both learning rates
-    learning_rates = [learning_rate_encoder, learning_rate_decoder]
+    # Initial learning rate
+    learning_rate = 1e-4
 
     # Scaling factors for each loss term
     multipliers = {
@@ -92,11 +84,11 @@ def config():
     }
 
     # Whether to formulate objectives as self-supervision or augmentation
+    # TODO - still necessary?
     self_supervised_targets = True
 
     # Number of epochs spanning warmup phase (0 to disable)
-    #n_epochs_warmup = 0
-    n_epochs_warmup = 5
+    n_epochs_warmup = 0
 
     # Set validation dataset to compare for learning rate decay and early stopping
     validation_criteria_set = URMP_Mixtures.name()
@@ -108,18 +100,16 @@ def config():
     validation_criteria_maximize = True # (False - minimize | True - maximize)
 
     # Number of epochs without improvement before reducing learning rate (0 to disable)
-    #n_epochs_decay = 0.5
     n_epochs_decay = 0
 
     # Number of epochs before starting epoch counter for learning rate decay
     n_epochs_cooldown = 0
 
     # Number of epochs without improvement before early stopping (None to disable)
-    #n_epochs_early_stop = 1.0
     n_epochs_early_stop = None
 
     # IDs of the GPUs to use, if available
-    gpu_ids = [0, 1]
+    gpu_ids = [0]
 
     # Random seed for this experiment
     seed = 0
@@ -144,8 +134,7 @@ def config():
     n_bins = 440
 
     # Harmonics to stack along channel dimension
-    #harmonics = [0.5, 1, 2, 3, 4, 5]
-    harmonics = [0.5, 1, 2, 3, 4, 5, 7, 11, 13]
+    harmonics = [0.5, 1, 2, 3, 4, 5]
 
     ############
     ## OTHERS ##
@@ -168,12 +157,11 @@ def config():
 
 
 @ex.automain
-def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_secs, learning_rates, multipliers,
+def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_secs, learning_rate, multipliers,
                 self_supervised_targets, n_epochs_warmup, validation_criteria_set, validation_criteria_metric,
                 validation_criteria_maximize, n_epochs_decay, n_epochs_cooldown, n_epochs_early_stop, gpu_ids,
                 seed, sample_rate, hop_length, fmin, bins_per_octave, n_bins, harmonics, n_workers, root_dir):
     # Discard read-only types
-    learning_rates = list(learning_rates)
     multipliers = dict(multipliers)
     harmonics = list(harmonics)
     gpu_ids = list(gpu_ids)
@@ -190,7 +178,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ########################
 
     # Create weighting for harmonics (harmonic loss)
-    #harmonic_weights = 1 / torch.Tensor(harmonics) ** 2
     harmonic_weights = 1 / torch.Tensor(harmonics)
     # Apply zero weight to sub-harmonics (harmonic loss)
     harmonic_weights[harmonic_weights > 1] = 0
@@ -223,10 +210,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     if checkpoint_path is None:
         # Initialize Timbre-Trap encoder
-        #model = TT_Base(hcqt_params,
-        #                latent_size=128,
-        #                model_complexity=2,
-        #                skip_connections=False)
         model = TT_Enc(hcqt_params,
                        n_blocks=4,
                        model_complexity=2)
@@ -287,7 +270,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           sample_rate=sample_rate,
                           n_secs=n_secs,
                           seed=seed)
-    #all_train.append(nsynth_train)
+    all_train.append(nsynth_train)
 
     # Instantiate MusicNet audio (training) mixtures for training
     mnet_audio = MusicNet(base_dir=mnet_base_dir,
@@ -295,7 +278,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           sample_rate=sample_rate,
                           n_secs=n_secs,
                           seed=seed)
-    all_train.append(mnet_audio)
+    #all_train.append(mnet_audio)
 
     # Define mostly-harmonic splits for FMA
     fma_genres_harmonic = ['Rock', 'Folk', 'Instrumental', 'Pop', 'Classical', 'Jazz', 'Country', 'Soul-RnB', 'Blues']
@@ -391,8 +374,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     #################
 
     # Initialize an optimizer for the model parameters with differential learning rates
-    optimizer = torch.optim.AdamW([{'params' : model.encoder_parameters(), 'lr' : learning_rates[0]},
-                                   {'params' : model.decoder_parameters(), 'lr' : learning_rates[1]}])
+    optimizer = torch.optim.AdamW([{'params' : model.encoder_parameters(), 'lr' : learning_rate}])
 
     # Determine the amount of batches in one epoch
     epoch_steps = len(loader)
@@ -416,7 +398,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                                                  mode='max' if validation_criteria_maximize else 'min',
                                                                  factor=0.5,
                                                                  patience=n_checkpoints_decay,
-                                                                 #threshold=2E-3,
                                                                  threshold=1E-3,
                                                                  cooldown=n_checkpoints_cooldown)
 
@@ -491,7 +472,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     }
 
     # Pointiness for parabolic equalization
-    pointiness = 2.5
+    pointiness = 2
 
     # Set keyword arguments for parabolic equalization
     parabolic_kwargs = {
@@ -499,54 +480,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         'pointiness': pointiness
     }
 
-    # Maximum amplitude for Gaussian equalization
-    #max_A = 0.375
-    max_A = 0.5
-
-    # Maximum standard deviation for Gaussian equalization
-    max_std_dev = 2 * bins_per_octave
-
-    # Whether to sample fixed rather than varied shapes
-    fixed_shape = False
-
-    # Set keyword arguments for Gaussian equalization
-    gaussian_kwargs = {
-        'eq_fn' : sample_gaussian_equalization,
-        'max_A': max_A,
-        'max_std_dev': max_std_dev,
-        'fixed_shape': fixed_shape
-    }
-
-    # Number of random points to sample per octave
-    points_per_octave = 3
-
-    # Infer the number of bins per semitone
-    bins_per_semitone = bins_per_octave / 12
-
-    # Determine semitone span of frequency support
-    semitone_span = model.hcqt.midi_freqs.max() - model.hcqt.midi_freqs.min()
-
-    # Determine how many bins are represented across all harmonics
-    n_psuedo_bins = (bins_per_semitone * semitone_span).round()
-
-    # Determine how many octaves have been covered
-    n_octaves = int(math.ceil(n_psuedo_bins / bins_per_octave))
-
-    # Calculate number of cut/boost points to sample
-    n_points = 1 + points_per_octave * n_octaves
-
-    # Standard deviation of boost/cut
-    std_dev = 0.125
-
-    # Set random equalization arguments
-    random_kwargs = {
-        'eq_fn' : sample_random_equalization,
-        'n_points' : n_points,
-        'std_dev' : std_dev
-    }
-
     # Use random equalization
-    #eq_kwargs = gaussian_kwargs
     eq_kwargs = parabolic_kwargs
 
     # Insert equalization density argument
@@ -560,8 +494,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     n_frames = int(n_secs * sample_rate / hop_length)
 
     # Define maximum time and frequency shift
-    #max_shift_v = 2 * bins_per_octave
-    max_shift_v = round(0.5 * bins_per_octave)
+    max_shift_v = round(1 * bins_per_octave)
     max_shift_h = n_frames // 4
 
     # Maximum rate by which audio can be sped up or slowed down
@@ -587,31 +520,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                  sample_rate=sample_rate,
                  seed=seed)
     percussive_sets.append(egmd)
-
-    # Obtain all environmental classes in ESC-50
-    esc50_splits = ESC_50.available_splits()
-    # Remove classes with potentially pitched audio
-    esc50_splits.remove('Rooster')
-    esc50_splits.remove('Cow')
-    esc50_splits.remove('Cat')
-    esc50_splits.remove('Hen')
-    esc50_splits.remove('Crow')
-    esc50_splits.remove('Crickets')
-    esc50_splits.remove('Chirping Birds')
-    esc50_splits.remove('Crying Baby')
-    esc50_splits.remove('Laughing')
-    esc50_splits.remove('Clock Alarm')
-    esc50_splits.remove('Siren')
-    esc50_splits.remove('Car Horn')
-    esc50_splits.remove('Train')
-    esc50_splits.remove('Church Bells')
-
-    # Instantiate ESC-50 audio for percussion-invariance
-    esc50 = ESC_50(base_dir=esc50_base_dir,
-                   splits=esc50_splits,
-                   sample_rate=sample_rate,
-                   seed=seed)
-    #percussive_sets.append(esc50)
 
     # Combine percussive and noise datasets
     percussive_set_combo = ComboDataset(percussive_sets)
