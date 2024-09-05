@@ -235,9 +235,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Audio dataset paths
     fma_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'FMA') if CONFIG else None
     mdb_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'MedleyDB') if CONFIG else None
-    magna_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'MagnaTagATune') if CONFIG else None
     egmd_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'E-GMD') if CONFIG else None
-    esc50_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'ESC-50') if CONFIG else None
     nsynth_base_dir = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
 
     # MPE dataset paths
@@ -249,12 +247,11 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # AMT dataset paths
     mstro_base_dir = os.path.join('/', 'storageNVME', 'frank', 'MAESTRO') if CONFIG else None
     mnet_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if CONFIG else None
-    swd_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'SWD') if CONFIG else None
     su_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'Su') if CONFIG else None
     trios_base_dir = os.path.join('/', 'storageNVME', 'frank', 'TRIOS') if CONFIG else None
 
-    # Initialize list to hold training datasets
-    all_train = list()
+    # Initialize lists to hold training datasets
+    train_ss, train_sup, train_both = list(), list(), list()
 
     # Instantiate NSynth training split for training
     nsynth_train = NSynth(base_dir=nsynth_base_dir,
@@ -263,7 +260,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           sample_rate=sample_rate,
                           n_secs=n_secs,
                           seed=seed)
-    all_train.append(nsynth_train)
+    train_ss.append(nsynth_train)
 
     # Instantiate MusicNet audio (training) mixtures for training
     mnet_audio = MusicNet(base_dir=mnet_base_dir,
@@ -271,7 +268,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           sample_rate=sample_rate,
                           n_secs=n_secs,
                           seed=seed)
-    #all_train.append(mnet_audio)
+    #train_ss.append(mnet_audio)
 
     # Define mostly-harmonic splits for FMA
     fma_genres_harmonic = ['Rock', 'Folk', 'Instrumental', 'Pop', 'Classical', 'Jazz', 'Country', 'Soul-RnB', 'Blues']
@@ -282,14 +279,14 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     sample_rate=sample_rate,
                     n_secs=n_secs,
                     seed=seed)
-    #all_train.append(fma_audio)
+    #train_ss.append(fma_audio)
 
     # Instantiate MedleyDB audio mixtures for training
     mdb_audio = MedleyDB(base_dir=mdb_base_dir,
                          sample_rate=sample_rate,
                          n_secs=n_secs,
                          seed=seed)
-    #all_train.append(mdb_audio)
+    #train_ss.append(mdb_audio)
 
     # Set the URMP validation set in accordance with the MT3 paper
     urmp_val_splits = ['01', '02', '12', '13', '24', '25', '31', '38', '39']
@@ -309,18 +306,96 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                             cqt=model.hcqt,
                             n_secs=n_secs,
                             seed=seed)
-    #all_train.append(urmp_mixes_train)
+    #train_sup.append(urmp_mixes_train)
+    #train_both.append(urmp_mixes_train)
 
     # Combine training datasets
-    all_train = ComboDataset(all_train)
+    train_ss = ComboDataset(train_ss)
+    train_sup = ComboDataset(train_sup)
+    train_both = ComboDataset(train_both)
 
-    # Initialize a PyTorch dataloader for data
-    loader = DataLoader(dataset=all_train,
-                        batch_size=batch_size,
-                        shuffle=True,
-                        num_workers=n_workers,
-                        pin_memory=True,
-                        drop_last=True)
+    # Ratio for self-supervised to supervised training data
+    ss_ratio = 0.9
+
+    # Default batch size and workers
+    batch_size_ss, n_workers_ss = 0, 0
+    batch_size_sup, n_workers_sup = 0, 0
+    batch_size_both, n_workers_both = 0, 0
+
+    if len(train_ss) and not len(train_sup) and not len(train_both):
+        # All data is for self-supervised training
+        batch_size_ss, n_workers_ss = batch_size, n_workers
+    elif not len(train_ss) and len(train_sup) and not len(train_both):
+        # All data is for supervised training
+        batch_size_sup, n_workers_sup = batch_size, n_workers
+    elif not len(train_ss) and not len(train_sup) and len(train_both):
+        # All data is for both types of supervised training
+        batch_size_both, n_workers_both = batch_size, n_workers
+    elif len(train_ss) and len(train_sup) and not len(train_both):
+        # Split data between self-supervised and supervised training
+        batch_size_ss, n_workers_ss = round(ss_ratio * batch_size), round(ss_ratio * n_workers)
+        batch_size_sup, n_workers_sup = round((1 - ss_ratio) * batch_size), round((1 - ss_ratio) * n_workers)
+    elif len(train_ss) and not len(train_sup) and len(train_both):
+        # Split data between self-supervised and both types of training
+        batch_size_ss, n_workers_ss = round(ss_ratio * batch_size), round(ss_ratio * n_workers)
+        batch_size_both, n_workers_both = round((1 - ss_ratio) * batch_size), round((1 - ss_ratio) * n_workers)
+    elif not len(train_ss) and len(train_sup) and len(train_both):
+        # Split data between supervised and both types of training
+        batch_size_sup, n_workers_sup = round((1 - ss_ratio) * batch_size), round((1 - ss_ratio) * n_workers)
+        batch_size_both, n_workers_both = round(ss_ratio * batch_size), round(ss_ratio * n_workers)
+    else:
+        # Split data between all combinations of training
+        batch_size_ss, n_workers_ss = round(ss_ratio * batch_size), round(ss_ratio * n_workers)
+        batch_size_sup, n_workers_sup = round(0.5 * (1 - ss_ratio) * batch_size), round(0.5 * (1 - ss_ratio) * n_workers)
+        batch_size_both, n_workers_both = round(0.5 * (1 - ss_ratio) * batch_size), round(0.5 * (1 - ss_ratio) * n_workers)
+
+    # Determine number of samples for each type of training
+    n_ss = batch_size_ss + batch_size_both
+    n_sup = batch_size_sup + batch_size_both
+
+    # Default loaders to empty list
+    loader_ss = list()
+    loader_sup = list()
+    loader_both = list()
+
+    if batch_size_ss:
+        # Initialize dataloader for self-supervised data
+        loader_ss = DataLoader(dataset=train_ss,
+                               batch_size=batch_size_ss,
+                               shuffle=True,
+                               num_workers=n_workers_ss,
+                               pin_memory=True,
+                               drop_last=True)
+
+    if batch_size_sup:
+        # Initialize dataloader for supervised data
+        loader_sup = DataLoader(dataset=train_sup,
+                                batch_size=batch_size_sup,
+                                shuffle=True,
+                                num_workers=n_workers_sup,
+                                pin_memory=True,
+                                drop_last=True)
+
+    if batch_size_both:
+        # Initialize dataloader for comprehensive data
+        loader_both = DataLoader(dataset=train_both,
+                                 batch_size=batch_size_both,
+                                 shuffle=True,
+                                 num_workers=n_workers_both,
+                                 pin_memory=True,
+                                 drop_last=True)
+
+    if not len(loader_ss):
+        # Add null entries for each batch of self-supervised training data
+        loader_ss += [None] * max(len(loader_sup), len(loader_both))
+
+    if not len(loader_sup):
+        # Add null entries for each batch of supervised training data
+        loader_sup += [None] * max(len(loader_ss), len(loader_both))
+
+    if not len(loader_both):
+        # Add null entries for each batch of both types training data
+        loader_both += [None] * max(len(loader_ss), len(loader_sup))
 
     # Instantiate NSynth validation split for validation
     nsynth_val = NSynth(base_dir=nsynth_base_dir,
@@ -394,7 +469,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     optimizer = torch.optim.AdamW([{'params' : model.encoder_parameters(), 'lr' : learning_rate}])
 
     # Determine the amount of batches in one epoch
-    epoch_steps = len(loader)
+    epoch_steps = min(len(loader_ss), len(loader_sup), len(loader_both))
 
     # Compute number of validation checkpoints corresponding to learning rate decay cooldown and window
     n_checkpoints_cooldown = math.ceil(n_epochs_cooldown * epoch_steps / checkpoint_interval)
@@ -523,15 +598,35 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Loop through epochs
     for i in range(max_epochs):
         # Loop through batches of both types of data
-        for data in tqdm(loader, desc=f'Epoch {i + 1}'):
+        for (data_ss, data_sup, data_both) in tqdm(zip(loader_ss, loader_sup, loader_both), desc=f'Epoch {i + 1}'):
             # Increment the batch counter
             batch_count += 1
 
             # Log the current learning rates for this batch
             writer.add_scalar('train/loss/learning_rate/encoder', optimizer.param_groups[0]['lr'], batch_count)
 
-            # Extract audio and add to appropriate device
-            audio = data[constants.KEY_AUDIO].to(device)
+            # Initialize a list for audio and ground-truth from all data partitions
+            audio, ground_truth = list(), list()
+
+            if data_ss is not None:
+                # Extract self-supervised audio and add to appropriate device
+                audio.append(data_ss[constants.KEY_AUDIO].to(device))
+
+            if data_both is not None:
+                # Extract both types data and add to appropriate device
+                audio.append(data_both[constants.KEY_AUDIO].to(device))
+                ground_truth.append(data_both[constants.KEY_GROUND_TRUTH].to(device))
+
+            if data_sup is not None:
+                # Extract supervised data and add to appropriate device
+                audio.append(data_sup[constants.KEY_AUDIO].to(device))
+                ground_truth.append(data_sup[constants.KEY_GROUND_TRUTH].to(device))
+
+            # Combine audio from all data partitions
+            audio = torch.cat(audio)
+            # Combine audio from supervised data partitions
+            ground_truth = torch.cat(ground_truth) if len(ground_truth) else None
+
             # Compute full set of spectral features
             features = model.get_all_features(audio)
 
@@ -539,9 +634,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             features_db = features['db']
             features_db_1 = features['db_1']
             features_db_h = features['db_h']
-
-            # Extract ground-truth pitch salience activations
-            #ground_truth = data[constants.KEY_GROUND_TRUTH].to(device)
 
             if augment_features:
                 # Superimpose percussion audio onto augmented audio
@@ -553,78 +645,78 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 # Apply random geometric transformations to augmentation audio
                 features_db_aug, (vs, hs, sfs) = apply_random_transformations(features_db_aug, **gm_kwargs)
                 # Apply parallel geometric transformations to targets and ground-truth
-                features_db_1 = apply_geometric_transformations(features_db_1, vs, hs, sfs)
-                features_db_h = apply_geometric_transformations(features_db_h, vs, hs, sfs)
-                # TODO - ground-truth
+                features_db_1 = apply_geometric_transformations(features_db_1.unsqueeze(1), vs, hs, sfs).squeeze(1)
+                features_db_h = apply_geometric_transformations(features_db_h.unsqueeze(1), vs, hs, sfs).squeeze(1)
+                ground_truth = apply_geometric_transformations(ground_truth.unsqueeze(1), vs, hs, sfs).squeeze(1)
                 # Apply harmonic dropout to input features
                 features_db_aug = drop_random_channels(features_db_aug)
                 # Compute energy-based losses using augmented spectral features
-                features_eg = features_db_aug
+                features_in = features_db_aug
             else:
                 # Compute energy-based losses using original spectral features
-                features_eg = features_db
+                features_in = features_db
 
             with torch.autocast(device_type=f'cuda'):
                 # Process features to obtain logits
-                logits = model(features_eg)
+                logits = model(features_in)
                 # Convert to (implicit) pitch salience activations
                 activations = torch.sigmoid(logits)
 
                 # Compute support loss w.r.t. first harmonic for the batch
-                support_loss = compute_support_loss(logits, features_db_1)
+                support_loss = compute_support_loss(logits[:n_ss], features_db_1[:n_ss]) if n_ss else torch.tensor(0.)
                 # Log the support loss for this batch
                 writer.add_scalar('train/loss/support', support_loss.item(), batch_count)
 
                 debug_nans(support_loss, 'support')
 
                 # Compute harmonic loss w.r.t. weighted harmonic sum for the batch
-                harmonic_loss = compute_harmonic_loss(logits, features_db_h)
+                harmonic_loss = compute_harmonic_loss(logits[:n_ss], features_db_h[:n_ss]) if n_ss else torch.tensor(0.)
                 # Log the harmonic loss for this batch
                 writer.add_scalar('train/loss/harmonic', harmonic_loss.item(), batch_count)
 
                 debug_nans(harmonic_loss, 'harmonic')
 
                 # Compute sparsity loss for the batch
-                sparsity_loss = compute_sparsity_loss(activations)
+                sparsity_loss = compute_sparsity_loss(activations[:n_ss]) if n_ss else torch.tensor(0.)
                 # Log the sparsity loss for this batch
                 writer.add_scalar('train/loss/sparsity', sparsity_loss.item(), batch_count)
 
                 debug_nans(sparsity_loss, 'sparsity')
 
                 # Compute timbre-invariance loss for the batch
-                timbre_loss = compute_timbre_loss(model, features_db, activations, **eq_kwargs)
+                timbre_loss = compute_timbre_loss(model, features_db[:n_ss], activations[:n_ss], **eq_kwargs) if n_ss else torch.tensor(0.)
                 # Log the timbre-invariance loss for this batch
                 writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
 
                 debug_nans(timbre_loss, 'timbre')
 
                 # Compute geometric-equivariance loss for the batch
-                geometric_loss = compute_geometric_loss(model, features_db, activations, **gm_kwargs)
+                geometric_loss = compute_geometric_loss(model, features_db[:n_ss], activations[:n_ss], **gm_kwargs) if n_ss else torch.tensor(0.)
                 # Log the geometric-equivariance loss for this batch
                 writer.add_scalar('train/loss/geometric', geometric_loss.item(), batch_count)
 
                 debug_nans(geometric_loss, 'geometric')
 
                 # Compute percussion-invariance loss for the batch
-                percussion_loss = compute_percussion_loss(model, audio, activations, **pc_kwargs)
+                percussion_loss = compute_percussion_loss(model, audio[:n_ss], activations[:n_ss], **pc_kwargs) if n_ss else torch.tensor(0.)
                 # Log the percussion-invariance loss for this batch
                 writer.add_scalar('train/loss/percussion', percussion_loss.item(), batch_count)
 
                 debug_nans(percussion_loss, 'percussion')
 
                 # Compute channel-invariance loss for the batch
-                channel_loss = compute_channel_loss(model, features_db, activations)
+                channel_loss = compute_channel_loss(model, features_db[:n_ss], activations[:n_ss]) if n_ss else torch.tensor(0.)
                 # Log the channel-invariance loss for this batch
                 writer.add_scalar('train/loss/channel', channel_loss.item(), batch_count)
 
                 debug_nans(channel_loss, 'channel')
 
                 # Compute supervised BCE loss for the batch
-                #supervised_loss = compute_supervised_loss(logits, ground_truth, True)
+                supervised_loss = compute_supervised_loss(logits[batch_size_ss:], ground_truth, True) if n_sup else torch.tensor(0.)
                 # Log the supervised BCE loss for this batch
-                #writer.add_scalar('train/loss/supervised', supervised_loss.item(), batch_count)
+                writer.add_scalar('train/loss/supervised', supervised_loss.item(), batch_count)
 
-                #debug_nans(supervised_loss, 'supervised')
+                debug_nans(supervised_loss, 'supervised')
 
                 # Compute the total loss for this batch
                 total_loss = multipliers['support'] * support_loss + \
@@ -633,8 +725,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                              multipliers['timbre'] * timbre_loss + \
                              multipliers['geometric'] * geometric_loss + \
                              multipliers['percussion'] * percussion_loss + \
-                             multipliers['channel'] * channel_loss# + \
-                             #multipliers['supervised'] * supervised_loss
+                             multipliers['channel'] * channel_loss + \
+                             multipliers['supervised'] * supervised_loss
 
                 # Log the total loss for this batch
                 writer.add_scalar('train/loss/total', total_loss.item(), batch_count)
