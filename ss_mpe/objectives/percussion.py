@@ -1,11 +1,5 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
-# My imports
-from timbre_trap.utils import constants
-
-# Regular imports
-from torch.utils.data import DataLoader
-
 import torch.nn.functional as F
 import torch
 

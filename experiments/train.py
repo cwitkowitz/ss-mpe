@@ -36,7 +36,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['ScaleUp_Base'])
+EX_NAME = '_'.join(['Sup'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -57,24 +57,24 @@ def config():
     checkpoint_interval = 250
 
     # Number of samples to gather for a batch
-    batch_size = 20
+    batch_size = 2#0
 
     # Number of seconds of audio per sample
     n_secs = 4
 
     # Initial learning rate
-    learning_rate = 1e-4
+    learning_rate = 5e-4
 
     # Scaling factors for each loss term
     multipliers = {
-        'support' : 1,
-        'harmonic' : 1,
-        'sparsity' : 1,
-        'timbre' : 1,
-        'geometric' : 1,
+        'support' : 0,
+        'harmonic' : 0,
+        'sparsity' : 0,
+        'timbre' : 0,
+        'geometric' : 0,
         'percussion' : 0,
         'channel' : 0,
-        'supervised' : 0
+        'supervised' : 1
     }
 
     # Perform augmentations on input features for energy-based and/or supervised objectives
@@ -204,8 +204,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     if checkpoint_path is None:
         # Initialize Timbre-Trap encoder
         model = TT_Enc(hcqt_params,
-                       n_blocks=4,
-                       model_complexity=2)
+                       n_blocks=5,
+                       model_complexity=3)
     else:
         # Load weights of the specified model checkpoint
         model = SS_MPE.load(checkpoint_path, device=device)
@@ -233,8 +233,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ##############
 
     # Audio dataset paths
-    fma_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'FMA') if CONFIG else None
-    mdb_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'MedleyDB') if CONFIG else None
+    fma_base_dir    = os.path.join('/', 'storage', 'frank', 'FMA') if CONFIG else None
+    mdb_base_dir    = os.path.join('/', 'storage', 'frank', 'MedleyDB') if CONFIG else None
     egmd_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'E-GMD') if CONFIG else None
     nsynth_base_dir = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
 
@@ -242,10 +242,10 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     urmp_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'URMP') if CONFIG else None
     bch10_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'Bach10') if CONFIG else None
     gset_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'GuitarSet') if CONFIG else None
-    mdb_ptch_base_dir = os.path.join('/', 'storageNVME', 'frank', 'MedleyDB-Pitch') if CONFIG else None
+    mdb_ptch_base_dir = os.path.join('/', 'storage', 'frank', 'MedleyDB-Pitch') if CONFIG else None
 
     # AMT dataset paths
-    mstro_base_dir = os.path.join('/', 'storageNVME', 'frank', 'MAESTRO') if CONFIG else None
+    mstro_base_dir = os.path.join('/', 'storage', 'frank', 'MAESTRO') if CONFIG else None
     mnet_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if CONFIG else None
     su_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'Su') if CONFIG else None
     trios_base_dir = os.path.join('/', 'storageNVME', 'frank', 'TRIOS') if CONFIG else None
@@ -260,7 +260,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           sample_rate=sample_rate,
                           n_secs=n_secs,
                           seed=seed)
-    train_ss.append(nsynth_train)
+    #train_ss.append(nsynth_train)
 
     # Instantiate MusicNet audio (training) mixtures for training
     mnet_audio = MusicNet(base_dir=mnet_base_dir,
@@ -274,18 +274,18 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     fma_genres_harmonic = ['Rock', 'Folk', 'Instrumental', 'Pop', 'Classical', 'Jazz', 'Country', 'Soul-RnB', 'Blues']
 
     # Instantiate FMA audio mixtures for training
-    fma_audio = FMA(base_dir=fma_base_dir,
+    """fma_audio = FMA(base_dir=fma_base_dir,
                     splits=fma_genres_harmonic,
                     sample_rate=sample_rate,
                     n_secs=n_secs,
-                    seed=seed)
+                    seed=seed)"""
     #train_ss.append(fma_audio)
 
     # Instantiate MedleyDB audio mixtures for training
-    mdb_audio = MedleyDB(base_dir=mdb_base_dir,
+    """mdb_audio = MedleyDB(base_dir=mdb_base_dir,
                          sample_rate=sample_rate,
                          n_secs=n_secs,
-                         seed=seed)
+                         seed=seed)"""
     #train_ss.append(mdb_audio)
 
     # Set the URMP validation set in accordance with the MT3 paper
@@ -306,7 +306,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                             cqt=model.hcqt,
                             n_secs=n_secs,
                             seed=seed)
-    #train_sup.append(urmp_mixes_train)
+    train_sup.append(urmp_mixes_train)
     #train_both.append(urmp_mixes_train)
 
     # Combine training datasets
@@ -449,17 +449,17 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           seed=seed)
 
     # Instantiate MAESTRO dataset for evaluation
-    mstro_test = MAESTRO(base_dir=mstro_base_dir,
+    """mstro_test = MAESTRO(base_dir=mstro_base_dir,
                          splits=['test'],
                          sample_rate=sample_rate,
                          cqt=model.hcqt,
-                         seed=seed)
+                         seed=seed)"""
 
     # Add all validation datasets to a list
     validation_sets = [nsynth_val, urmp_val, bch10_test, su_test, trios_test, gset_val]
 
     # Add all evaluation datasets to a list
-    evaluation_sets = [bch10_test, su_test, trios_test, gset_test, mstro_test]
+    evaluation_sets = [bch10_test, su_test, trios_test, gset_test]#, mstro_test]
 
     #################
     ## PREPARATION ##
@@ -712,7 +712,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 debug_nans(channel_loss, 'channel')
 
                 # Compute supervised BCE loss for the batch
-                supervised_loss = compute_supervised_loss(logits[batch_size_ss:], ground_truth, True) if n_sup else torch.tensor(0.)
+                supervised_loss = compute_supervised_loss(logits[batch_size_ss:], ground_truth, False) if n_sup else torch.tensor(0.)
                 # Log the supervised BCE loss for this batch
                 writer.add_scalar('train/loss/supervised', supervised_loss.item(), batch_count)
 

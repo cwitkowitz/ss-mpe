@@ -11,6 +11,8 @@ __all__ = [
 
 def drop_random_channels(features):
     # Perform channel-wise dropout and correct values
+    # TODO - dropout 1d?
+    # TODO - dropout frequency bins?
     dropped_features = F.dropout2d(0.5 * features)
 
     return dropped_features
