@@ -45,7 +45,7 @@ class TT_Enc(SS_MPE):
         )
 
         # Remove final layer normalization
-        #self.encoder.convlat = self.encoder.convlat[:-1]
+        self.encoder.convlat = self.encoder.convlat[:-1]
 
     def forward(self, features):
         """

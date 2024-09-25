@@ -19,6 +19,7 @@ from ss_mpe.framework import SS_MPE, TT_Enc
 from ss_mpe.objectives import *
 from timbre_trap.utils import *
 from evaluate import evaluate
+from utils import *
 
 # Regular imports
 from torch.utils.tensorboard import SummaryWriter
@@ -36,7 +37,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['Sup'])
+EX_NAME = '_'.join(['Both'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -57,22 +58,22 @@ def config():
     checkpoint_interval = 250
 
     # Number of samples to gather for a batch
-    batch_size = 2#0
+    batch_size = 10
 
     # Number of seconds of audio per sample
     n_secs = 4
 
     # Initial learning rate
-    learning_rate = 5e-4
+    learning_rate = 1e-4
 
     # Scaling factors for each loss term
     multipliers = {
-        'support' : 0,
-        'harmonic' : 0,
-        'sparsity' : 0,
-        'timbre' : 0,
-        'geometric' : 0,
-        'percussion' : 0,
+        'support' : 1,
+        'harmonic' : 1,
+        'sparsity' : 1,
+        'timbre' : 1,
+        'geometric' : 1,
+        'percussion' : 1,
         'channel' : 0,
         'supervised' : 1
     }
@@ -274,11 +275,11 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     fma_genres_harmonic = ['Rock', 'Folk', 'Instrumental', 'Pop', 'Classical', 'Jazz', 'Country', 'Soul-RnB', 'Blues']
 
     # Instantiate FMA audio mixtures for training
-    """fma_audio = FMA(base_dir=fma_base_dir,
+    fma_audio = FMA(base_dir=fma_base_dir,
                     splits=fma_genres_harmonic,
                     sample_rate=sample_rate,
                     n_secs=n_secs,
-                    seed=seed)"""
+                    seed=seed)
     #train_ss.append(fma_audio)
 
     # Instantiate MedleyDB audio mixtures for training
@@ -306,8 +307,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                             cqt=model.hcqt,
                             n_secs=n_secs,
                             seed=seed)
-    train_sup.append(urmp_mixes_train)
-    #train_both.append(urmp_mixes_train)
+    #train_sup.append(urmp_mixes_train)
+    train_both.append(urmp_mixes_train)
 
     # Combine training datasets
     train_ss = ComboDataset(train_ss)
@@ -717,6 +718,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 writer.add_scalar('train/loss/supervised', supervised_loss.item(), batch_count)
 
                 debug_nans(supervised_loss, 'supervised')
+
+                #(1 - cosine_anneal(batch_count, 10 * epoch_steps, start=10 * epoch_steps, floor=0.))
 
                 # Compute the total loss for this batch
                 total_loss = multipliers['support'] * support_loss + \
