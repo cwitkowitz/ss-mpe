@@ -84,6 +84,11 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
             # Store the sparsity loss for the track
             evaluator.append_results({'loss/sparsity' : sparsity_loss.item()})
 
+            # Compute entropy loss for the track
+            entropy_loss = compute_entropy_loss(logits)
+            # Store the entropy loss for the track
+            evaluator.append_results({'loss/entropy' : entropy_loss.item()})
+
             # Compute supervised BCE loss for the batch
             supervised_loss = compute_supervised_loss(logits, ground_truth)
             # Store the supervised loss for the track
@@ -93,6 +98,7 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
             total_loss = multipliers['support'] * support_loss + \
                          multipliers['harmonic'] * harmonic_loss + \
                          multipliers['sparsity'] * sparsity_loss + \
+                         multipliers['entropy'] * entropy_loss + \
                          multipliers['supervised'] * supervised_loss
 
             # Compute channel-invariance loss for the track

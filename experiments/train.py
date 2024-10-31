@@ -37,7 +37,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['Both'])
+EX_NAME = '_'.join(['Both_-EG_+FMA_5050_LR5E-4_DT_FLN'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -64,13 +64,14 @@ def config():
     n_secs = 4
 
     # Initial learning rate
-    learning_rate = 1e-4
+    learning_rate = 5e-4
 
     # Scaling factors for each loss term
     multipliers = {
-        'support' : 1,
-        'harmonic' : 1,
-        'sparsity' : 1,
+        'support' : 0,
+        'harmonic' : 0,
+        'sparsity' : 0,
+        'entropy' : 0,
         'timbre' : 1,
         'geometric' : 1,
         'percussion' : 1,
@@ -280,7 +281,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     sample_rate=sample_rate,
                     n_secs=n_secs,
                     seed=seed)
-    #train_ss.append(fma_audio)
+    train_ss.append(fma_audio)
 
     # Instantiate MedleyDB audio mixtures for training
     """mdb_audio = MedleyDB(base_dir=mdb_base_dir,
@@ -316,7 +317,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     train_both = ComboDataset(train_both)
 
     # Ratio for self-supervised to supervised training data
-    ss_ratio = 0.9
+    ss_ratio = 0.5
 
     # Default batch size and workers
     batch_size_ss, n_workers_ss = 0, 0
@@ -684,6 +685,13 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 debug_nans(sparsity_loss, 'sparsity')
 
+                # Compute entropy loss for the batch
+                entropy_loss = compute_entropy_loss(logits[:n_ss]) if n_ss else torch.tensor(0.)
+                # Log the entropy loss for this batch
+                writer.add_scalar('train/loss/entropy', entropy_loss.item(), batch_count)
+
+                debug_nans(entropy_loss, 'entropy')
+
                 # Compute timbre-invariance loss for the batch
                 timbre_loss = compute_timbre_loss(model, features_db[:n_ss], activations[:n_ss], **eq_kwargs) if n_ss else torch.tensor(0.)
                 # Log the timbre-invariance loss for this batch
@@ -725,6 +733,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 total_loss = multipliers['support'] * support_loss + \
                              multipliers['harmonic'] * harmonic_loss + \
                              multipliers['sparsity'] * sparsity_loss + \
+                             multipliers['entropy'] * entropy_loss + \
                              multipliers['timbre'] * timbre_loss + \
                              multipliers['geometric'] * geometric_loss + \
                              multipliers['percussion'] * percussion_loss + \

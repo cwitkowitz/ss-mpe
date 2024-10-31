@@ -7,7 +7,8 @@ import torch
 __all__ = [
     'compute_support_loss',
     'compute_harmonic_loss',
-    'compute_sparsity_loss'
+    'compute_sparsity_loss',
+    'compute_entropy_loss',
 ]
 
 
@@ -45,3 +46,16 @@ def compute_sparsity_loss(activations):
     sparsity_loss = sparsity_loss.mean(-1).mean(-1)
 
     return sparsity_loss
+
+
+def compute_entropy_loss(embeddings):
+    # Set the weight for negative activations to zero
+    neg_weight = torch.tensor(0)
+
+    # Compute entropy as BCE of activations with respect to themselves (positive activations only)
+    entropy_loss = F.binary_cross_entropy_with_logits(-embeddings, (1 - torch.sigmoid(embeddings)), reduction='none', pos_weight=neg_weight)
+
+    # Sum across frequency bins and average across time and batch
+    entropy_loss = entropy_loss.sum(-2).mean(-1).mean(-1)
+
+    return entropy_loss
