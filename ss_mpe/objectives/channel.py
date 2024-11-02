@@ -10,10 +10,10 @@ __all__ = [
 
 
 def drop_random_channels(features):
-    # TODO - dropout 1d?
-    # TODO - dropout frequency bins?
-    # Perform channel-wise dropout and correct values
-    dropped_features = F.dropout2d(0.5 * features)
+    # Perform dropout and correct values
+    #dropped_features = F.dropout(0.5 * features) # Time-frequency bin -wise
+    #dropped_features = F.dropout2d(0.5 * features.transpose(-2, -3)).transpose(-2, -3) # Frequency bin -wise
+    dropped_features = F.dropout2d(0.5 * features) # Channel (harmonic) -wise
 
     return dropped_features
 
