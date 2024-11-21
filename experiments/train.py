@@ -26,6 +26,7 @@ from torch.utils.tensorboard import SummaryWriter
 from sacred.observers import FileStorageObserver
 from torch.utils.data import DataLoader
 from sacred import Experiment
+from random import shuffle
 from tqdm import tqdm
 
 import numpy as np
@@ -37,7 +38,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['Both_-EG_+FMA_5050_LR5E-4_DT_FLN'])
+EX_NAME = '_'.join(['URMP_SPV_T_G_P_+FMA'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -68,6 +69,7 @@ def config():
 
     # Scaling factors for each loss term
     multipliers = {
+        'energy' : 0,
         'support' : 0,
         'harmonic' : 0,
         'sparsity' : 0,
@@ -272,8 +274,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           seed=seed)
     #train_ss.append(mnet_audio)
 
-    # Define mostly-harmonic splits for FMA
-    fma_genres_harmonic = ['Rock', 'Folk', 'Instrumental', 'Pop', 'Classical', 'Jazz', 'Country', 'Soul-RnB', 'Blues']
+    # Use all available splits for FMA
+    fma_genres_harmonic = FMA.available_splits()
 
     # Instantiate FMA audio mixtures for training
     fma_audio = FMA(base_dir=fma_base_dir,
@@ -317,7 +319,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     train_both = ComboDataset(train_both)
 
     # Ratio for self-supervised to supervised training data
-    ss_ratio = 0.5
+    ss_ratio = 0.8
 
     # Default batch size and workers
     batch_size_ss, n_workers_ss = 0, 0
@@ -436,6 +438,13 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                        cqt=model.hcqt,
                        seed=seed)
 
+    # Instantiate MusicNet dataset mixtures for evaluation
+    mnet_test = MusicNet(base_dir=mnet_base_dir,
+                         splits=['test'],
+                         sample_rate=sample_rate,
+                         cqt=model.hcqt,
+                         seed=seed)
+
     # Instantiate GuitarSet dataset for validation
     gset_val = GuitarSet(base_dir=gset_base_dir,
                          splits=['05'],
@@ -450,18 +459,28 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           cqt=model.hcqt,
                           seed=seed)
 
+    # Instantiate MAESTRO dataset for validation
+    mstro_val = MAESTRO(base_dir=mstro_base_dir,
+                        splits=['validation'],
+                        sample_rate=sample_rate,
+                        n_secs=30,
+                        cqt=model.hcqt,
+                        seed=seed)
+    shuffle(mstro_val.tracks)
+    mstro_val.tracks = mstro_val.tracks[:10]
+
     # Instantiate MAESTRO dataset for evaluation
-    """mstro_test = MAESTRO(base_dir=mstro_base_dir,
+    mstro_test = MAESTRO(base_dir=mstro_base_dir,
                          splits=['test'],
                          sample_rate=sample_rate,
                          cqt=model.hcqt,
-                         seed=seed)"""
+                         seed=seed)
 
     # Add all validation datasets to a list
-    validation_sets = [nsynth_val, urmp_val, bch10_test, su_test, trios_test, gset_val]
+    validation_sets = [urmp_val, nsynth_val, bch10_test, su_test, trios_test, mnet_test, gset_val, mstro_val]
 
     # Add all evaluation datasets to a list
-    evaluation_sets = [bch10_test, su_test, trios_test, gset_test]#, mstro_test]
+    evaluation_sets = [bch10_test, su_test, trios_test, mnet_test, gset_test, mstro_test]
 
     #################
     ## PREPARATION ##
@@ -664,6 +683,13 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 # Convert to (implicit) pitch salience activations
                 activations = torch.sigmoid(logits)
 
+                # Compute energy loss w.r.t. weighted harmonic sum for the batch
+                energy_loss = compute_energy_loss(logits[:n_ss], features_db_h[:n_ss]) if n_ss else torch.tensor(0.)
+                # Log the energy loss for this batch
+                writer.add_scalar('train/loss/energy', energy_loss.item(), batch_count)
+
+                debug_nans(energy_loss, 'energy')
+
                 # Compute support loss w.r.t. first harmonic for the batch
                 support_loss = compute_support_loss(logits[:n_ss], features_db_1[:n_ss]) if n_ss else torch.tensor(0.)
                 # Log the support loss for this batch
@@ -727,10 +753,11 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 debug_nans(supervised_loss, 'supervised')
 
-                #(1 - cosine_anneal(batch_count, 10 * epoch_steps, start=10 * epoch_steps, floor=0.))
+                # upward: (1 - cosine_anneal(batch_count, 1000 * epoch_steps, start=0, floor=0.))
 
                 # Compute the total loss for this batch
-                total_loss = multipliers['support'] * support_loss + \
+                total_loss = multipliers['energy'] * energy_loss + \
+                             multipliers['support'] * support_loss + \
                              multipliers['harmonic'] * harmonic_loss + \
                              multipliers['sparsity'] * sparsity_loss + \
                              multipliers['entropy'] * entropy_loss + \
@@ -865,7 +892,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             final_results = evaluate(model=best_model,
                                      eval_set=eval_set,
                                      multipliers=multipliers,
-                                     device=device,
+                                     #device=device,
                                      eq_kwargs=eq_kwargs,
                                      gm_kwargs=gm_kwargs,
                                      pc_kwargs=pc_kwargs)

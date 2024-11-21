@@ -6,6 +6,7 @@ from ss_mpe.objectives import *
 from timbre_trap.utils import *
 
 # Regular imports
+import numpy as np
 import librosa
 import torch
 
@@ -20,7 +21,9 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
 
     with torch.no_grad():
         # Loop through tracks
-        for data in eval_set:
+        for k in range(eval_set.__len__()):
+            # Extract the track data (always from t=0)
+            data = eval_set.__getitem__(k, offset_s=0)
             # Determine which track is being processed
             track = data[constants.KEY_TRACK]
             # Extract audio and add to the appropriate device
@@ -40,6 +43,11 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
             else:
                 # Obtain the ground-truth multi-pitch annotations
                 times_ref, multi_pitch_ref = eval_set.get_ground_truth(track)
+
+                if eval_set.n_secs is not None:
+                    # Slice times and multi-pitch annotations
+                    times_ref = times_ref[times_ref <= eval_set.n_secs]
+                    multi_pitch_ref = multi_pitch_ref[:len(times_ref)]
 
             # Compute full set of spectral features
             features = model.get_all_features(audio)
@@ -69,6 +77,11 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
 
             # TODO - the following is super similar to training loop
 
+            # Compute energy loss w.r.t. weighted harmonic sum for the track
+            energy_loss = compute_energy_loss(logits, features_db_h)
+            # Store the energy loss for the track
+            evaluator.append_results({'loss/energy' : energy_loss.item()})
+
             # Compute support loss w.r.t. first harmonic for the track
             support_loss = compute_support_loss(logits, features_db_1)
             # Store the support loss for the track
@@ -95,7 +108,8 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
             evaluator.append_results({'loss/supervised' : supervised_loss.item()})
 
             # Compute the total loss for the track
-            total_loss = multipliers['support'] * support_loss + \
+            total_loss = multipliers['energy'] * energy_loss + \
+                         multipliers['support'] * support_loss + \
                          multipliers['harmonic'] * harmonic_loss + \
                          multipliers['sparsity'] * sparsity_loss + \
                          multipliers['entropy'] * entropy_loss + \
@@ -145,21 +159,23 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
                 writer.add_scalar(f'{eval_set.name()}/{key}', average_results[key], i)
 
             # Add channel dimension to input/outputs
-            ground_truth = ground_truth.unsqueeze(-3)
-            transcription = raw_activations.unsqueeze(-3)
             features_log_1 = features_db_1.unsqueeze(-3)
             features_log_h = features_db_h.unsqueeze(-3)
+            transcription = raw_activations.unsqueeze(-3)
+            ground_truth = ground_truth.unsqueeze(-3)
 
             # Remove batch dimension from inputs
-            ground_truth = ground_truth.squeeze(0)
-            transcription = transcription.squeeze(0)
             features_log_1 = features_log_1.squeeze(0)
             features_log_h = features_log_h.squeeze(0)
+            transcription = transcription.squeeze(0)
+            ground_truth = ground_truth.squeeze(0)
+
+            # TODO - plot constants images only for first validation loop?
 
             # Visualize predictions for the final sample of the evaluation dataset
-            writer.add_image(f'{eval_set.name()}/ground-truth', ground_truth.flip(-2), i)
-            writer.add_image(f'{eval_set.name()}/transcription', transcription.flip(-2), i)
             writer.add_image(f'{eval_set.name()}/CQT (dB)', features_log_1.flip(-2), i)
             writer.add_image(f'{eval_set.name()}/W.Avg. HCQT', features_log_h.flip(-2), i)
+            writer.add_image(f'{eval_set.name()}/transcription', transcription.flip(-2), i)
+            writer.add_image(f'{eval_set.name()}/ground-truth', ground_truth.flip(-2), i)
 
     return average_results
