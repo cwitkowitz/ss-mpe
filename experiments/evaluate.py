@@ -6,7 +6,6 @@ from ss_mpe.objectives import *
 from timbre_trap.utils import *
 
 # Regular imports
-import numpy as np
 import librosa
 import torch
 

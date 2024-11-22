@@ -92,7 +92,7 @@ class SS_MPE(nn.Module):
 
         # Extract relevant parameters
         harmonics = self.hcqt_params['harmonics']
-        harmonic_weights = self.hcqt_params['weights']
+        weights = self.hcqt_params['weights']
 
         # Determine first harmonic index
         h_idx = harmonics.index(1)
@@ -103,7 +103,7 @@ class SS_MPE(nn.Module):
         features_db_1 = features_db[:, h_idx]
 
         # Compute a weighted sum of features to obtain a rough salience estimate
-        features_pw_h = torch.sum((features_am * harmonic_weights) ** 2, dim=-3)
+        features_pw_h = torch.sum((features_am * weights.to(audio.device)) ** 2, dim=-3)
         features_db_h = self.hcqt.to_decibels(features_pw_h ** 0.5, rescale=False)
         features_db_h = self.hcqt.rescale_decibels(features_db_h)
 
