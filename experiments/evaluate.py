@@ -10,7 +10,7 @@ import librosa
 import torch
 
 
-def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kwargs=None, gm_kwargs=None, pc_kwargs=None):
+def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kwargs=None, gm_kwargs=None, pc_kwargs=None, an_kwargs=None, dp_kwargs=None):
     # Initialize a new evaluator for the dataset
     evaluator = MultipitchEvaluator()
 
@@ -114,12 +114,13 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
                          multipliers['entropy'] * entropy_loss + \
                          multipliers['supervised'] * supervised_loss
 
-            # Compute channel-invariance loss for the track
-            channel_loss = compute_channel_loss(model, features_db, raw_activations)
-            # Store the channel-invariance loss for the track
-            evaluator.append_results({'loss/channel' : channel_loss.item()})
-            # Add the channel-invariance loss to the total loss
-            total_loss += multipliers['channel'] * channel_loss
+            # Compute feature-invariance loss for the track
+            feature_loss = compute_feature_loss(model, features_db, raw_activations, **dp_kwargs)
+            # Store the feature-invariance loss for the track
+            # TODO - update to feature when convenient
+            evaluator.append_results({'loss/channel' : feature_loss.item()})
+            # Add the feature-invariance loss to the total loss
+            total_loss += multipliers['feature'] * feature_loss
 
             if eq_kwargs is not None:
                 # Compute timbre-invariance loss for the track using specified equalization
@@ -144,6 +145,14 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
                 evaluator.append_results({'loss/percussion' : percussion_loss.item()})
                 # Add the percussion-invariance loss to the total loss
                 total_loss += multipliers['percussion'] * percussion_loss
+
+            if an_kwargs is not None:
+                # Compute noise-invariance loss for the batch
+                noise_loss = compute_noise_loss(model, audio, raw_activations, **an_kwargs)
+                # Store the noise-invariance loss for the track
+                evaluator.append_results({'loss/noise' : noise_loss.item()})
+                # Add the noise-invariance loss to the total loss
+                total_loss += multipliers['noise'] * noise_loss
 
             # Store the total loss for the track
             evaluator.append_results({'loss/total' : total_loss.item()})

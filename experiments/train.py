@@ -38,7 +38,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['URMP_SPV_T_G_P_+FMA'])
+EX_NAME = '_'.join(['FMA_EG_T_G_SPR'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -59,7 +59,7 @@ def config():
     checkpoint_interval = 250
 
     # Number of samples to gather for a batch
-    batch_size = 10
+    batch_size = 20
 
     # Number of seconds of audio per sample
     n_secs = 4
@@ -69,16 +69,17 @@ def config():
 
     # Scaling factors for each loss term
     multipliers = {
-        'energy' : 0,
+        'energy' : 1,
         'support' : 0,
         'harmonic' : 0,
-        'sparsity' : 0,
+        'sparsity' : 1,
         'entropy' : 0,
         'timbre' : 1,
         'geometric' : 1,
-        'percussion' : 1,
-        'channel' : 0,
-        'supervised' : 1
+        'percussion' : 0,
+        'noise' : 0,
+        'feature' : 0,
+        'supervised' : 0
     }
 
     # Perform augmentations on input features for energy-based and/or supervised objectives
@@ -175,7 +176,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ########################
 
     # Create weighting for harmonics (harmonic loss)
-    harmonic_weights = 1 / torch.Tensor(harmonics)
+    harmonic_weights = 1 / torch.Tensor(harmonics) ** 2
     # Apply zero weight to sub-harmonics (harmonic loss)
     harmonic_weights[harmonic_weights > 1] = 0
     # Normalize the harmonic weights
@@ -208,8 +209,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     if checkpoint_path is None:
         # Initialize Timbre-Trap encoder
         model = TT_Enc(hcqt_params,
-                       n_blocks=5,
-                       model_complexity=3)
+                       n_blocks=4,
+                       model_complexity=2)
     else:
         # Load weights of the specified model checkpoint
         model = SS_MPE.load(checkpoint_path, device=device)
@@ -311,7 +312,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                             n_secs=n_secs,
                             seed=seed)
     #train_sup.append(urmp_mixes_train)
-    train_both.append(urmp_mixes_train)
+    #train_both.append(urmp_mixes_train)
 
     # Combine training datasets
     train_ss = ComboDataset(train_ss)
@@ -319,7 +320,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     train_both = ComboDataset(train_both)
 
     # Ratio for self-supervised to supervised training data
-    ss_ratio = 0.8
+    ss_ratio = 0.95
 
     # Default batch size and workers
     batch_size_ss, n_workers_ss = 0, 0
@@ -488,6 +489,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     # Initialize an optimizer for the model parameters with differential learning rates
     optimizer = torch.optim.AdamW([{'params' : model.encoder_parameters(), 'lr' : learning_rate}])
+    #optimizer = torch.optim.SGD([{'params': model.encoder_parameters(), 'lr': learning_rate, 'momentum': 0.9}])
 
     # Determine the amount of batches in one epoch
     epoch_steps = min(len(loader_ss), len(loader_sup), len(loader_both))
@@ -612,6 +614,30 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         'max_volume' : max_volume
     }
 
+    ################
+    ## NOISE LOSS ##
+    ################
+
+    # Maximum volume of noise relative to original audio
+    max_volume = 0.25
+
+    # Set keyword arguments for additive noise
+    an_kwargs = {
+        'max_volume' : max_volume
+    }
+
+    ##################
+    ## FEATURE LOSS ##
+    ##################
+
+    # Mode (0 - channel | 1 - frequency | 2 - bin) for dropout
+    mode = 0
+
+    # Set keyword arguments for dropout
+    dp_kwargs = {
+        'mode' : mode
+    }
+
     ##############################
     ## TRAINING/VALIDATION LOOP ##
     ##############################
@@ -659,6 +685,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             if augment_features:
                 # Superimpose percussion audio onto augmented audio
                 audio_aug = mix_random_percussion(audio, **pc_kwargs)
+                # Superimpose noise onto augmented audio
+                audio_aug = add_random_noise(audio_aug, **an_kwargs)
                 # Compute spectral features for augmented audio
                 features_db_aug = model.get_all_features(audio_aug)['db']
                 # Apply random equalizations to augmented audio
@@ -669,8 +697,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 features_db_1 = apply_geometric_transformations(features_db_1.unsqueeze(1), vs, hs, sfs).squeeze(1)
                 features_db_h = apply_geometric_transformations(features_db_h.unsqueeze(1), vs, hs, sfs).squeeze(1)
                 ground_truth = apply_geometric_transformations(ground_truth.unsqueeze(1), vs, hs, sfs).squeeze(1)
-                # Apply harmonic dropout to input features
-                features_db_aug = drop_random_channels(features_db_aug)
+                # Apply dropout to input features
+                features_db_aug = drop_random_features(features_db_aug, **dp_kwargs)
                 # Compute energy-based losses using augmented spectral features
                 features_in = features_db_aug
             else:
@@ -739,12 +767,20 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 debug_nans(percussion_loss, 'percussion')
 
-                # Compute channel-invariance loss for the batch
-                channel_loss = compute_channel_loss(model, features_db[:n_ss], activations[:n_ss]) if n_ss else torch.tensor(0.)
-                # Log the channel-invariance loss for this batch
-                writer.add_scalar('train/loss/channel', channel_loss.item(), batch_count)
+                # Compute noise-invariance loss for the batch
+                noise_loss = compute_noise_loss(model, audio[:n_ss], activations[:n_ss], **an_kwargs) if n_ss else torch.tensor(0.)
+                # Log the noise-invariance loss for this batch
+                writer.add_scalar('train/loss/noise', noise_loss.item(), batch_count)
 
-                debug_nans(channel_loss, 'channel')
+                debug_nans(noise_loss, 'noise')
+
+                # Compute feature-invariance loss for the batch
+                feature_loss = compute_feature_loss(model, features_db[:n_ss], activations[:n_ss]) if n_ss else torch.tensor(0.)
+                # Log the feature-invariance loss for this batch
+                # TODO - update to feature when convenient
+                writer.add_scalar('train/loss/channel', feature_loss.item(), batch_count)
+
+                debug_nans(feature_loss, 'feature')
 
                 # Compute supervised BCE loss for the batch
                 supervised_loss = compute_supervised_loss(logits[batch_size_ss:], ground_truth, False) if n_sup else torch.tensor(0.)
@@ -764,7 +800,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                              multipliers['timbre'] * timbre_loss + \
                              multipliers['geometric'] * geometric_loss + \
                              multipliers['percussion'] * percussion_loss + \
-                             multipliers['channel'] * channel_loss + \
+                             multipliers['noise'] * noise_loss + \
+                             multipliers['feature'] * feature_loss + \
                              multipliers['supervised'] * supervised_loss
 
                 # Log the total loss for this batch
@@ -818,7 +855,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                                                       device=device,
                                                                       eq_kwargs=eq_kwargs,
                                                                       gm_kwargs=gm_kwargs,
-                                                                      pc_kwargs=pc_kwargs)
+                                                                      pc_kwargs=pc_kwargs,
+                                                                      an_kwargs=an_kwargs,
+                                                                      dp_kwargs=dp_kwargs)
                     except Exception as e:
                         print(f'Error validating \'{val_set.name()}\': {repr(e)}')
 
@@ -895,7 +934,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                      #device=device,
                                      eq_kwargs=eq_kwargs,
                                      gm_kwargs=gm_kwargs,
-                                     pc_kwargs=pc_kwargs)
+                                     pc_kwargs=pc_kwargs,
+                                     an_kwargs=an_kwargs,
+                                     dp_kwargs=dp_kwargs)
         except Exception as e:
             print(f'Error evaluating \'{eval_set.name()}\': {repr(e)}')
 

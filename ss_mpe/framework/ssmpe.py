@@ -31,7 +31,7 @@ class SS_MPE(nn.Module):
         self.hcqt = HCQT(**hcqt_params)
 
         self.encoder = None
-        self.encoder = None
+        self.decoder = None
 
     def encoder_parameters(self):
         """
