@@ -11,8 +11,6 @@ __all__ = [
 ]
 
 
-# TODO - original code: https://github.com/cwitkowitz/ss-mpe/blob/f1f083199a5abe01e67aeadf0577c9fecd3d6a8b/objectives.py
-
 def constructive_maximum(t1, t2, beta=0.5):
     max_vals = torch.maximum(t1, t2)
     min_vals = torch.minimum(t1, t2)
@@ -92,11 +90,15 @@ def mix_random_tracks(audio, targets, model, additive_set_combo):
 
 
 def compute_additivity_loss(model, audio, targets, **ad_kwargs):
-    # Superimpose audio from the same batch onto original each other
-    #mixed_audio, mixed_targets = create_batch_mixtures(audio, targets)
+    # Determine which function to use for mixing
+    additive_fn = ad_kwargs.pop('additive_fn')
 
-    # Superimpose audio from a specific dataset onto original audio
-    mixed_audio, mixed_targets = mix_random_tracks(audio, targets, model, **ad_kwargs)
+    if additive_fn == create_batch_mixtures:
+        # Superimpose audio from the same batch onto original each other
+        mixed_audio, mixed_targets = create_batch_mixtures(audio, targets)
+    else:
+        # Superimpose audio from a specific dataset onto original audio
+        mixed_audio, mixed_targets = mix_random_tracks(audio, targets, model, **ad_kwargs)
 
     # Compute spectral features for mixed audio
     mixed_features = model.hcqt.to_decibels(model.hcqt(mixed_audio))

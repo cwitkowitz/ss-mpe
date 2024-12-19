@@ -642,6 +642,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     # Set keyword arguments for additive mixtures
     ad_kwargs = {
+        'additive_fn' : create_batch_mixtures,
         'additive_set_combo' : additive_set_combo,
     }
 
