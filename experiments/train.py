@@ -38,7 +38,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['FMA_EG_T_G_SPR'])
+EX_NAME = '_'.join(['NSynth_EG_SPR_T_G_LR1E-4'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -65,7 +65,7 @@ def config():
     n_secs = 4
 
     # Initial learning rate
-    learning_rate = 5e-4
+    learning_rate = 1e-4
 
     # Scaling factors for each loss term
     multipliers = {
@@ -78,6 +78,7 @@ def config():
         'geometric' : 1,
         'percussion' : 0,
         'noise' : 0,
+        'additivity' : 0,
         'feature' : 0,
         'supervised' : 0
     }
@@ -265,7 +266,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           sample_rate=sample_rate,
                           n_secs=n_secs,
                           seed=seed)
-    #train_ss.append(nsynth_train)
+    train_ss.append(nsynth_train)
 
     # Instantiate MusicNet audio (training) mixtures for training
     mnet_audio = MusicNet(base_dir=mnet_base_dir,
@@ -284,7 +285,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     sample_rate=sample_rate,
                     n_secs=n_secs,
                     seed=seed)
-    train_ss.append(fma_audio)
+    #train_ss.append(fma_audio)
 
     # Instantiate MedleyDB audio mixtures for training
     """mdb_audio = MedleyDB(base_dir=mdb_base_dir,
@@ -626,6 +627,24 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         'max_volume' : max_volume
     }
 
+    #####################
+    ## ADDITIVITY LOSS ##
+    #####################
+
+    # Initialize list to hold additive datasets
+    additive_sets = list()
+
+    # Add NSynth to list of additive datasets
+    additive_sets.append(nsynth_train)
+
+    # Combine additive datasets
+    additive_set_combo = ComboDataset(additive_sets)
+
+    # Set keyword arguments for additive mixtures
+    ad_kwargs = {
+        'additive_set_combo' : additive_set_combo,
+    }
+
     ##################
     ## FEATURE LOSS ##
     ##################
@@ -774,11 +793,17 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 debug_nans(noise_loss, 'noise')
 
+                # Compute additivity loss for the batch
+                additivity_loss = compute_additivity_loss(model, audio[:n_ss], activations[:n_ss], **ad_kwargs) if n_ss else torch.tensor(0.)
+                # Log the additivity loss for this batch
+                writer.add_scalar('train/loss/additivity', additivity_loss.item(), batch_count)
+
+                debug_nans(additivity_loss, 'additivity')
+
                 # Compute feature-invariance loss for the batch
                 feature_loss = compute_feature_loss(model, features_db[:n_ss], activations[:n_ss]) if n_ss else torch.tensor(0.)
                 # Log the feature-invariance loss for this batch
-                # TODO - update to feature when convenient
-                writer.add_scalar('train/loss/channel', feature_loss.item(), batch_count)
+                writer.add_scalar('train/loss/feature', feature_loss.item(), batch_count)
 
                 debug_nans(feature_loss, 'feature')
 
@@ -801,6 +826,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                              multipliers['geometric'] * geometric_loss + \
                              multipliers['percussion'] * percussion_loss + \
                              multipliers['noise'] * noise_loss + \
+                             multipliers['additivity'] * additivity_loss + \
                              multipliers['feature'] * feature_loss + \
                              multipliers['supervised'] * supervised_loss
 
@@ -857,6 +883,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                                                       gm_kwargs=gm_kwargs,
                                                                       pc_kwargs=pc_kwargs,
                                                                       an_kwargs=an_kwargs,
+                                                                      ad_kwargs=ad_kwargs,
                                                                       dp_kwargs=dp_kwargs)
                     except Exception as e:
                         print(f'Error validating \'{val_set.name()}\': {repr(e)}')
@@ -936,6 +963,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                      gm_kwargs=gm_kwargs,
                                      pc_kwargs=pc_kwargs,
                                      an_kwargs=an_kwargs,
+                                     ad_kwargs=ad_kwargs,
                                      dp_kwargs=dp_kwargs)
         except Exception as e:
             print(f'Error evaluating \'{eval_set.name()}\': {repr(e)}')

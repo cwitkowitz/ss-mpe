@@ -3,6 +3,7 @@ from .timbre import *
 from .geometric import *
 from .percussion import *
 from .noise import *
+from .additivity import *
 from .feature import *
 from .supervised import *
 

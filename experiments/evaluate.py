@@ -10,7 +10,7 @@ import librosa
 import torch
 
 
-def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kwargs=None, gm_kwargs=None, pc_kwargs=None, an_kwargs=None, dp_kwargs=None):
+def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kwargs=None, gm_kwargs=None, pc_kwargs=None, an_kwargs=None, ad_kwargs=None, dp_kwargs=None):
     # Initialize a new evaluator for the dataset
     evaluator = MultipitchEvaluator()
 
@@ -117,8 +117,7 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
             # Compute feature-invariance loss for the track
             feature_loss = compute_feature_loss(model, features_db, raw_activations, **dp_kwargs)
             # Store the feature-invariance loss for the track
-            # TODO - update to feature when convenient
-            evaluator.append_results({'loss/channel' : feature_loss.item()})
+            evaluator.append_results({'loss/feature' : feature_loss.item()})
             # Add the feature-invariance loss to the total loss
             total_loss += multipliers['feature'] * feature_loss
 
@@ -153,6 +152,14 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
                 evaluator.append_results({'loss/noise' : noise_loss.item()})
                 # Add the noise-invariance loss to the total loss
                 total_loss += multipliers['noise'] * noise_loss
+
+            if ad_kwargs is not None:
+                # Compute additivity loss for the batch
+                additivity_loss = compute_additivity_loss(model, audio, raw_activations, **ad_kwargs)
+                # Store the additivity loss for the track
+                evaluator.append_results({'loss/additivity' : additivity_loss.item()})
+                # Add the additivity loss to the total loss
+                total_loss += multipliers['additivity'] * additivity_loss
 
             # Store the total loss for the track
             evaluator.append_results({'loss/total' : total_loss.item()})
