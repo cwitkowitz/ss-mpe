@@ -731,87 +731,99 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 # Convert to (implicit) pitch salience activations
                 activations = torch.sigmoid(logits)
 
-                # Compute energy loss w.r.t. weighted harmonic sum for the batch
-                energy_loss = compute_energy_loss(logits[:n_ss], features_db_h[:n_ss]) if n_ss else torch.tensor(0.)
-                # Log the energy loss for this batch
-                writer.add_scalar('train/loss/energy', energy_loss.item(), batch_count)
+                with compute_grad(multipliers['energy']):
+                    # Compute energy loss w.r.t. weighted harmonic sum for the batch
+                    energy_loss = compute_energy_loss(logits[:n_ss], features_db_h[:n_ss]) if n_ss else torch.tensor(0.)
+                    # Log the energy loss for this batch
+                    writer.add_scalar('train/loss/energy', energy_loss.item(), batch_count)
 
                 debug_nans(energy_loss, 'energy')
 
-                # Compute support loss w.r.t. first harmonic for the batch
-                support_loss = compute_support_loss(logits[:n_ss], features_db_1[:n_ss]) if n_ss else torch.tensor(0.)
-                # Log the support loss for this batch
-                writer.add_scalar('train/loss/support', support_loss.item(), batch_count)
+                with compute_grad(multipliers['support']):
+                    # Compute support loss w.r.t. first harmonic for the batch
+                    support_loss = compute_support_loss(logits[:n_ss], features_db_1[:n_ss]) if n_ss else torch.tensor(0.)
+                    # Log the support loss for this batch
+                    writer.add_scalar('train/loss/support', support_loss.item(), batch_count)
 
                 debug_nans(support_loss, 'support')
 
-                # Compute harmonic loss w.r.t. weighted harmonic sum for the batch
-                harmonic_loss = compute_harmonic_loss(logits[:n_ss], features_db_h[:n_ss]) if n_ss else torch.tensor(0.)
-                # Log the harmonic loss for this batch
-                writer.add_scalar('train/loss/harmonic', harmonic_loss.item(), batch_count)
+                with compute_grad(multipliers['harmonic']):
+                    # Compute harmonic loss w.r.t. weighted harmonic sum for the batch
+                    harmonic_loss = compute_harmonic_loss(logits[:n_ss], features_db_h[:n_ss]) if n_ss else torch.tensor(0.)
+                    # Log the harmonic loss for this batch
+                    writer.add_scalar('train/loss/harmonic', harmonic_loss.item(), batch_count)
 
                 debug_nans(harmonic_loss, 'harmonic')
 
-                # Compute sparsity loss for the batch
-                sparsity_loss = compute_sparsity_loss(activations[:n_ss]) if n_ss else torch.tensor(0.)
-                # Log the sparsity loss for this batch
-                writer.add_scalar('train/loss/sparsity', sparsity_loss.item(), batch_count)
+                with compute_grad(multipliers['sparsity']):
+                    # Compute sparsity loss for the batch
+                    sparsity_loss = compute_sparsity_loss(activations[:n_ss]) if n_ss else torch.tensor(0.)
+                    # Log the sparsity loss for this batch
+                    writer.add_scalar('train/loss/sparsity', sparsity_loss.item(), batch_count)
 
                 debug_nans(sparsity_loss, 'sparsity')
 
-                # Compute entropy loss for the batch
-                entropy_loss = compute_entropy_loss(logits[:n_ss]) if n_ss else torch.tensor(0.)
-                # Log the entropy loss for this batch
-                writer.add_scalar('train/loss/entropy', entropy_loss.item(), batch_count)
+                with compute_grad(multipliers['entropy']):
+                    # Compute entropy loss for the batch
+                    entropy_loss = compute_entropy_loss(logits[:n_ss]) if n_ss else torch.tensor(0.)
+                    # Log the entropy loss for this batch
+                    writer.add_scalar('train/loss/entropy', entropy_loss.item(), batch_count)
 
                 debug_nans(entropy_loss, 'entropy')
 
-                # Compute timbre-invariance loss for the batch
-                timbre_loss = compute_timbre_loss(model, features_db[:n_ss], activations[:n_ss], **eq_kwargs) if n_ss else torch.tensor(0.)
-                # Log the timbre-invariance loss for this batch
-                writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
+                with compute_grad(multipliers['timbre']):
+                    # Compute timbre-invariance loss for the batch
+                    timbre_loss = compute_timbre_loss(model, features_db[:n_ss], activations[:n_ss], **eq_kwargs) if n_ss else torch.tensor(0.)
+                    # Log the timbre-invariance loss for this batch
+                    writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
 
                 debug_nans(timbre_loss, 'timbre')
 
-                # Compute geometric-equivariance loss for the batch
-                geometric_loss = compute_geometric_loss(model, features_db[:n_ss], activations[:n_ss], **gm_kwargs) if n_ss else torch.tensor(0.)
-                # Log the geometric-equivariance loss for this batch
-                writer.add_scalar('train/loss/geometric', geometric_loss.item(), batch_count)
+                with compute_grad(multipliers['geometric']):
+                    # Compute geometric-equivariance loss for the batch
+                    geometric_loss = compute_geometric_loss(model, features_db[:n_ss], activations[:n_ss], **gm_kwargs) if n_ss else torch.tensor(0.)
+                    # Log the geometric-equivariance loss for this batch
+                    writer.add_scalar('train/loss/geometric', geometric_loss.item(), batch_count)
 
                 debug_nans(geometric_loss, 'geometric')
 
-                # Compute percussion-invariance loss for the batch
-                percussion_loss = compute_percussion_loss(model, audio[:n_ss], activations[:n_ss], **pc_kwargs) if n_ss else torch.tensor(0.)
-                # Log the percussion-invariance loss for this batch
-                writer.add_scalar('train/loss/percussion', percussion_loss.item(), batch_count)
+                with compute_grad(multipliers['percussion']):
+                    # Compute percussion-invariance loss for the batch
+                    percussion_loss = compute_percussion_loss(model, audio[:n_ss], activations[:n_ss], **pc_kwargs) if n_ss else torch.tensor(0.)
+                    # Log the percussion-invariance loss for this batch
+                    writer.add_scalar('train/loss/percussion', percussion_loss.item(), batch_count)
 
                 debug_nans(percussion_loss, 'percussion')
 
-                # Compute noise-invariance loss for the batch
-                noise_loss = compute_noise_loss(model, audio[:n_ss], activations[:n_ss], **an_kwargs) if n_ss else torch.tensor(0.)
-                # Log the noise-invariance loss for this batch
-                writer.add_scalar('train/loss/noise', noise_loss.item(), batch_count)
+                with compute_grad(multipliers['noise']):
+                    # Compute noise-invariance loss for the batch
+                    noise_loss = compute_noise_loss(model, audio[:n_ss], activations[:n_ss], **an_kwargs) if n_ss else torch.tensor(0.)
+                    # Log the noise-invariance loss for this batch
+                    writer.add_scalar('train/loss/noise', noise_loss.item(), batch_count)
 
                 debug_nans(noise_loss, 'noise')
 
-                # Compute additivity loss for the batch
-                additivity_loss = compute_additivity_loss(model, audio[:n_ss], activations[:n_ss], **ad_kwargs) if n_ss else torch.tensor(0.)
-                # Log the additivity loss for this batch
-                writer.add_scalar('train/loss/additivity', additivity_loss.item(), batch_count)
+                with compute_grad(multipliers['additivity']):
+                    # Compute additivity loss for the batch
+                    additivity_loss = compute_additivity_loss(model, audio[:n_ss], activations[:n_ss], **ad_kwargs) if n_ss else torch.tensor(0.)
+                    # Log the additivity loss for this batch
+                    writer.add_scalar('train/loss/additivity', additivity_loss.item(), batch_count)
 
                 debug_nans(additivity_loss, 'additivity')
 
-                # Compute feature-invariance loss for the batch
-                feature_loss = compute_feature_loss(model, features_db[:n_ss], activations[:n_ss]) if n_ss else torch.tensor(0.)
-                # Log the feature-invariance loss for this batch
-                writer.add_scalar('train/loss/feature', feature_loss.item(), batch_count)
+                with compute_grad(multipliers['feature']):
+                    # Compute feature-invariance loss for the batch
+                    feature_loss = compute_feature_loss(model, features_db[:n_ss], activations[:n_ss]) if n_ss else torch.tensor(0.)
+                    # Log the feature-invariance loss for this batch
+                    writer.add_scalar('train/loss/feature', feature_loss.item(), batch_count)
 
                 debug_nans(feature_loss, 'feature')
 
-                # Compute supervised BCE loss for the batch
-                supervised_loss = compute_supervised_loss(logits[batch_size_ss:], ground_truth, False) if n_sup else torch.tensor(0.)
-                # Log the supervised BCE loss for this batch
-                writer.add_scalar('train/loss/supervised', supervised_loss.item(), batch_count)
+                with compute_grad(multipliers['supervised']):
+                    # Compute supervised BCE loss for the batch
+                    supervised_loss = compute_supervised_loss(logits[batch_size_ss:], ground_truth, False) if n_sup else torch.tensor(0.)
+                    # Log the supervised BCE loss for this batch
+                    writer.add_scalar('train/loss/supervised', supervised_loss.item(), batch_count)
 
                 debug_nans(supervised_loss, 'supervised')
 

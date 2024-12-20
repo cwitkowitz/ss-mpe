@@ -1,11 +1,24 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
+from contextlib import contextmanager
+
+import torch
 import math
 
 
 __all__ = [
+    'compute_grad',
     'cosine_anneal'
 ]
+
+
+@contextmanager
+def compute_grad(condition):
+    if condition:
+        yield
+    else:
+        with torch.no_grad():
+            yield
 
 
 def cosine_anneal(i, n_steps, start=0, floor=0.):
