@@ -108,7 +108,7 @@ def config():
     n_epochs_early_stop = None
 
     # IDs of the GPUs to use, if available
-    gpu_ids = [1, 0]
+    gpu_ids = [0]
 
     # Random seed for this experiment
     seed = 0
@@ -488,14 +488,24 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ## PREPARATION ##
     #################
 
-    """
-    grad_ema = {k: None for k in multipliers.keys()}
-    ema_rate = 0.999
-    """
-
-    initial_losses = []
-    loss_weights = torch.nn.Parameter(torch.Tensor(list(multipliers.values())), requires_grad=True)
+    # Strength of common restoring force for common training rate (asymmetry)
     alpha = 0.75
+
+    # Initialize learnable parameters for the relative weighting of each task
+    loss_weights = torch.nn.Parameter(torch.Tensor(list(multipliers.values())), requires_grad=True)
+
+    # Replace fixed weighting for each task with corresponding learnable parameter
+    multipliers = {k: v for k, v in zip(multipliers.keys(), loss_weights)}
+
+    def backprop_individual_loss(loss, key):
+        # Add loss to dictionary
+        losses[key] = loss
+
+        if multipliers[key]:
+            # Reset accumulated gradients
+            optimizer.zero_grad()
+            # Backpropagate through individual loss w.r.t. final layer of model and add to dictionary
+            grads[key] = torch.autograd.grad(loss, model.encoder.convlat[0].weight, retain_graph=True)[0]
 
     # Initialize an optimizer for the model parameters with differential learning rates
     optimizer = torch.optim.AdamW([{'params' : list(model.encoder_parameters()) + [loss_weights], 'lr' : learning_rate}])
@@ -671,6 +681,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ## TRAINING/VALIDATION LOOP ##
     ##############################
 
+    # Initialize dictionary to hold initial values of loss for each task
+    initial_losses = {}
+
     # Loop through epochs
     for i in range(max_epochs):
         # Loop through batches of both types of data
@@ -740,185 +753,213 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 # Convert to (implicit) pitch salience activations
                 activations = torch.sigmoid(logits)
 
-                # Initialize a dictionary to hold all losses
-                losses = {k : 0 for k in multipliers.keys()}
+                # Initialize dictionary to hold all losses and gradients
+                losses = {k : None for k in multipliers.keys()}
+                grads = {k : None for k in multipliers.keys()}
 
                 with compute_grad(multipliers['energy']):
                     # Compute energy loss w.r.t. weighted harmonic sum for the batch
-                    losses['energy'] = compute_energy_loss(logits[:n_ss], features_db_h[:n_ss]) if n_ss else torch.tensor(0.)
+                    energy_loss = compute_energy_loss(logits[:n_ss], features_db_h[:n_ss]) if n_ss else torch.tensor(0.)
                     # Log the energy loss for this batch
-                    writer.add_scalar('train/loss/energy', losses['energy'].item(), batch_count)
+                    writer.add_scalar('train/loss/energy', energy_loss.item(), batch_count)
+                # Explicitly back-propagate through energy loss
+                backprop_individual_loss(energy_loss, 'energy')
 
-                debug_nans(losses['energy'], 'energy')
+                debug_nans(energy_loss, 'energy')
 
                 with compute_grad(multipliers['support']):
                     # Compute support loss w.r.t. first harmonic for the batch
-                    losses['support'] = compute_support_loss(logits[:n_ss], features_db_1[:n_ss]) if n_ss else torch.tensor(0.)
+                    support_loss = compute_support_loss(logits[:n_ss], features_db_1[:n_ss]) if n_ss else torch.tensor(
+                        0.)
                     # Log the support loss for this batch
-                    writer.add_scalar('train/loss/support', losses['support'].item(), batch_count)
+                    writer.add_scalar('train/loss/support', support_loss.item(), batch_count)
 
-                debug_nans(losses['support'], 'support')
+                # Explicitly back-propagate through support loss
+                backprop_individual_loss(support_loss, 'support')
+
+                debug_nans(support_loss, 'support')
 
                 with compute_grad(multipliers['harmonic']):
                     # Compute harmonic loss w.r.t. weighted harmonic sum for the batch
-                    losses['harmonic'] = compute_harmonic_loss(logits[:n_ss], features_db_h[:n_ss]) if n_ss else torch.tensor(0.)
+                    harmonic_loss = compute_harmonic_loss(logits[:n_ss],
+                                                          features_db_h[:n_ss]) if n_ss else torch.tensor(0.)
                     # Log the harmonic loss for this batch
-                    writer.add_scalar('train/loss/harmonic', losses['harmonic'].item(), batch_count)
+                    writer.add_scalar('train/loss/harmonic', harmonic_loss.item(), batch_count)
 
-                debug_nans(losses['harmonic'], 'harmonic')
+                # Explicitly back-propagate through harmonic loss
+                backprop_individual_loss(harmonic_loss, 'harmonic')
+
+                debug_nans(harmonic_loss, 'harmonic')
 
                 with compute_grad(multipliers['sparsity']):
                     # Compute sparsity loss for the batch
-                    losses['sparsity'] = compute_sparsity_loss(activations[:n_ss]) if n_ss else torch.tensor(0.)
+                    sparsity_loss = compute_sparsity_loss(activations[:n_ss]) if n_ss else torch.tensor(0.)
                     # Log the sparsity loss for this batch
-                    writer.add_scalar('train/loss/sparsity', losses['sparsity'].item(), batch_count)
+                    writer.add_scalar('train/loss/sparsity', sparsity_loss.item(), batch_count)
 
-                debug_nans(losses['sparsity'], 'sparsity')
+                # Explicitly back-propagate through sparsity loss
+                backprop_individual_loss(sparsity_loss, 'sparsity')
+
+                debug_nans(sparsity_loss, 'sparsity')
 
                 with compute_grad(multipliers['entropy']):
                     # Compute entropy loss for the batch
-                    losses['entropy'] = compute_entropy_loss(logits[:n_ss]) if n_ss else torch.tensor(0.)
+                    entropy_loss = compute_entropy_loss(logits[:n_ss]) if n_ss else torch.tensor(0.)
                     # Log the entropy loss for this batch
-                    writer.add_scalar('train/loss/entropy', losses['entropy'].item(), batch_count)
+                    writer.add_scalar('train/loss/entropy', entropy_loss.item(), batch_count)
 
-                debug_nans(losses['entropy'], 'entropy')
+                # Explicitly back-propagate through entropy loss
+                backprop_individual_loss(entropy_loss, 'entropy')
+
+                debug_nans(entropy_loss, 'entropy')
 
                 with compute_grad(multipliers['timbre']):
                     # Compute timbre-invariance loss for the batch
-                    losses['timbre'] = compute_timbre_loss(model, features_db[:n_ss], activations[:n_ss], **eq_kwargs) if n_ss else torch.tensor(0.)
+                    timbre_loss = compute_timbre_loss(model, features_db[:n_ss], activations[:n_ss],
+                                                      **eq_kwargs) if n_ss else torch.tensor(0.)
                     # Log the timbre-invariance loss for this batch
-                    writer.add_scalar('train/loss/timbre', losses['timbre'].item(), batch_count)
+                    writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
 
-                debug_nans(losses['timbre'], 'timbre')
+                # Explicitly back-propagate through timbre loss
+                backprop_individual_loss(timbre_loss, 'timbre')
+
+                debug_nans(timbre_loss, 'timbre')
 
                 with compute_grad(multipliers['geometric']):
                     # Compute geometric-equivariance loss for the batch
-                    losses['geometric'] = compute_geometric_loss(model, features_db[:n_ss], activations[:n_ss], **gm_kwargs) if n_ss else torch.tensor(0.)
+                    geometric_loss = compute_geometric_loss(model, features_db[:n_ss], activations[:n_ss],
+                                                            **gm_kwargs) if n_ss else torch.tensor(0.)
                     # Log the geometric-equivariance loss for this batch
-                    writer.add_scalar('train/loss/geometric', losses['geometric'].item(), batch_count)
+                    writer.add_scalar('train/loss/geometric', geometric_loss.item(), batch_count)
 
-                debug_nans(losses['geometric'], 'geometric')
+                # Explicitly back-propagate through geometric loss
+                backprop_individual_loss(geometric_loss, 'geometric')
+
+                debug_nans(geometric_loss, 'geometric')
 
                 with compute_grad(multipliers['percussion']):
                     # Compute percussion-invariance loss for the batch
-                    losses['percussion'] = compute_percussion_loss(model, audio[:n_ss], activations[:n_ss], **pc_kwargs) if n_ss else torch.tensor(0.)
+                    percussion_loss = compute_percussion_loss(model, audio[:n_ss], activations[:n_ss],
+                                                              **pc_kwargs) if n_ss else torch.tensor(0.)
                     # Log the percussion-invariance loss for this batch
-                    writer.add_scalar('train/loss/percussion', losses['percussion'].item(), batch_count)
+                    writer.add_scalar('train/loss/percussion', percussion_loss.item(), batch_count)
 
-                debug_nans(losses['percussion'], 'percussion')
+                # Explicitly back-propagate through percussion loss
+                backprop_individual_loss(percussion_loss, 'percussion')
+
+                debug_nans(percussion_loss, 'percussion')
 
                 with compute_grad(multipliers['noise']):
                     # Compute noise-invariance loss for the batch
-                    losses['noise'] = compute_noise_loss(model, audio[:n_ss], activations[:n_ss], **an_kwargs) if n_ss else torch.tensor(0.)
+                    noise_loss = compute_noise_loss(model, audio[:n_ss], activations[:n_ss],
+                                                    **an_kwargs) if n_ss else torch.tensor(0.)
                     # Log the noise-invariance loss for this batch
-                    writer.add_scalar('train/loss/noise', losses['noise'].item(), batch_count)
+                    writer.add_scalar('train/loss/noise', noise_loss.item(), batch_count)
 
-                debug_nans(losses['noise'], 'noise')
+                # Explicitly back-propagate through noise loss
+                backprop_individual_loss(noise_loss, 'noise')
+
+                debug_nans(noise_loss, 'noise')
 
                 with compute_grad(multipliers['additivity']):
                     # Compute additivity loss for the batch
-                    losses['additivity'] = compute_additivity_loss(model, audio[:n_ss], activations[:n_ss], **ad_kwargs) if n_ss else torch.tensor(0.)
+                    additivity_loss = compute_additivity_loss(model, audio[:n_ss], activations[:n_ss],
+                                                              **ad_kwargs) if n_ss else torch.tensor(0.)
                     # Log the additivity loss for this batch
-                    writer.add_scalar('train/loss/additivity', losses['additivity'].item(), batch_count)
+                    writer.add_scalar('train/loss/additivity', additivity_loss.item(), batch_count)
 
-                debug_nans(losses['additivity'], 'additivity')
+                # Explicitly back-propagate through additivity loss
+                backprop_individual_loss(additivity_loss, 'additivity')
+
+                debug_nans(additivity_loss, 'additivity')
 
                 with compute_grad(multipliers['feature']):
                     # Compute feature-invariance loss for the batch
-                    losses['feature'] = compute_feature_loss(model, features_db[:n_ss], activations[:n_ss], **dp_kwargs) if n_ss else torch.tensor(0.)
+                    feature_loss = compute_feature_loss(model, features_db[:n_ss], activations[:n_ss],
+                                                        **dp_kwargs) if n_ss else torch.tensor(0.)
                     # Log the feature-invariance loss for this batch
-                    writer.add_scalar('train/loss/feature', losses['feature'].item(), batch_count)
+                    writer.add_scalar('train/loss/feature', feature_loss.item(), batch_count)
 
-                debug_nans(losses['feature'], 'feature')
+                # Explicitly back-propagate through feature loss
+                backprop_individual_loss(feature_loss, 'feature')
+
+                debug_nans(feature_loss, 'feature')
 
                 with compute_grad(multipliers['supervised']):
                     # Compute supervised BCE loss for the batch
-                    losses['supervised'] = compute_supervised_loss(logits[batch_size_ss:], ground_truth, False) if n_sup else torch.tensor(0.)
+                    supervised_loss = compute_supervised_loss(logits[batch_size_ss:], ground_truth,
+                                                              False) if n_sup else torch.tensor(0.)
                     # Log the supervised BCE loss for this batch
-                    writer.add_scalar('train/loss/supervised', losses['supervised'].item(), batch_count)
+                    writer.add_scalar('train/loss/supervised', supervised_loss.item(), batch_count)
 
-                debug_nans(losses['supervised'], 'supervised')
+                # Explicitly back-propagate through supervised loss
+                backprop_individual_loss(supervised_loss, 'supervised')
+
+                debug_nans(supervised_loss, 'supervised')
+
+                if len(initial_losses) == 0:
+                    for key, loss in losses.items():
+                        # Track first value for each loss
+                        initial_losses[key] = loss.item()
 
                 # upward: (1 - cosine_anneal(batch_count, 1000 * epoch_steps, start=0, floor=0.))
 
-                """"""
                 # Compute the total loss for this batch
-                total_loss = loss_weights[0] * losses['energy'] + \
-                             loss_weights[1] * losses['support'] + \
-                             loss_weights[2] * losses['harmonic'] + \
-                             loss_weights[3] * losses['sparsity'] + \
-                             loss_weights[4] * losses['entropy'] + \
-                             loss_weights[5] * losses['timbre'] + \
-                             loss_weights[6] * losses['geometric'] + \
-                             loss_weights[7] * losses['percussion'] + \
-                             loss_weights[8] * losses['noise'] + \
-                             loss_weights[9] * losses['additivity'] + \
-                             loss_weights[10] * losses['feature'] + \
-                             loss_weights[11] * losses['supervised']
-                """
-                total_loss = torch.sum(torch.tensor([w * l for w, l in zip(loss_weights, losses.values())]))
-                """
+                total_loss = multipliers['energy'].item() * energy_loss + \
+                             multipliers['support'].item() * support_loss + \
+                             multipliers['harmonic'].item() * harmonic_loss + \
+                             multipliers['sparsity'].item() * sparsity_loss + \
+                             multipliers['entropy'].item() * entropy_loss + \
+                             multipliers['timbre'].item() * timbre_loss + \
+                             multipliers['geometric'].item() * geometric_loss + \
+                             multipliers['percussion'].item() * percussion_loss + \
+                             multipliers['noise'].item() * noise_loss + \
+                             multipliers['additivity'].item() * additivity_loss + \
+                             multipliers['feature'].item() * feature_loss + \
+                             multipliers['supervised'].item() * supervised_loss
 
-                for k, v in zip(multipliers.keys(), loss_weights):
+                for k, v in multipliers.items():
+                    # Log current weighting for each task w.r.t. total loss
                     writer.add_scalar(f'train/multipliers/{k}', v, batch_count)
 
                 # Log the total loss for this batch
                 writer.add_scalar('train/loss/total', total_loss.item(), batch_count)
 
-                # Zero the accumulated gradients
+                # Reset accumulated gradients
                 optimizer.zero_grad()
                 # Compute gradients using total loss
-                total_loss.backward(retain_graph=True)
-                total_loss = total_loss.detach()
+                total_loss.backward()
 
-                """
-                for k, loss in losses.items():
-                    if loss.requires_grad:
-                        grad_norm = torch.autograd.grad(loss, model.encoder.convlat[0].weight, retain_graph=True)[0].norm().item()
+                #if loss_weights.grad is not None:
+                #    loss_weights.grad.data.zero_()
 
-                        if grad_ema[k] is not None:
-                            grad_norm = ema_rate * grad_ema[k] + (1 - ema_rate) * grad_norm
-
-                        grad_ema[k] = grad_norm
-
-                total_grad_norm = sum(grad_ema[k] for k in grad_ema.keys() if grad_ema[k] is not None)
-                for k in multipliers.keys():
-                    if grad_ema[k] is not None:
-                        multipliers[k] = 1 - grad_ema[k] / max(total_grad_norm, 1e-7)
-                        writer.add_scalar(f'train/multipliers/{k}', multipliers[k], batch_count)
-                """
-
-                """"""
-                if len(initial_losses) == 0:
-                    for task, loss in losses.items():
-                        if multipliers[task]:
-                            initial_losses.append(loss)
-
-                if loss_weights.grad is not None:
-                    loss_weights.grad.data.zero_()
-
-                grad_norms = []
-
-                for weight, (task, loss) in zip(loss_weights, losses.items()):
-                    if multipliers[task]:
-                        grad = torch.autograd.grad(loss, model.encoder.convlat[0].weight, retain_graph=True)[0]
-                        grad_norms.append((weight * grad).norm())
-
-                grad_norms = torch.stack(grad_norms)
+                # Compute the gradient norm for each task
+                #grad_norms = torch.stack([(multipliers[k] * g).norm() for k, g in grads.items() if g is not None])
+                grad_norms = torch.stack([(loss_weights[i] * g).norm() for i, g in enumerate(grads.values()) if g is not None])
+                # Compute average gradient norm
                 avg_grad_norm = grad_norms.mean()
 
-                loss_values = torch.tensor([v.item() for k, v in losses.items() if multipliers[k]], device=device)
-                inverse_rates = loss_values / torch.tensor(initial_losses, device=device)
+                # Obtain losses and initial losses for all enabled tasks
+                losses_ = torch.tensor([l for k, l in losses.items() if grads[k] is not None], device=device)
+                initial_losses_ = torch.tensor([l for k, l in initial_losses.items() if grads[k] is not None], device=device)
 
+                # Compute inverse training rates for each task
+                inverse_rates = losses_ / initial_losses_
+                # Compute relative inverse training rates for each task
                 relative_rates = inverse_rates / inverse_rates.mean()
 
-                target_norms = torch.tensor(avg_grad_norm * (relative_rates ** alpha), requires_grad=False)
+                with torch.no_grad():
+                    # Compute desired gradient norms for each task
+                    target_norms = avg_grad_norm * (relative_rates ** alpha)
 
+                # Compute gradient loss for the batch
                 gradient_loss = torch.sum(torch.abs(grad_norms - target_norms))
+                # Log the gradient loss for this batch
+                writer.add_scalar('train/loss/gradient', gradient_loss.item(), batch_count)
 
+                # Back-propagate through the loss weights w.r.t. the gradient loss
                 loss_weights.grad = torch.autograd.grad(gradient_loss, loss_weights)[0]
-                grad_norms = grad_norms.detach()
-                """"""
+                #grad_norms = grad_norms.detach()
 
                 # Compute the average gradient norm across the encoder
                 avg_norm_encoder = average_gradient_norms(model.encoder)
@@ -937,7 +978,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 with torch.no_grad():
                     loss_weights /= loss_weights.sum()
-                    loss_weights *= sum(multipliers.values())
+                    loss_weights *= sum([1 for w in multipliers.values() if w])
 
             if warmup_scheduler.is_active():
                 # Step the learning rate warmup scheduler
@@ -961,7 +1002,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                         # Validate the model checkpoint on each validation dataset
                         validation_results[val_set.name()] = evaluate(model=model,
                                                                       eval_set=val_set,
-                                                                      multipliers={k : v.item() for k, v in zip(multipliers.keys(), loss_weights)},
+                                                                      multipliers=multipliers,
                                                                       writer=writer,
                                                                       i=batch_count,
                                                                       device=device,
