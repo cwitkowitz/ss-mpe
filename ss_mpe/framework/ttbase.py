@@ -192,6 +192,7 @@ class EncoderNorm(nn.Module):
 
         self.convin = nn.Sequential(
             nn.Conv2d(2, channels[0], kernel_size=3, padding='same'),
+            #LayerNormPermute(normalized_shape=[channels[0], embedding_sizes[0]]),
             nn.ELU(inplace=True),
             LayerNormPermute(normalized_shape=[channels[0], embedding_sizes[0]])
         )
@@ -203,6 +204,9 @@ class EncoderNorm(nn.Module):
                 EncoderBlock(channels[i], channels[i + 1], stride=2),
                 LayerNormPermute(normalized_shape=[channels[i + 1], embedding_sizes[i + 1]])
             ))
+            #block = EncoderBlock(channels[i], channels[i + 1], stride=2)
+            #block.sconv.insert(1, LayerNormPermute(normalized_shape=[channels[i + 1], embedding_sizes[i + 1]]))
+            #self.blocks.append(block)
 
         self.convlat = nn.Sequential(
             nn.Conv2d(channels[-1], latent_size, kernel_size=(embedding_sizes[-1], 1)),
@@ -291,6 +295,7 @@ class DecoderNorm(nn.Module):
 
         self.convin = nn.Sequential(
             nn.ConvTranspose2d(latent_size + 1, channels[0], kernel_size=(embedding_sizes[0], 1)),
+            #LayerNormPermute(normalized_shape=[channels[0], embedding_sizes[0]]),
             nn.ELU(inplace=True),
             LayerNormPermute(normalized_shape=[channels[0], embedding_sizes[0]])
         )
@@ -302,6 +307,9 @@ class DecoderNorm(nn.Module):
                 DecoderBlock(channels[i], channels[i + 1], stride=2, padding=padding[i]),
                 LayerNormPermute(normalized_shape=[channels[i + 1], embedding_sizes[i + 1]])
             ))
+            #block = DecoderBlock(channels[i], channels[i + 1], stride=2, padding=padding[i])
+            #block.tconv.insert(1, LayerNormPermute(normalized_shape=[channels[i + 1], embedding_sizes[i + 1]]))
+            #self.blocks.append(block)
 
         self.convout = nn.Sequential(
             nn.Conv2d(channels[-1], 2, kernel_size=3, padding='same'),

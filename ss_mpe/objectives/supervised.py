@@ -14,9 +14,11 @@ def compute_supervised_loss(embeddings, ground_truth, weight_positive_class=Fals
     supervised_loss = F.binary_cross_entropy_with_logits(embeddings, ground_truth, reduction='none')
 
     if weight_positive_class:
-        # Sum ground-truth and its complement for weights
+        # Sum binarized ground-truth and its complement for weights
         positive_weight = torch.sum(ground_truth, dim=-2, keepdim=True)
+        #positive_weight = torch.sum(ground_truth.int(), dim=-2, keepdim=True)
         negative_weight = torch.sum(1 - ground_truth, dim=-2, keepdim=True)
+        #negative_weight = torch.sum(1 - ground_truth.int(), dim=-2, keepdim=True)
         # Compute multi-class imbalance ratio for each frame
         positive_scaling = negative_weight / (positive_weight + torch.finfo().eps)
         # Determine scaling for each loss element

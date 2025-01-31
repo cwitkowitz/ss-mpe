@@ -114,6 +114,7 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
                          multipliers['entropy'] * entropy_loss + \
                          multipliers['supervised'] * supervised_loss
 
+            # TODO - why don't I check for the kwargs?
             # Compute feature-invariance loss for the track
             feature_loss = compute_feature_loss(model, features_db, raw_activations, **dp_kwargs)
             # Store the feature-invariance loss for the track

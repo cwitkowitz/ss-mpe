@@ -15,7 +15,7 @@ from timbre_trap.datasets import ComboDataset
 from ss_mpe.datasets.SoloMultiPitch import NSynth
 from ss_mpe.datasets.AudioMixtures import E_GMD
 
-from ss_mpe.framework import SS_MPE, TT_Enc
+from ss_mpe.framework import SS_MPE, TT_Enc, PerfectPitch
 from ss_mpe.objectives import *
 from timbre_trap.utils import *
 from evaluate import evaluate
@@ -38,7 +38,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['NSynth_EG_SPR_T_G_LR1E-4'])
+EX_NAME = '_'.join(['NSynth_EG_SPR_T_G_P_A_LR1E-4_PP'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -76,9 +76,9 @@ def config():
         'entropy' : 0,
         'timbre' : 1,
         'geometric' : 1,
-        'percussion' : 0,
+        'percussion' : 1,
         'noise' : 0,
-        'additivity' : 0,
+        'additivity' : 1,
         'feature' : 0,
         'supervised' : 0
     }
@@ -209,9 +209,13 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     if checkpoint_path is None:
         # Initialize Timbre-Trap encoder
-        model = TT_Enc(hcqt_params,
-                       n_blocks=4,
-                       model_complexity=2)
+        #model = TT_Enc(hcqt_params,
+        #               n_blocks=4,
+        #               model_complexity=2)
+        # Initialize Perfect-Pitch
+        model = PerfectPitch(hcqt_params,
+                             n_blocks=4,
+                             model_complexity=2)
     else:
         # Load weights of the specified model checkpoint
         model = SS_MPE.load(checkpoint_path, device=device)

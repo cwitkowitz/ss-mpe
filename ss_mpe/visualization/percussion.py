@@ -2,11 +2,12 @@
 
 # My imports
 from ss_mpe.datasets.SoloMultiPitch import NSynth
+from ss_mpe.datasets.AudioMixtures import E_GMD
+from timbre_trap.datasets import ComboDataset
 
-from ss_mpe.objectives import sample_gaussian_equalization
+from ss_mpe.objectives import mix_random_percussion
 from ss_mpe.framework import TT_Base
 from timbre_trap.utils import *
-from .utils import *
 
 # Regular imports
 import matplotlib.pyplot as plt
@@ -19,7 +20,7 @@ import os
 
 
 # Set number of curves per methodology
-n_curves = 2
+n_examples = 2
 
 # Set randomization seed
 seed = 0
@@ -101,6 +102,12 @@ nsynth_start_idx = 0
 # Slice NSynth dataset
 nsynth_val.tracks = nsynth_val.tracks[nsynth_start_idx:]
 
+# Instantiate E-GMD audio for percussion-invariance
+egmd = E_GMD(base_dir=None,
+             splits=['train'],
+             sample_rate=sample_rate,
+             seed=seed)
+
 
 ###################
 ## Visualization ##
@@ -112,17 +119,11 @@ save_dir = os.path.join('..', '..', 'generated', 'visualization', 'equalization'
 # Create the visualization directory
 os.makedirs(save_dir, exist_ok=True)
 
-# Maximum amplitude for Gaussian equalization
-max_A = 0.375
+# Maximum volume of percussion relative to original audio
+max_volume = 1.0
 
-# Maximum standard deviation for Gaussian equalization
-max_std_dev = 2 * bins_per_octave
-
-# Determine how many octaves have been covered
-n_octaves = int(math.ceil(n_bins / bins_per_octave))
-
-# Cover the full octave for proper interpolation
-n_out = n_octaves * bins_per_octave
+# Create a combination dataset of percussive audio
+percussive_set_combo = ComboDataset([egmd])
 
 # Loop through all tracks in the test set
 for i, data in enumerate(tqdm(nsynth_val)):
@@ -137,14 +138,8 @@ for i, data in enumerate(tqdm(nsynth_val)):
     # Extract first harmonic CQT spectral features
     features_db_1 = to_array(features['db_1'][0])
 
-    # Sample parametric Gaussian equalization curves
-    gaussian_curves = sample_gaussian_equalization(n_out,
-                                                   batch_size=n_curves,
-                                                   max_A=max_A,
-                                                   max_std_dev=max_std_dev)
-
     # Initialize a new figure with subplots
-    (fig, ax) = plt.subplots(nrows=n_curves, ncols=3, width_ratios=[2, 1, 2], figsize=(6.666, 3 * n_curves))
+    (fig, ax) = plt.subplots(nrows=n_examples, ncols=2, figsize=(5, 3 * n_examples))
 
     # Determine track's attributes
     name, pitch, vel = track.split('-')
@@ -156,26 +151,30 @@ for i, data in enumerate(tqdm(nsynth_val)):
     # Define ticks for frequencies in MIDI
     midi_ticks = [30, 40, 50, 60, 70, 80, 90, 100]
 
-    for i, curve in enumerate(to_array(gaussian_curves)):
-        # Plot equalized features and curve
-        plot_equalization(features_db_1, curve[:n_bins], ax[i])
+    for i in range(n_examples):
+        # Plot original magnitude features as an image
+        ax[i, 0].imshow(features_db_1, vmin=0, vmax=1, aspect='auto', origin='lower', extent=extent_midi)
+
+        # Superimpose random percussive audio onto original audio
+        percussive_audio = mix_random_percussion(audio, percussive_set_combo, max_volume)
+
+        # Compute full set of spectral features for percussive audio
+        percussive_features = ss_mpe.get_all_features(percussive_audio)
+
+        # Extract first harmonic CQT spectral features for percussive audio
+        percussive_features_db_1 = to_array(percussive_features['db_1'][0])
+
+        # Plot percussive magnitude features as an image
+        ax[i, 1].imshow(percussive_features_db_1, vmin=0, vmax=1, aspect='auto', origin='lower', extent=extent_midi)
+
         # Ticks and labels
-        ax[i, 0].set_title('')
-        ax[i, 1].set_title('')
-        ax[i, 2].set_title('')
-        ax[i, 0].axis('on')
         ax[i, 0].set_ylabel('Frequency (MIDI)')
-        ax[i, 0].get_images()[0].set_extent(extent_midi)
         ax[i, 0].set_yticks(midi_ticks)
-        ax[i, 1].lines[0].set_linewidth(2)
-        ax[i, 2].axis('on')
-        ax[i, 2].set_ylabel('')
-        ax[i, 2].get_images()[0].set_extent(extent_midi)
-        ax[i, 2].set_yticks(midi_ticks)
-        ax[i, 2].set_yticklabels(['' for t in midi_ticks])
+        ax[i, 1].set_yticks(midi_ticks)
+        ax[i, 1].set_yticklabels(['' for t in midi_ticks])
+
     ax[i, 0].set_xlabel('Time (s)')
-    ax[i, 1].set_xlabel('Scaling')
-    ax[i, 2].set_xlabel('Time (s)')
+    ax[i, 1].set_xlabel('Time (s)')
 
     # Minimize free space
     fig.tight_layout()
@@ -194,7 +193,7 @@ for i, data in enumerate(tqdm(nsynth_val)):
         # Replace / in the track name
         track = track.replace('/', '-')
         # Construct path under visualization directory
-        save_path = os.path.join(save_dir, f'{track}_c{n_curves}_s{seed}.pdf')
+        save_path = os.path.join(save_dir, f'{track}_c{n_examples}_s{seed}.pdf')
         # Save the figure with minimal whitespace
         fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
 

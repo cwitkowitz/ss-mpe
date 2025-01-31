@@ -2,7 +2,7 @@
 
 # My imports
 from timbre_trap.utils import to_array
-from .utils import *
+from ss_mpe.visualization.utils import *
 
 # Regular imports
 import matplotlib.pyplot as plt
