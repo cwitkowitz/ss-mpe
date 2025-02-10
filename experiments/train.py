@@ -27,6 +27,7 @@ from sacred.observers import FileStorageObserver
 from torch.utils.data import DataLoader
 from sacred import Experiment
 from random import shuffle
+from copy import deepcopy
 from tqdm import tqdm
 
 import numpy as np
@@ -38,7 +39,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['NSynth_EG_SPR_T_G_P_A_LR1E-4_PP'])
+EX_NAME = '_'.join(['NSynth_EG_SPR_T_G_P_N_LR1E-4_PP_GN-P'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -77,8 +78,8 @@ def config():
         'timbre' : 1,
         'geometric' : 1,
         'percussion' : 1,
-        'noise' : 0,
-        'additivity' : 1,
+        'noise' : 1,
+        'additivity' : 0,
         'feature' : 0,
         'supervised' : 0
     }
@@ -144,7 +145,7 @@ def config():
 
     # Top-level directory under which to save all experiment files
     if CONFIG == 1:
-        root_dir = os.path.join('/', 'storage', 'frank', 'ss-mpe_journal', EX_NAME)
+        root_dir = os.path.join('/', 'data1', 'frank', 'ss-mpe_journal', EX_NAME)
     else:
         root_dir = os.path.join('..', 'generated', 'experiments', EX_NAME)
 
@@ -167,6 +168,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     # Seed everything with the same seed
     seed_everything(seed)
+
+    # Switch to disable CUDA on-the-fly
+    #torch.cuda.is_available = lambda: False
 
     # Initialize the primary PyTorch device
     device = torch.device(f'cuda:{gpu_ids[0]}'
@@ -243,22 +247,22 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ##############
 
     # Audio dataset paths
-    fma_base_dir    = os.path.join('/', 'storage', 'frank', 'FMA') if CONFIG else None
-    mdb_base_dir    = os.path.join('/', 'storage', 'frank', 'MedleyDB') if CONFIG else None
-    egmd_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'E-GMD') if CONFIG else None
-    nsynth_base_dir = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
+    fma_base_dir    = os.path.join('/', 'data1', 'frank', 'FMA') if CONFIG else None
+    mdb_base_dir    = os.path.join('/', 'data1', 'frank', 'MedleyDB') if CONFIG else None
+    egmd_base_dir   = os.path.join('/', 'data1', 'frank', 'E-GMD') if CONFIG else None
+    nsynth_base_dir = os.path.join('/', 'dataNVME', 'frank', 'NSynth') if CONFIG else None
 
     # MPE dataset paths
-    urmp_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'URMP') if CONFIG else None
-    bch10_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'Bach10') if CONFIG else None
-    gset_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'GuitarSet') if CONFIG else None
-    mdb_ptch_base_dir = os.path.join('/', 'storage', 'frank', 'MedleyDB-Pitch') if CONFIG else None
+    urmp_base_dir     = os.path.join('/', 'dataNVME', 'frank', 'URMP') if CONFIG else None
+    bch10_base_dir    = os.path.join('/', 'dataNVME', 'frank', 'Bach10') if CONFIG else None
+    gset_base_dir     = os.path.join('/', 'dataNVME', 'frank', 'GuitarSet') if CONFIG else None
+    mdb_ptch_base_dir = os.path.join('/', 'data1', 'frank', 'MedleyDB-Pitch') if CONFIG else None
 
     # AMT dataset paths
-    mstro_base_dir = os.path.join('/', 'storage', 'frank', 'MAESTRO') if CONFIG else None
-    mnet_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if CONFIG else None
-    su_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'Su') if CONFIG else None
-    trios_base_dir = os.path.join('/', 'storageNVME', 'frank', 'TRIOS') if CONFIG else None
+    mstro_base_dir = os.path.join('/', 'data1', 'frank', 'MAESTRO') if CONFIG else None
+    mnet_base_dir  = os.path.join('/', 'dataNVME', 'frank', 'MusicNet') if CONFIG else None
+    su_base_dir    = os.path.join('/', 'dataNVME', 'frank', 'Su') if CONFIG else None
+    trios_base_dir = os.path.join('/', 'dataNVME', 'frank', 'TRIOS') if CONFIG else None
 
     # Initialize lists to hold training datasets
     train_ss, train_sup, train_both = list(), list(), list()
@@ -491,6 +495,35 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     #################
     ## PREPARATION ##
     #################
+
+    # Determine the number of active tasks for training
+    n_tasks = sum([1 for w in multipliers.values() if w])
+
+    # Initialize dynamic scaling
+    multipliers_ = deepcopy(multipliers)
+
+    # Obtain a reference to final layer of model
+    final_layer = model.encoder.convout[0]
+
+    # Initialize dictionary to hold all gradient norms
+    grad_norms = {k: None for k in multipliers.keys()}
+
+    # Exponential moving average rate for scaling updates
+    ema_rate = 0.999
+
+    def backprop_individual_loss(loss, key):
+        if multipliers[key]:
+            # Reset accumulated gradients
+            optimizer.zero_grad()
+            # Backpropagate through individual loss w.r.t. final layer of model and add to dictionary
+            grad_norm = torch.autograd.grad(loss, final_layer.weight, retain_graph=True)[0].norm().item()
+
+            if grad_norms[key] is None:
+                # Use first gradient norm
+                grad_norms[key] = grad_norm
+            else:
+                # Compute and use exponential moving average of gradient norm
+                grad_norms[key] = ema_rate * grad_norms[key] + (1 - ema_rate) * grad_norm
 
     # Initialize an optimizer for the model parameters with differential learning rates
     optimizer = torch.optim.AdamW([{'params' : model.encoder_parameters(), 'lr' : learning_rate}])
@@ -740,6 +773,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     energy_loss = compute_energy_loss(logits[:n_ss], features_db_h[:n_ss]) if n_ss else torch.tensor(0.)
                     # Log the energy loss for this batch
                     writer.add_scalar('train/loss/energy', energy_loss.item(), batch_count)
+                # Explicitly back-propagate through energy loss
+                backprop_individual_loss(energy_loss, 'energy')
 
                 debug_nans(energy_loss, 'energy')
 
@@ -748,6 +783,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     support_loss = compute_support_loss(logits[:n_ss], features_db_1[:n_ss]) if n_ss else torch.tensor(0.)
                     # Log the support loss for this batch
                     writer.add_scalar('train/loss/support', support_loss.item(), batch_count)
+                # Explicitly back-propagate through support loss
+                backprop_individual_loss(support_loss, 'support')
 
                 debug_nans(support_loss, 'support')
 
@@ -756,6 +793,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     harmonic_loss = compute_harmonic_loss(logits[:n_ss], features_db_h[:n_ss]) if n_ss else torch.tensor(0.)
                     # Log the harmonic loss for this batch
                     writer.add_scalar('train/loss/harmonic', harmonic_loss.item(), batch_count)
+                # Explicitly back-propagate through harmonic loss
+                backprop_individual_loss(harmonic_loss, 'harmonic')
 
                 debug_nans(harmonic_loss, 'harmonic')
 
@@ -764,6 +803,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     sparsity_loss = compute_sparsity_loss(activations[:n_ss]) if n_ss else torch.tensor(0.)
                     # Log the sparsity loss for this batch
                     writer.add_scalar('train/loss/sparsity', sparsity_loss.item(), batch_count)
+                # Explicitly back-propagate through sparsity loss
+                backprop_individual_loss(sparsity_loss, 'sparsity')
 
                 debug_nans(sparsity_loss, 'sparsity')
 
@@ -772,6 +813,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     entropy_loss = compute_entropy_loss(logits[:n_ss]) if n_ss else torch.tensor(0.)
                     # Log the entropy loss for this batch
                     writer.add_scalar('train/loss/entropy', entropy_loss.item(), batch_count)
+                # Explicitly back-propagate through entropy loss
+                backprop_individual_loss(entropy_loss, 'entropy')
 
                 debug_nans(entropy_loss, 'entropy')
 
@@ -780,6 +823,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     timbre_loss = compute_timbre_loss(model, features_db[:n_ss], activations[:n_ss], **eq_kwargs) if n_ss else torch.tensor(0.)
                     # Log the timbre-invariance loss for this batch
                     writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
+                # Explicitly back-propagate through timbre-invariance loss
+                backprop_individual_loss(timbre_loss, 'timbre')
 
                 debug_nans(timbre_loss, 'timbre')
 
@@ -788,6 +833,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     geometric_loss = compute_geometric_loss(model, features_db[:n_ss], activations[:n_ss], **gm_kwargs) if n_ss else torch.tensor(0.)
                     # Log the geometric-equivariance loss for this batch
                     writer.add_scalar('train/loss/geometric', geometric_loss.item(), batch_count)
+                # Explicitly back-propagate through geometric-equivariance loss
+                backprop_individual_loss(geometric_loss, 'geometric')
 
                 debug_nans(geometric_loss, 'geometric')
 
@@ -796,6 +843,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     percussion_loss = compute_percussion_loss(model, audio[:n_ss], activations[:n_ss], **pc_kwargs) if n_ss else torch.tensor(0.)
                     # Log the percussion-invariance loss for this batch
                     writer.add_scalar('train/loss/percussion', percussion_loss.item(), batch_count)
+                # Explicitly back-propagate through percussion-invariance loss
+                backprop_individual_loss(percussion_loss, 'percussion')
 
                 debug_nans(percussion_loss, 'percussion')
 
@@ -804,6 +853,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     noise_loss = compute_noise_loss(model, audio[:n_ss], activations[:n_ss], **an_kwargs) if n_ss else torch.tensor(0.)
                     # Log the noise-invariance loss for this batch
                     writer.add_scalar('train/loss/noise', noise_loss.item(), batch_count)
+                # Explicitly back-propagate through noise-invariance loss
+                backprop_individual_loss(noise_loss, 'noise')
 
                 debug_nans(noise_loss, 'noise')
 
@@ -812,6 +863,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     additivity_loss = compute_additivity_loss(model, audio[:n_ss], activations[:n_ss], **ad_kwargs) if n_ss else torch.tensor(0.)
                     # Log the additivity loss for this batch
                     writer.add_scalar('train/loss/additivity', additivity_loss.item(), batch_count)
+                # Explicitly back-propagate through additivity loss
+                backprop_individual_loss(additivity_loss, 'additivity')
 
                 debug_nans(additivity_loss, 'additivity')
 
@@ -820,6 +873,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     feature_loss = compute_feature_loss(model, features_db[:n_ss], activations[:n_ss]) if n_ss else torch.tensor(0.)
                     # Log the feature-invariance loss for this batch
                     writer.add_scalar('train/loss/feature', feature_loss.item(), batch_count)
+                # Explicitly back-propagate through feature loss
+                backprop_individual_loss(feature_loss, 'feature')
 
                 debug_nans(feature_loss, 'feature')
 
@@ -828,24 +883,31 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     supervised_loss = compute_supervised_loss(logits[batch_size_ss:], ground_truth, False) if n_sup else torch.tensor(0.)
                     # Log the supervised BCE loss for this batch
                     writer.add_scalar('train/loss/supervised', supervised_loss.item(), batch_count)
+                # Explicitly back-propagate through supervised loss
+                backprop_individual_loss(supervised_loss, 'supervised')
 
                 debug_nans(supervised_loss, 'supervised')
+
+                for k, v in multipliers_.items():
+                    if multipliers[k]:
+                        # Log current weighting for each task w.r.t. total loss
+                        writer.add_scalar(f'train/multipliers/{k}', v, batch_count)
 
                 # upward: (1 - cosine_anneal(batch_count, 1000 * epoch_steps, start=0, floor=0.))
 
                 # Compute the total loss for this batch
-                total_loss = multipliers['energy'] * energy_loss + \
-                             multipliers['support'] * support_loss + \
-                             multipliers['harmonic'] * harmonic_loss + \
-                             multipliers['sparsity'] * sparsity_loss + \
-                             multipliers['entropy'] * entropy_loss + \
-                             multipliers['timbre'] * timbre_loss + \
-                             multipliers['geometric'] * geometric_loss + \
-                             multipliers['percussion'] * percussion_loss + \
-                             multipliers['noise'] * noise_loss + \
-                             multipliers['additivity'] * additivity_loss + \
-                             multipliers['feature'] * feature_loss + \
-                             multipliers['supervised'] * supervised_loss
+                total_loss = multipliers_['energy'] * energy_loss + \
+                             multipliers_['support'] * support_loss + \
+                             multipliers_['harmonic'] * harmonic_loss + \
+                             multipliers_['sparsity'] * sparsity_loss + \
+                             multipliers_['entropy'] * entropy_loss + \
+                             multipliers_['timbre'] * timbre_loss + \
+                             multipliers_['geometric'] * geometric_loss + \
+                             multipliers_['percussion'] * percussion_loss + \
+                             multipliers_['noise'] * noise_loss + \
+                             multipliers_['additivity'] * additivity_loss + \
+                             multipliers_['feature'] * feature_loss + \
+                             multipliers_['supervised'] * supervised_loss
 
                 # Log the total loss for this batch
                 writer.add_scalar('train/loss/total', total_loss.item(), batch_count)
@@ -854,6 +916,14 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 optimizer.zero_grad()
                 # Compute gradients using total loss
                 total_loss.backward()
+
+                # Compute total sum of exponential moving average of gradient norms
+                total_grad_norm = sum([v for k, v in grad_norms.items() if multipliers[k]])
+
+                for k, v in grad_norms.items():
+                    if v is not None:
+                        # Scale objective inversely w.r.t. norm and normalize to number of tasks
+                        multipliers_[k] = n_tasks / (n_tasks - 1) * (1 - v / total_grad_norm)
 
                 # Compute the average gradient norm across the encoder
                 avg_norm_encoder = average_gradient_norms(model.encoder)
@@ -892,7 +962,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                         # Validate the model checkpoint on each validation dataset
                         validation_results[val_set.name()] = evaluate(model=model,
                                                                       eval_set=val_set,
-                                                                      multipliers=multipliers,
+                                                                      multipliers=multipliers_,
                                                                       writer=writer,
                                                                       i=batch_count,
                                                                       device=device,
@@ -974,7 +1044,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             # Evaluate the model using testing split
             final_results = evaluate(model=best_model,
                                      eval_set=eval_set,
-                                     multipliers=multipliers,
+                                     multipliers=multipliers_,
                                      #device=device,
                                      eq_kwargs=eq_kwargs,
                                      gm_kwargs=gm_kwargs,
