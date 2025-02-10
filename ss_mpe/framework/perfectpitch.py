@@ -7,6 +7,7 @@ from . import SS_MPE, LayerNormPermute
 
 # Regular imports
 import torch.nn as nn
+import torch
 
 __all__ = [
     'PerfectPitch',
@@ -42,6 +43,8 @@ class PerfectPitch(SS_MPE):
 
         #self.encoder = Encoder(feature_size=n_bins, n_harmonics=n_harmonics, n_blocks=n_blocks, latent_size=n_bins, model_complexity=model_complexity)
         self.encoder = Encoder2(n_bins=n_bins, n_harmonics=n_harmonics, n_blocks=n_blocks, model_complexity=model_complexity)
+        #self.encoder = Encoder3(n_bins=n_bins, n_harmonics=n_harmonics, n_blocks=n_blocks, model_complexity=model_complexity)
+        #self.encoder = Encoder4(n_bins=n_bins, n_harmonics=n_harmonics, n_blocks=n_blocks, model_complexity=model_complexity)
 
     def forward(self, features):
         """
@@ -360,6 +363,7 @@ class Encoder2(nn.Module):
 
         return logits, embeddings, loss
 
+
 class EncoderBlock2(nn.Module):
     """
     """
@@ -383,7 +387,179 @@ class EncoderBlock2(nn.Module):
         # Process features
         y = self.conv1(x)
 
-        # Residual connection
-        #y = y + x
-
         return y
+
+
+class Encoder4(nn.Module):
+    """
+    Implements a 2D convolutional encoder.
+    """
+
+    def __init__(self, n_bins, n_harmonics, n_blocks=4, model_complexity=1):
+        """
+        """
+
+        nn.Module.__init__(self)
+
+        channels = [2 ** (i + 1) * 2 ** (model_complexity - 1) for i in reversed(range(n_blocks + 1))]
+
+        # Make sure all channel sizes are integers
+        channels = tuple([round(c) for c in channels])
+
+        self.convin = nn.Sequential(
+            nn.Conv2d(n_harmonics, channels[0], kernel_size=5, padding='same'),
+            nn.BatchNorm2d(channels[0]),
+            nn.ReLU(inplace=True)
+        )
+
+        self.blocks = nn.ModuleList()
+
+        for i in range(n_blocks):
+            kernel_size = 5 if i < n_blocks / 4 else 3
+
+            self.blocks.append(nn.Sequential(
+                EncoderBlock2(channels[i], channels[i + 1], kernel_size)
+            ))
+
+        self.convout = nn.Sequential(
+            nn.Conv2d(channels[-1], 1, kernel_size=1, padding='same')
+        )
+
+        self.fc1 = nn.Linear(n_bins, n_bins, bias=False)
+
+        # TODO - final 3x3 convolution with dropout?
+
+    def forward(self, coefficients):
+        """
+        """
+
+        # Initialize a list to hold features for skip connections
+        embeddings = list()
+
+        # Encode features into embeddings
+        embeddings.append(self.convin(coefficients))
+
+        for block in self.blocks:
+            # Feed embeddings through next encoder block
+            embeddings.append(block(embeddings[-1]))
+
+        # Obtain final output logits
+        logits = self.convout(embeddings[-1]).squeeze(-3)
+
+        logits = self.fc1(logits.transpose(-1, -2)).transpose(-1, -2)
+
+        # No encoder losses
+        loss = dict()
+
+        return logits, embeddings, loss
+
+
+class Encoder3(nn.Module):
+    """
+    Implements a 2D convolutional encoder.
+    """
+
+    def __init__(self, n_bins, n_harmonics, n_blocks=4, model_complexity=1):
+        """
+        """
+
+        nn.Module.__init__(self)
+
+        channels = [2 ** (i + 1) * 2 ** (model_complexity - 1) for i in reversed(range(n_blocks + 1))]
+
+        # Make sure all channel sizes are integers
+        channels = tuple([round(c) for c in channels])
+
+        self.convin = nn.Sequential(
+            nn.Conv2d(n_harmonics, channels[0], kernel_size=5, padding='same'),
+            nn.BatchNorm2d(channels[0]),
+            nn.ReLU(inplace=True)
+        )
+
+        self.blocks = nn.ModuleList()
+
+        for i in range(n_blocks):
+            kernel_size = 5 if i < n_blocks / 4 else 3
+
+            self.blocks.append(nn.Sequential(
+                EncoderBlock3(n_bins, channels[i], channels[i + 1], kernel_size)
+            ))
+
+        self.convout = nn.Sequential(
+            nn.Conv2d(channels[-1], 1, kernel_size=1, padding='same')
+        )
+
+        # TODO - final 3x3 convolution with dropout?
+
+    def forward(self, coefficients):
+        """
+        """
+
+        # Initialize a list to hold features for skip connections
+        embeddings = list()
+
+        # Encode features into embeddings
+        embeddings.append(self.convin(coefficients))
+
+        for block in self.blocks:
+            # Feed embeddings through next encoder block
+            embeddings.append(block(embeddings[-1]))
+
+        # Obtain final output logits
+        logits = self.convout(embeddings[-1]).squeeze(-3)
+
+        # No encoder losses
+        loss = dict()
+
+        return logits, embeddings, loss
+
+
+class EncoderBlock3(nn.Module):
+    """
+    """
+
+    def __init__(self, n_bins, in_channels, out_channels, kernel_size, n_heads=4, dropout=0.1):
+        """
+        """
+
+        nn.Module.__init__(self)
+
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding='same'),#, groups=in_channels),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+
+        self.positional = nn.Parameter(torch.randn(n_bins, out_channels))
+        self.attn = nn.MultiheadAttention(embed_dim=out_channels, num_heads=n_heads, dropout=dropout, batch_first=True)
+        self.ln = nn.LayerNorm(out_channels)
+        self.dp = nn.Dropout(dropout)
+
+    def forward(self, x):
+        """
+        """
+
+        B, _, F, T = x.size()
+
+        #x = x + self.dp(self.conv1(x))
+        x = self.conv1(x)
+
+        # Flatten for self-attention
+        x_flat = x.permute(0, 3, 2, 1).reshape(B * T, F, -1)
+
+        x_flat = x_flat + self.positional
+
+        # Self-attention with LayerNorm
+        #x_norm = self.layer_norm_attn(x_flat)  # Normalize before attention
+        #attn_out, _ = self.attention(x_norm, x_norm, x_norm)  # Self-attention
+        x_flat, _ = self.attn(x_flat, x_flat, x_flat)  # Self-attention
+        #attn_out = self.layer_norm_attn(attn_out + x_flat)  # Residual connection with LayerNorm
+
+        # Reshape back to original shape
+        #attn_out = attn_out.reshape(batch_size, time_steps, freq_bins, channels).permute(0, 3, 1, 2)
+        x_flat = x_flat.reshape(B, T, F, -1).permute(0, 3, 2, 1)
+
+        # Final residual connection
+        #y = x + self.dropout(attn_out)
+
+        return x_flat
