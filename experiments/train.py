@@ -15,7 +15,7 @@ from timbre_trap.datasets import ComboDataset
 from ss_mpe.datasets.SoloMultiPitch import NSynth
 from ss_mpe.datasets.AudioMixtures import E_GMD
 
-from ss_mpe.framework import SS_MPE, TT_Enc, PerfectPitch
+from ss_mpe.framework import SS_MPE, TT_Base, TT_Enc, PerfectPitch
 from ss_mpe.objectives import *
 from timbre_trap.utils import *
 from evaluate import evaluate
@@ -38,7 +38,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['NSynth_EG_SPR_T_G_P_A_LR1E-4_PP'])
+EX_NAME = '_'.join(['URMP_SPV_T_G_P_LR5E-4_BS8_MC2_TTFC'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -59,13 +59,13 @@ def config():
     checkpoint_interval = 250
 
     # Number of samples to gather for a batch
-    batch_size = 20
+    batch_size = 8
 
     # Number of seconds of audio per sample
     n_secs = 4
 
     # Initial learning rate
-    learning_rate = 1e-4
+    learning_rate = 5e-4
 
     # Scaling factors for each loss term
     multipliers = {
@@ -78,7 +78,7 @@ def config():
         'geometric' : 1,
         'percussion' : 1,
         'noise' : 0,
-        'additivity' : 1,
+        'additivity' : 0,
         'feature' : 0,
         'supervised' : 0
     }
@@ -208,14 +208,18 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ###########
 
     if checkpoint_path is None:
+        # Initialize Timbre-Trap model
+        model = TT_Base(hcqt_params,
+                        model_complexity=2,
+                        skip_connections=False)
         # Initialize Timbre-Trap encoder
         #model = TT_Enc(hcqt_params,
         #               n_blocks=4,
         #               model_complexity=2)
         # Initialize Perfect-Pitch
-        model = PerfectPitch(hcqt_params,
-                             n_blocks=4,
-                             model_complexity=2)
+        #model = PerfectPitch(hcqt_params,
+        #                     n_blocks=4,
+        #                     model_complexity=2)
     else:
         # Load weights of the specified model checkpoint
         model = SS_MPE.load(checkpoint_path, device=device)
@@ -270,7 +274,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           sample_rate=sample_rate,
                           n_secs=n_secs,
                           seed=seed)
-    train_ss.append(nsynth_train)
+    #train_ss.append(nsynth_train)
 
     # Instantiate MusicNet audio (training) mixtures for training
     mnet_audio = MusicNet(base_dir=mnet_base_dir,
@@ -317,7 +321,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                             n_secs=n_secs,
                             seed=seed)
     #train_sup.append(urmp_mixes_train)
-    #train_both.append(urmp_mixes_train)
+    train_both.append(urmp_mixes_train)
 
     # Combine training datasets
     train_ss = ComboDataset(train_ss)
@@ -493,7 +497,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     #################
 
     # Initialize an optimizer for the model parameters with differential learning rates
-    optimizer = torch.optim.AdamW([{'params' : model.encoder_parameters(), 'lr' : learning_rate}])
+    optimizer = torch.optim.AdamW([{'params' : model.encoder_parameters(), 'lr' : learning_rate},
+                                   {'params' : model.decoder_parameters(), 'lr' : learning_rate}])
     #optimizer = torch.optim.SGD([{'params': model.encoder_parameters(), 'lr': learning_rate, 'momentum': 0.9}])
 
     # Determine the amount of batches in one epoch
