@@ -38,7 +38,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['URMP_SPV_T_G_P_LR5E-4_BS8_MC2_TTFC'])
+EX_NAME = '_'.join(['URMP_SPV_T_G_P_LR5E-4_BS8_TTFC'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -69,10 +69,10 @@ def config():
 
     # Scaling factors for each loss term
     multipliers = {
-        'energy' : 1,
+        'energy' : 0,
         'support' : 0,
         'harmonic' : 0,
-        'sparsity' : 1,
+        'sparsity' : 0,
         'entropy' : 0,
         'timbre' : 1,
         'geometric' : 1,
@@ -80,7 +80,7 @@ def config():
         'noise' : 0,
         'additivity' : 0,
         'feature' : 0,
-        'supervised' : 0
+        'supervised' : 1
     }
 
     # Perform augmentations on input features for energy-based and/or supervised objectives
