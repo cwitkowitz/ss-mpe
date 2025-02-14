@@ -38,7 +38,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['URMP_SPV_T_G_P_LR5E-4_BS8_TTFC'])
+EX_NAME = '_'.join(['URMP_SPV_T_G_P_LR5E-4_BS8_W100_TTFC'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -87,7 +87,7 @@ def config():
     augment_features = False
 
     # Number of epochs spanning warmup phase (0 to disable)
-    n_epochs_warmup = 0
+    n_epochs_warmup = 100
 
     # Set validation dataset to compare for learning rate decay and early stopping
     validation_criteria_set = URMP.name()
@@ -167,6 +167,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     # Seed everything with the same seed
     seed_everything(seed)
+
+    # Disable CUDA for debugging purposes
+    torch.cuda.is_available = lambda: False
 
     # Initialize the primary PyTorch device
     device = torch.device(f'cuda:{gpu_ids[0]}'
@@ -496,10 +499,12 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ## PREPARATION ##
     #################
 
-    # Initialize an optimizer for the model parameters with differential learning rates
-    optimizer = torch.optim.AdamW([{'params' : model.encoder_parameters(), 'lr' : learning_rate},
-                                   {'params' : model.decoder_parameters(), 'lr' : learning_rate}])
-    #optimizer = torch.optim.SGD([{'params': model.encoder_parameters(), 'lr': learning_rate, 'momentum': 0.9}])
+    # Initialize an optimizer for the model's encoder parameters
+    optimizer = torch.optim.AdamW([{'params' : model.encoder_parameters(), 'lr' : learning_rate}])
+
+    if next(model.decoder_parameters(), None) is not None:
+        # Add decoder parameters to the optimizer if the model has a decoder
+        optimizer.add_param_group({'params' : model.decoder_parameters(), 'lr' : learning_rate})
 
     # Determine the amount of batches in one epoch
     epoch_steps = min(len(loader_ss), len(loader_sup), len(loader_both))
@@ -868,6 +873,16 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 max_norm_encoder = get_max_gradient_norm(model.encoder)
                 # Log the maximum gradient norm of the encoder for this batch
                 writer.add_scalar('train/max_norm/encoder', max_norm_encoder, batch_count)
+
+                if next(model.decoder_parameters(), None) is not None:
+                    # Compute the average gradient norm across the decoder
+                    avg_norm_decoder = average_gradient_norms(model.decoder)
+                    # Log the average gradient norm of the decoder for this batch
+                    writer.add_scalar('train/avg_norm/decoder', avg_norm_decoder, batch_count)
+                    # Determine the maximum gradient norm across decoder
+                    max_norm_decoder = get_max_gradient_norm(model.decoder)
+                    # Log the maximum gradient norm of the decoder for this batch
+                    writer.add_scalar('train/max_norm/decoder', max_norm_decoder, batch_count)
 
                 # Apply gradient clipping for training stability
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
