@@ -169,7 +169,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     seed_everything(seed)
 
     # Disable CUDA for debugging purposes
-    torch.cuda.is_available = lambda: False
+    #torch.cuda.is_available = lambda: False
 
     # Initialize the primary PyTorch device
     device = torch.device(f'cuda:{gpu_ids[0]}'
