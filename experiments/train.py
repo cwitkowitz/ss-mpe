@@ -74,6 +74,7 @@ def config():
         'harmonic' : 0,
         'sparsity' : 0,
         'entropy' : 0,
+        'content' : 1,
         'timbre' : 1,
         'geometric' : 1,
         'percussion' : 1,
@@ -785,6 +786,14 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 debug_nans(entropy_loss, 'entropy')
 
+                with compute_grad(multipliers['content']):
+                    # Compute content loss for the batch
+                    content_loss = compute_content_loss(activations[:n_ss]) if n_ss else torch.tensor(0.)
+                    # Log the content loss for this batch
+                    writer.add_scalar('train/loss/content', content_loss.item(), batch_count)
+
+                debug_nans(content_loss, 'content')
+
                 with compute_grad(multipliers['timbre']):
                     # Compute timbre-invariance loss for the batch
                     timbre_loss = compute_timbre_loss(model, features_db[:n_ss], activations[:n_ss], **eq_kwargs) if n_ss else torch.tensor(0.)
@@ -849,6 +858,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                              multipliers['harmonic'] * harmonic_loss + \
                              multipliers['sparsity'] * sparsity_loss + \
                              multipliers['entropy'] * entropy_loss + \
+                             multipliers['content'] * content_loss + \
                              multipliers['timbre'] * timbre_loss + \
                              multipliers['geometric'] * geometric_loss + \
                              multipliers['percussion'] * percussion_loss + \

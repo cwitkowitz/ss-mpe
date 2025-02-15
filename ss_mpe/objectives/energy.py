@@ -10,6 +10,7 @@ __all__ = [
     'compute_harmonic_loss',
     'compute_sparsity_loss',
     'compute_entropy_loss',
+    'compute_content_loss'
 ]
 
 
@@ -70,3 +71,17 @@ def compute_entropy_loss(embeddings):
     entropy_loss = entropy_loss.sum(-2).mean(-1).mean(-1)
 
     return entropy_loss
+
+
+# TODO - can scale by amount of energy in input
+def compute_content_loss(activations, lmbda=5):
+    # Determine the maximum activation within each frame
+    max_activations = torch.max(activations, dim=-2)[0]
+
+    # Compute content loss as likelihood of exponential distribution of the maximum activations
+    content_loss = lmbda * torch.exp(-lmbda * max_activations)
+
+    # Average loss across time and batch
+    content_loss = content_loss.mean(-1).mean(-1)
+
+    return content_loss
