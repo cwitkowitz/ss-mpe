@@ -10,7 +10,9 @@ __all__ = [
     'compute_harmonic_loss',
     'compute_sparsity_loss',
     'compute_entropy_loss',
-    'compute_content_loss'
+    'compute_content_loss',
+    'compute_content_loss2',
+    'compute_content_loss3'
 ]
 
 
@@ -73,7 +75,7 @@ def compute_entropy_loss(embeddings):
     return entropy_loss
 
 
-# TODO - can scale by amount of energy in input
+# TODO - can modulate by amount of energy in input
 def compute_content_loss(activations, lmbda=5):
     # Determine the maximum activation within each frame
     max_activations = torch.max(activations, dim=-2)[0]
@@ -83,5 +85,69 @@ def compute_content_loss(activations, lmbda=5):
 
     # Average loss across time and batch
     content_loss = content_loss.mean(-1).mean(-1)
+
+    return content_loss
+
+
+# TODO - should pick peaks before taking max if topk > 1
+def compute_content_loss2(embeddings, n_bins_blur_decay=2.5):
+    with torch.no_grad():
+        # Initialize targets for content loss
+        targets = torch.zeros_like(embeddings)
+
+        # Determine index of maximum activation within each frame
+        max_idcs = torch.argmax(embeddings, dim=-2, keepdim=True)
+
+        # Insert unit activations at maximum
+        targets.scatter_(-2, max_idcs, 1)
+
+        if n_bins_blur_decay:
+            # Compute standard deviation for kernel
+            std_dev = (2 * n_bins_blur_decay) / 5
+            # Truncate kernel at 4 deviations
+            kernel_size = int(8 * std_dev + 1)
+            # Initialize indices for the kernel
+            idcs = torch.arange(kernel_size) - kernel_size // 2
+            # Compute weights for a Gaussian kernel
+            kernel = torch.exp(-0.5 * (idcs / std_dev) ** 2)
+            # Determine number of frames
+            out_channels = targets.size(-1)
+            # Give kernel a batch and channel dimension
+            kernel = kernel.view(1, 1, -1).to(targets.device)
+            # Extend kernel along channels
+            kernel = kernel.repeat(out_channels, 1, 1)
+            # Blur activations along the frequency axis with the filter
+            targets = F.conv1d(targets.transpose(-1, -2), kernel, padding='same', groups=out_channels).transpose(-1, -2)
+            # Clamp superimposed activations to maximum probability
+            targets = targets.clip(min=0.0, max=1.0)
+
+    # Set the weight for negative activations to zero
+    neg_weight = torch.tensor(0)
+
+    # Compute content loss as BCE of activations with respect to binarized and blurred maximum activations (positive activations only)
+    content_loss = F.binary_cross_entropy_with_logits(-embeddings, (1 - targets), reduction='none', pos_weight=neg_weight)
+
+    # Sum across frequency bins and average across time and batch
+    content_loss = content_loss.sum(-2).mean(-1).mean(-1)
+
+    return content_loss
+
+
+# multiply each sample by other samples within batch, for each frame
+def compute_content_loss3(activations):
+    # Fold out time dimension of activations
+    activations = activations.permute(2, 0, 1)
+    # Compute the L2 norm for each frame
+    norms = activations.norm(p=2, dim=-1, keepdim=True)
+    # Compute frame-level dot product between activations across batch
+    dot_product = torch.bmm(activations, activations.transpose(-1, -2))
+    # Compute frame-level product of activation norms across batch
+    norm_product = torch.bmm(norms, norms.transpose(-1, -2))
+
+    # Compute content loss as frame-level cosine similarity across batch
+    content_loss = dot_product / torch.maximum(norm_product, torch.tensor(torch.finfo().eps))
+
+    # Sum across batch and average across batch and time
+    content_loss = content_loss.sum(-1).mean(-1).mean(-1)
 
     return content_loss

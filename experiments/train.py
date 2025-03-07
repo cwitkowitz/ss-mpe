@@ -38,7 +38,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['URMP_SPV_T_G_P_LR5E-4_BS8_W100_TTFC'])
+EX_NAME = '_'.join(['URMP_SPV_T_G_P_C*_+NSynth_LR1E-3|2_BS24_MC3_R0.66_W100_TTFC'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -59,13 +59,13 @@ def config():
     checkpoint_interval = 250
 
     # Number of samples to gather for a batch
-    batch_size = 8
+    batch_size = 24
 
     # Number of seconds of audio per sample
     n_secs = 4
 
     # Initial learning rate
-    learning_rate = 5e-4
+    learning_rate = 1e-3
 
     # Scaling factors for each loss term
     multipliers = {
@@ -214,7 +214,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     if checkpoint_path is None:
         # Initialize Timbre-Trap model
         model = TT_Base(hcqt_params,
-                        model_complexity=2,
+                        model_complexity=3,
                         skip_connections=False)
         # Initialize Timbre-Trap encoder
         #model = TT_Enc(hcqt_params,
@@ -278,7 +278,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           sample_rate=sample_rate,
                           n_secs=n_secs,
                           seed=seed)
-    #train_ss.append(nsynth_train)
+    train_ss.append(nsynth_train)
 
     # Instantiate MusicNet audio (training) mixtures for training
     mnet_audio = MusicNet(base_dir=mnet_base_dir,
@@ -333,7 +333,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     train_both = ComboDataset(train_both)
 
     # Ratio for self-supervised to supervised training data
-    ss_ratio = 0.95
+    ss_ratio = 0.66
 
     # Default batch size and workers
     batch_size_ss, n_workers_ss = 0, 0
@@ -505,7 +505,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     if next(model.decoder_parameters(), None) is not None:
         # Add decoder parameters to the optimizer if the model has a decoder
-        optimizer.add_param_group({'params' : model.decoder_parameters(), 'lr' : learning_rate})
+        optimizer.add_param_group({'params' : model.decoder_parameters(), 'lr' : learning_rate / 2})
 
     # Determine the amount of batches in one epoch
     epoch_steps = min(len(loader_ss), len(loader_sup), len(loader_both))
@@ -657,7 +657,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     # Set keyword arguments for additive mixtures
     ad_kwargs = {
-        'additive_fn' : create_batch_mixtures,
+        'additive_fn' : mix_random_tracks,
         'additive_set_combo' : additive_set_combo,
     }
 
@@ -788,7 +788,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 with compute_grad(multipliers['content']):
                     # Compute content loss for the batch
-                    content_loss = compute_content_loss(activations[:n_ss]) if n_ss else torch.tensor(0.)
+                    #content_loss = compute_content_loss(activations[:n_ss]) if n_ss else torch.tensor(0.)
+                    content_loss = compute_content_loss2(logits[:n_ss]) if n_ss else torch.tensor(0.)
+                    #content_loss = compute_content_loss3(activations[:n_ss]) if n_ss else torch.tensor(0.)
                     # Log the content loss for this batch
                     writer.add_scalar('train/loss/content', content_loss.item(), batch_count)
 
