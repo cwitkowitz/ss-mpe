@@ -790,7 +790,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     # Compute content loss for the batch
                     #content_loss = compute_content_loss(activations[:n_ss]) if n_ss else torch.tensor(0.)
                     content_loss = compute_content_loss2(logits[:n_ss]) if n_ss else torch.tensor(0.)
-                    #content_loss = compute_content_loss3(activations[:n_ss]) if n_ss else torch.tensor(0.)
+                    #content_loss = compute_content_loss3(logits[:n_ss]) if n_ss else torch.tensor(0.)
                     # Log the content loss for this batch
                     writer.add_scalar('train/loss/content', content_loss.item(), batch_count)
 
@@ -897,7 +897,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     writer.add_scalar('train/max_norm/decoder', max_norm_decoder, batch_count)
 
                 # Apply gradient clipping for training stability
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
                 # Perform an optimization step
                 optimizer.step()

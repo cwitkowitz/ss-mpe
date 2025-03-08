@@ -5,6 +5,7 @@ from . import HCQT
 
 # Regular imports
 import torch.nn as nn
+import librosa
 import torch
 
 
@@ -78,6 +79,11 @@ class SS_MPE(nn.Module):
           Various sets of spectral features
         """
 
+        # Compute frame-level RMS values
+        features_rms = librosa.feature.rms(y=audio.squeeze().cpu(), hop_length=self.hcqt_params['hop_length'])
+        # Convert to Tensor, remove channel dimension, and add to device
+        features_rms = torch.from_numpy(features_rms).squeeze(-2).to(audio.device)
+
         # Compute features for audio
         features_lin = self.hcqt(audio)
 
@@ -108,6 +114,7 @@ class SS_MPE(nn.Module):
         features_db_h = self.hcqt.rescale_decibels(features_db_h)
 
         features = {
+            'rms'  : features_rms,
             'am'   : features_am,
             'pw'   : features_pw,
             'db'   : features_db,

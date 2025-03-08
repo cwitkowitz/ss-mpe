@@ -75,7 +75,7 @@ def compute_entropy_loss(embeddings):
     return entropy_loss
 
 
-# TODO - can modulate by amount of energy in input
+# TODO - can modulate by amount of energy in input (rms threshold 0.01)
 def compute_content_loss(activations, lmbda=5):
     # Determine the maximum activation within each frame
     max_activations = torch.max(activations, dim=-2)[0]
@@ -133,21 +133,28 @@ def compute_content_loss2(embeddings, n_bins_blur_decay=2.5):
     return content_loss
 
 
-# multiply each sample by other samples within batch, for each frame
-def compute_content_loss3(activations):
-    # Fold out time dimension of activations
-    activations = activations.permute(2, 0, 1)
+def compute_content_loss3(embeddings, tau=0.1):
+    # Determine batch size and number of frames
+    (B, _, T) = embeddings.size()
+
+    # Fold out time dimension of embeddings
+    embeddings = embeddings.permute(2, 0, 1)
     # Compute the L2 norm for each frame
-    norms = activations.norm(p=2, dim=-1, keepdim=True)
-    # Compute frame-level dot product between activations across batch
-    dot_product = torch.bmm(activations, activations.transpose(-1, -2))
-    # Compute frame-level product of activation norms across batch
-    norm_product = torch.bmm(norms, norms.transpose(-1, -2))
+    norms = embeddings.norm(p=2, dim=-1, keepdim=True)
+    # Normalize embeddings using L2 norm
+    embeddings = embeddings / norms.clamp(torch.finfo(embeddings.dtype).eps)
+    # Compute frame-level cosine similarity between embeddings across batch
+    similarities = torch.bmm(embeddings, embeddings.transpose(-1, -2))
+    # Apply temperature scaling
+    similarities = similarities / tau
 
-    # Compute content loss as frame-level cosine similarity across batch
-    content_loss = dot_product / torch.maximum(norm_product, torch.tensor(torch.finfo().eps))
+    # Create labels for contrastive learning as identity mapping
+    labels = torch.arange(B, device=embeddings.device).repeat(T, 1)
 
-    # Sum across batch and average across batch and time
-    content_loss = content_loss.sum(-1).mean(-1).mean(-1)
+    # Compute content loss as CCE of similarities with respect to identity mapping
+    content_loss = F.cross_entropy(similarities, labels, reduction='none')
+
+    # Average across batch and time
+    content_loss = content_loss.mean(-1).mean(-1)
 
     return content_loss
