@@ -790,7 +790,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     # Compute content loss for the batch
                     #content_loss = compute_content_loss(activations[:n_ss]) if n_ss else torch.tensor(0.)
                     content_loss = compute_content_loss2(logits[:n_ss]) if n_ss else torch.tensor(0.)
-                    #content_loss = compute_content_loss3(logits[:n_ss]) if n_ss else torch.tensor(0.)
+                    #content_loss = compute_content_loss3(activations[:n_ss]) if n_ss else torch.tensor(0.)
                     # Log the content loss for this batch
                     writer.add_scalar('train/loss/content', content_loss.item(), batch_count)
 

@@ -133,23 +133,23 @@ def compute_content_loss2(embeddings, n_bins_blur_decay=2.5):
     return content_loss
 
 
-def compute_content_loss3(embeddings, tau=0.1):
+def compute_content_loss3(activations, tau=0.1):
     # Determine batch size and number of frames
-    (B, _, T) = embeddings.size()
+    (B, _, T) = activations.size()
 
-    # Fold out time dimension of embeddings
-    embeddings = embeddings.permute(2, 0, 1)
+    # Fold out time dimension of activations
+    activations = activations.permute(2, 0, 1)
     # Compute the L2 norm for each frame
-    norms = embeddings.norm(p=2, dim=-1, keepdim=True)
-    # Normalize embeddings using L2 norm
-    embeddings = embeddings / norms.clamp(torch.finfo(embeddings.dtype).eps)
-    # Compute frame-level cosine similarity between embeddings across batch
-    similarities = torch.bmm(embeddings, embeddings.transpose(-1, -2))
+    norms = activations.norm(p=2, dim=-1, keepdim=True)
+    # Normalize activations using L2 norm
+    activations = activations / norms.clamp(torch.finfo(activations.dtype).eps)
+    # Compute frame-level cosine similarity between activations across batch
+    similarities = torch.bmm(activations, activations.transpose(-1, -2))
     # Apply temperature scaling
     similarities = similarities / tau
 
     # Create labels for contrastive learning as identity mapping
-    labels = torch.arange(B, device=embeddings.device).repeat(T, 1)
+    labels = torch.arange(B, device=activations.device).repeat(T, 1)
 
     # Compute content loss as CCE of similarities with respect to identity mapping
     content_loss = F.cross_entropy(similarities, labels, reduction='none')
