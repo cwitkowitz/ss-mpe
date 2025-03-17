@@ -38,7 +38,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['URMP_SPV_T_G_P_C*_+NSynth_LR1E-3|2_BS24_MC3_R0.66_W100_TTFC'])
+EX_NAME = '_'.join(['URMP_SPV_T_G_P_LR1E-3|2_BS8_MC3_W100_D500_TTFC'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -59,7 +59,7 @@ def config():
     checkpoint_interval = 250
 
     # Number of samples to gather for a batch
-    batch_size = 24
+    batch_size = 8
 
     # Number of seconds of audio per sample
     n_secs = 4
@@ -74,7 +74,8 @@ def config():
         'harmonic' : 0,
         'sparsity' : 0,
         'entropy' : 0,
-        'content' : 1,
+        'content' : 0,
+        'contrastive' : 0,
         'timbre' : 1,
         'geometric' : 1,
         'percussion' : 1,
@@ -100,7 +101,7 @@ def config():
     validation_criteria_maximize = True # (False - minimize | True - maximize)
 
     # Number of epochs without improvement before reducing learning rate (0 to disable)
-    n_epochs_decay = 0
+    n_epochs_decay = 500
 
     # Number of epochs before starting epoch counter for learning rate decay
     n_epochs_cooldown = 0
@@ -109,7 +110,7 @@ def config():
     n_epochs_early_stop = None
 
     # IDs of the GPUs to use, if available
-    gpu_ids = [0]
+    gpu_ids = [0, 1]
 
     # Random seed for this experiment
     seed = 0
@@ -278,7 +279,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           sample_rate=sample_rate,
                           n_secs=n_secs,
                           seed=seed)
-    train_ss.append(nsynth_train)
+    #train_ss.append(nsynth_train)
 
     # Instantiate MusicNet audio (training) mixtures for training
     mnet_audio = MusicNet(base_dir=mnet_base_dir,
@@ -788,13 +789,19 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 with compute_grad(multipliers['content']):
                     # Compute content loss for the batch
-                    #content_loss = compute_content_loss(activations[:n_ss]) if n_ss else torch.tensor(0.)
-                    content_loss = compute_content_loss2(logits[:n_ss]) if n_ss else torch.tensor(0.)
-                    #content_loss = compute_content_loss3(activations[:n_ss]) if n_ss else torch.tensor(0.)
+                    content_loss = compute_content_loss(logits[:n_ss]) if n_ss else torch.tensor(0.)
                     # Log the content loss for this batch
                     writer.add_scalar('train/loss/content', content_loss.item(), batch_count)
 
                 debug_nans(content_loss, 'content')
+
+                with compute_grad(multipliers['contrastive']):
+                    # Compute contrastive loss for the batch
+                    contrastive_loss = compute_contrastive_loss(activations[:n_ss]) if n_ss else torch.tensor(0.)
+                    # Log the contrastive loss for this batch
+                    writer.add_scalar('train/loss/contrastive', contrastive_loss.item(), batch_count)
+
+                debug_nans(contrastive_loss, 'contrastive')
 
                 with compute_grad(multipliers['timbre']):
                     # Compute timbre-invariance loss for the batch
@@ -861,6 +868,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                              multipliers['sparsity'] * sparsity_loss + \
                              multipliers['entropy'] * entropy_loss + \
                              multipliers['content'] * content_loss + \
+                             multipliers['contrastive'] * contrastive_loss + \
                              multipliers['timbre'] * timbre_loss + \
                              multipliers['geometric'] * geometric_loss + \
                              multipliers['percussion'] * percussion_loss + \

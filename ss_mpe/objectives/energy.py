@@ -11,8 +11,7 @@ __all__ = [
     'compute_sparsity_loss',
     'compute_entropy_loss',
     'compute_content_loss',
-    'compute_content_loss2',
-    'compute_content_loss3'
+    'compute_contrastive_loss'
 ]
 
 
@@ -76,21 +75,8 @@ def compute_entropy_loss(embeddings):
 
 
 # TODO - can modulate by amount of energy in input (rms threshold 0.01)
-def compute_content_loss(activations, lmbda=5):
-    # Determine the maximum activation within each frame
-    max_activations = torch.max(activations, dim=-2)[0]
-
-    # Compute content loss as likelihood of exponential distribution of the maximum activations
-    content_loss = lmbda * torch.exp(-lmbda * max_activations)
-
-    # Average loss across time and batch
-    content_loss = content_loss.mean(-1).mean(-1)
-
-    return content_loss
-
-
 # TODO - should pick peaks before taking max if topk > 1
-def compute_content_loss2(embeddings, n_bins_blur_decay=2.5):
+def compute_content_loss(embeddings, n_bins_blur_decay=2.5):
     with torch.no_grad():
         # Initialize targets for content loss
         targets = torch.zeros_like(embeddings)
@@ -133,7 +119,7 @@ def compute_content_loss2(embeddings, n_bins_blur_decay=2.5):
     return content_loss
 
 
-def compute_content_loss3(activations, tau=0.1):
+def compute_contrastive_loss(activations, tau=0.1):
     # Determine batch size and number of frames
     (B, _, T) = activations.size()
 
@@ -151,10 +137,10 @@ def compute_content_loss3(activations, tau=0.1):
     # Create labels for contrastive learning as identity mapping
     labels = torch.arange(B, device=activations.device).repeat(T, 1)
 
-    # Compute content loss as CCE of similarities with respect to identity mapping
-    content_loss = F.cross_entropy(similarities, labels, reduction='none')
+    # Compute contrastive loss as CCE of similarities with respect to identity mapping
+    contrastive_loss = F.cross_entropy(similarities, labels, reduction='none')
 
     # Average across batch and time
-    content_loss = content_loss.mean(-1).mean(-1)
+    contrastive_loss = contrastive_loss.mean(-1).mean(-1)
 
-    return content_loss
+    return contrastive_loss

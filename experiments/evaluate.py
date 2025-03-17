@@ -102,11 +102,14 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
             evaluator.append_results({'loss/entropy' : entropy_loss.item()})
 
             # Compute content loss for the track
-            #content_loss = compute_content_loss(raw_activations)
-            content_loss = compute_content_loss2(logits)
-            #content_loss = compute_content_loss3(raw_activations)
+            content_loss = compute_content_loss(logits)
             # Store the content loss for the track
             evaluator.append_results({'loss/content' : content_loss.item()})
+
+            # Compute contrastive loss for the track
+            contrastive_loss = compute_contrastive_loss(raw_activations)
+            # Store the contrastive loss for the track
+            evaluator.append_results({'loss/contrastive' : contrastive_loss.item()})
 
             # Compute supervised BCE loss for the batch
             supervised_loss = compute_supervised_loss(logits, ground_truth)
@@ -120,6 +123,7 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
                          multipliers['sparsity'] * sparsity_loss + \
                          multipliers['entropy'] * entropy_loss + \
                          multipliers['content'] * content_loss + \
+                         multipliers['contrastive'] * contrastive_loss + \
                          multipliers['supervised'] * supervised_loss
 
             # TODO - why don't I check for the kwargs?
