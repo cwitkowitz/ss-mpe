@@ -38,7 +38,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['URMP_SPV_T_G_P_LR1E-3|2_BS8_MC3_W100_D500_TTFC'])
+EX_NAME = '_'.join(['URMP_SPV_T_G_P_LR1E-3|2_BS8_MC3_W100_TTFC'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -53,7 +53,7 @@ def config():
     checkpoint_path = None
 
     # Maximum number of training iterations to conduct
-    max_epochs = 5000
+    max_epochs = 2500
 
     # Number of iterations between checkpoints
     checkpoint_interval = 250
@@ -101,7 +101,7 @@ def config():
     validation_criteria_maximize = True # (False - minimize | True - maximize)
 
     # Number of epochs without improvement before reducing learning rate (0 to disable)
-    n_epochs_decay = 500
+    n_epochs_decay = 0
 
     # Number of epochs before starting epoch counter for learning rate decay
     n_epochs_cooldown = 0
