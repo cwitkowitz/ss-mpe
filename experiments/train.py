@@ -317,16 +317,35 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         # Remove validation tracks
         urmp_train_splits.remove(t)
 
+    # Create another split starting from training partition
+    urmp_train_splits_T1 = urmp_train_splits.copy()
+
+    # Create a second training split roughly balanced w.r.t. polyphony
+    urmp_train_splits_T2 = ['03', '04', '05', '14', '15', '16', '26', '27', '40', '41']
+
+    for t in urmp_train_splits_T2:
+        # Remove validation tracks
+        urmp_train_splits_T1.remove(t)
 
     # Instantiate URMP dataset mixtures for training
     urmp_mixes_train = URMP(base_dir=urmp_base_dir,
                             splits=urmp_train_splits,
+                            #splits=urmp_train_splits_T1,
                             sample_rate=sample_rate,
                             cqt=model.hcqt,
                             n_secs=n_secs,
                             seed=seed)
     #train_sup.append(urmp_mixes_train)
     train_both.append(urmp_mixes_train)
+
+    # Instantiate URMP dataset mixtures for self-supervision
+    urmp_mixes_ss = URMP(base_dir=urmp_base_dir,
+                         splits=urmp_train_splits_T2,
+                         sample_rate=sample_rate,
+                         cqt=model.hcqt,
+                         n_secs=n_secs,
+                         seed=seed)
+    #train_ss.append(urmp_mixes_ss)
 
     # Combine training datasets
     train_ss = ComboDataset(train_ss)
@@ -999,6 +1018,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ## EVALUATION ##
     ################
 
+    """
     # Construct a path to the best model checkpoint
     best_model_path = os.path.join(log_dir, f'model-{best_model_checkpoint}.pt')
     # Load best model and make sure it is in evaluation mode
@@ -1027,3 +1047,4 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
         # Log the evaluation results for this dataset in metrics.json
         ex.log_scalar(f'Evaluation Results ({eval_set.name()})', final_results, best_model_checkpoint)
+    """
