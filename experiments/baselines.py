@@ -1,9 +1,10 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from timbre_trap.datasets.MixedMultiPitch import Bach10, URMP, Su, TRIOS
+from timbre_trap.datasets.MixedMultiPitch import Bach10, URMP, Su, TRIOS, MusicNet
 from timbre_trap.datasets.SoloMultiPitch import GuitarSet
 from timbre_trap.datasets.NoteDataset import NoteDataset
+from ss_mpe.datasets.SoloMultiPitch import NSynth
 from timbre_trap.framework import TimbreTrap
 
 from ss_mpe.framework import HCQT
@@ -69,14 +70,13 @@ hcqt = HCQT(**hcqt_params)
 ############
 
 from basic_pitch.note_creation import model_frames_to_time
+from basic_pitch.inference import predict, Model
 from basic_pitch import ICASSP_2022_MODEL_PATH
-from basic_pitch.inference import predict
-import tensorflow as tf
 
 # Number of bins in a single octave
 bp_bins_per_octave = 36
 # Load the Basic-Pitch model checkpoint corresponding to paper
-basic_pitch = tf.saved_model.load(str(ICASSP_2022_MODEL_PATH))
+basic_pitch_model = Model(ICASSP_2022_MODEL_PATH)
 # Compute the MIDI frequency associated with each bin of Basic-Pitch predictions
 bp_midi_freqs = librosa.note_to_midi('A0') + np.arange(264) / (bp_bins_per_octave / 12)
 
@@ -159,6 +159,7 @@ tt_midi_freqs = tt_mpe.sliCQ.get_midi_freqs()
 tt_invalid_freqs = librosa.midi_to_hz(tt_midi_freqs) > mir_eval.multipitch.MAX_FREQ
 
 
+"""
 import crepe
 
 # Determine cent values for each bin of CREPE predictions
@@ -176,6 +177,7 @@ import pesto
 pe_midi_freqs = torch.arange(384) / 3
 # Determine which Timbre-Trap bins correspond to valid frequencies for mir_eval
 pe_invalid_freqs = librosa.midi_to_hz(pe_midi_freqs) < mir_eval.multipitch.MIN_FREQ
+"""
 
 
 ##############
@@ -183,11 +185,20 @@ pe_invalid_freqs = librosa.midi_to_hz(pe_midi_freqs) < mir_eval.multipitch.MIN_F
 ##############
 
 # Point to the datasets within the storage drive containing them or use the default location
-bch10_base_dir     = os.path.join('/', 'storage', 'frank', 'Bach10') if path_layout else None
-urmp_base_dir      = os.path.join('/', 'storage', 'frank', 'URMP') if path_layout else None
-su_base_dir        = os.path.join('/', 'storage', 'frank', 'Su') if path_layout else None
-trios_base_dir     = os.path.join('/', 'storage', 'frank', 'TRIOS') if path_layout else None
-gset_base_dir      = os.path.join('/', 'storage', 'frank', 'GuitarSet') if path_layout else None
+urmp_base_dir   = os.path.join('/', 'storage', 'frank', 'URMP') if path_layout else None
+nsynth_base_dir = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if path_layout else None
+bch10_base_dir  = os.path.join('/', 'storage', 'frank', 'Bach10') if path_layout else None
+su_base_dir     = os.path.join('/', 'storage', 'frank', 'Su') if path_layout else None
+trios_base_dir  = os.path.join('/', 'storage', 'frank', 'TRIOS') if path_layout else None
+mnet_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if path_layout else None
+gset_base_dir   = os.path.join('/', 'storage', 'frank', 'GuitarSet') if path_layout else None
+
+# Instantiate NSynth validation split for validation
+nsynth_val = NSynth(base_dir=nsynth_base_dir,
+                    splits=['valid'],
+                    n_tracks=200,
+                    sample_rate=sample_rate,
+                    cqt=hcqt)
 
 # Instantiate Bach10 dataset mixtures for evaluation
 bch10_test = Bach10(base_dir=bch10_base_dir,
@@ -195,11 +206,13 @@ bch10_test = Bach10(base_dir=bch10_base_dir,
                     sample_rate=sample_rate,
                     cqt=hcqt)
 
-# Instantiate URMP dataset mixtures for evaluation
-urmp_test = URMP(base_dir=urmp_base_dir,
-                 splits=None,
-                 sample_rate=sample_rate,
-                 cqt=hcqt)
+# Set the URMP validation set in accordance with the MT3 paper
+urmp_val_splits = ['01', '02', '12', '13', '24', '25', '31', '38', '39']
+# Instantiate URMP dataset mixtures for validation
+urmp_val = URMP(base_dir=urmp_base_dir,
+                splits=urmp_val_splits,
+                sample_rate=sample_rate,
+                cqt=hcqt)
 
 # Instantiate Su dataset for evaluation
 su_test = Su(base_dir=su_base_dir,
@@ -212,6 +225,12 @@ trios_test = TRIOS(base_dir=trios_base_dir,
                    splits=None,
                    sample_rate=sample_rate,
                    cqt=hcqt)
+
+# Instantiate MusicNet dataset mixtures for evaluation
+mnet_test = MusicNet(base_dir=mnet_base_dir,
+                     splits=['test'],
+                     sample_rate=sample_rate,
+                     cqt=hcqt)
 
 # Instantiate GuitarSet dataset for evaluation
 gset_test = GuitarSet(base_dir=gset_base_dir,
@@ -241,13 +260,13 @@ if os.path.exists(save_path):
     os.remove(save_path)
 
 # Loop through validation and evaluation datasets
-for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
+for eval_set in [urmp_val, nsynth_val, bch10_test, su_test, trios_test, mnet_test, gset_test]:
     # Initialize evaluators for each algorithm/model
     bp_evaluator = MultipitchEvaluator()
     ds_evaluator = MultipitchEvaluator()
     tt_evaluator = MultipitchEvaluator()
-    cr_evaluator = MultipitchEvaluator()
-    pe_evaluator = MultipitchEvaluator()
+    #cr_evaluator = MultipitchEvaluator()
+    #pe_evaluator = MultipitchEvaluator()
 
     print_and_log(f'Results for {eval_set.name()}:', save_path)
 
@@ -275,8 +294,9 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
 
         # Obtain a path for the track's audio
         audio_path = eval_set.get_audio_path(track)
+        """
         # Obtain predictions from the BasicPitch model
-        model_output, _, _ = predict(audio_path, basic_pitch)
+        model_output, _, _ = predict(audio_path, basic_pitch_model)
         # Extract the pitch salience predictions
         bp_salience = model_output['contour'].T
         # Determine times associated with each frame of predictions
@@ -293,6 +313,7 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
         if verbose:
             # Print results for the individual track
             print_and_log(f'\t\t-(bsc-ptc): {bp_results}', save_path)
+        """
 
 
         # Compute features for DeepSalience model
@@ -311,6 +332,7 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
             print_and_log(f'\t\t-(dp-slnc): {ds_results}', save_path)
 
 
+        """
         # Extract audio and add to the appropriate device
         audio = data[constants.KEY_AUDIO].to(device).unsqueeze(0)
 
@@ -319,7 +341,7 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
         # Determine the times associated with features
         times_est = tt_mpe.sliCQ.get_times(tt_mpe.sliCQ.get_expected_frames(audio_padded.size(-1)))
         # Transcribe the audio using the Timbre-Trap model
-        tt_salience = to_array(tt_mpe.transcribe(audio_padded).squeeze())
+        tt_salience = to_array(tt_mpe.to_activations(tt_mpe.inference(audio_padded, True)).squeeze())
         # Peak-pick and threshold the Timbre-Trap activations
         tt_salience = threshold(filter_non_peaks(tt_salience), 0.5)
         # Remove activations for invalid frequencies
@@ -334,7 +356,9 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
         if verbose:
             # Print results for the individual track
             print_and_log(f'\t\t-(tt-mpe): {tt_results}', save_path)
+        """
 
+        """
         # Obtain salience predictions from the CREPE model
         cr_times, _, _, cr_salience = crepe.predict(to_array(audio.squeeze()), sample_rate, viterbi=False)
         # Apply peak-picking and thresholding on the raw salience
@@ -369,6 +393,7 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
         if verbose:
             # Print results for the individual track
             print_and_log(f'\t\t-(pesto): {pe_results}', save_path)
+        """
 
     # Print a header for average results across all tracks of the dataset
     print_and_log(f'\tAverage Results ({eval_set.name()}):', save_path)
@@ -377,5 +402,5 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
     print_and_log(f'\t\t-(bsc-ptc): {bp_evaluator.average_results()[0]}', save_path)
     print_and_log(f'\t\t-(dp-slnc): {ds_evaluator.average_results()[0]}', save_path)
     print_and_log(f'\t\t-(tt-mpe): {tt_evaluator.average_results()[0]}', save_path)
-    print_and_log(f'\t\t-(crepe): {cr_evaluator.average_results()[0]}', save_path)
-    print_and_log(f'\t\t-(pesto): {pe_evaluator.average_results()[0]}', save_path)
+    #print_and_log(f'\t\t-(crepe): {cr_evaluator.average_results()[0]}', save_path)
+    #print_and_log(f'\t\t-(pesto): {pe_evaluator.average_results()[0]}', save_path)
