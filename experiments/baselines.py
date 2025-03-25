@@ -20,6 +20,9 @@ import torch
 import os
 
 
+# Disable CUDA to prevent cryptic errors
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+
 # Choose the GPU on which to perform evaluation
 gpu_id = None
 
@@ -294,7 +297,6 @@ for eval_set in [urmp_val, nsynth_val, bch10_test, su_test, trios_test, mnet_tes
 
         # Obtain a path for the track's audio
         audio_path = eval_set.get_audio_path(track)
-        """
         # Obtain predictions from the BasicPitch model
         model_output, _, _ = predict(audio_path, basic_pitch_model)
         # Extract the pitch salience predictions
@@ -313,7 +315,6 @@ for eval_set in [urmp_val, nsynth_val, bch10_test, su_test, trios_test, mnet_tes
         if verbose:
             # Print results for the individual track
             print_and_log(f'\t\t-(bsc-ptc): {bp_results}', save_path)
-        """
 
 
         # Compute features for DeepSalience model
@@ -332,7 +333,6 @@ for eval_set in [urmp_val, nsynth_val, bch10_test, su_test, trios_test, mnet_tes
             print_and_log(f'\t\t-(dp-slnc): {ds_results}', save_path)
 
 
-        """
         # Extract audio and add to the appropriate device
         audio = data[constants.KEY_AUDIO].to(device).unsqueeze(0)
 
@@ -356,7 +356,6 @@ for eval_set in [urmp_val, nsynth_val, bch10_test, su_test, trios_test, mnet_tes
         if verbose:
             # Print results for the individual track
             print_and_log(f'\t\t-(tt-mpe): {tt_results}', save_path)
-        """
 
         """
         # Obtain salience predictions from the CREPE model
