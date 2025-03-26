@@ -10,6 +10,7 @@ from ss_mpe.framework import SS_MPE
 from timbre_trap.utils import *
 
 # Regular imports
+#from torchinfo import summary
 from tqdm import tqdm
 
 import librosa
@@ -22,22 +23,22 @@ import os
 #ex_name, checkpoint = 'base/URMP_SPV_T_LR5E-4_2_BS8_MC3_W100_TTFC', 1000
 #ex_name, checkpoint = 'base/URMP_SPV_G_LR5E-4_2_BS8_MC3_W100_TTFC', 8750
 #ex_name, checkpoint = 'base/URMP_SPV_P_LR5E-4_2_BS8_MC3_W100_TTFC', 8500
-#ex_name, checkpoint = 'base/URMP_SPV_T_G_LR5E-4_2_BS8_MC3_W100_TTFC', TODO
-#ex_name, checkpoint = 'base/URMP_SPV_T_P_LR5E-4_2_BS8_MC3_W100_TTFC', TODO
-#ex_name, checkpoint = 'base/URMP_SPV_G_P_LR5E-4_2_BS8_MC3_W100_TTFC', TODO
+#ex_name, checkpoint = 'base/URMP_SPV_T_G_LR5E-4_2_BS8_MC3_W100_TTFC', LATER
+#ex_name, checkpoint = 'base/URMP_SPV_T_P_LR5E-4_2_BS8_MC3_W100_TTFC', LATER
+#ex_name, checkpoint = 'base/URMP_SPV_G_P_LR5E-4_2_BS8_MC3_W100_TTFC', LATER
 #ex_name, checkpoint = 'base/URMP_SPV_T_G_P_LR5E-4_2_BS8_MC3_W100_TTFC', 9000
 
 #ex_name, checkpoint = 'additional/URMP_SPV_T_G_P_+NSynth_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC', 7500
 #ex_name, checkpoint = 'additional/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC', 8500
-ex_name, checkpoint = 'additional/URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC', 9000
+#ex_name, checkpoint = 'additional/URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC', 9000
 
 #ex_name, checkpoint = 'energy/URMP_SPV_T_G_P_+NSynth_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC', 10000
 #ex_name, checkpoint = 'energy/URMP_SPV_T_G_P_+MNet_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC', 9750
-#ex_name, checkpoint = 'energy/URMP_SPV_T_G_P_+FMA_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC', 8000
+ex_name, checkpoint = 'energy/URMP_SPV_T_G_P_+FMA_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC', 8000
 
 #ex_name, checkpoint = 'two-stage/URMP_SPV_T_G_P_->+NSynth_LR1E-4|2_BS24_R0.66_MC3_W100_TTFC', TODO
-#ex_name, checkpoint = 'two-stage/URMP_SPV_T_G_P_->+MNet_LR1E-4|2_BS24_R0.66_MC3_W100_TTFC', TODO
-#ex_name, checkpoint = 'two-stage/URMP_SPV_T_G_P_->+FMA_LR1E-4|2_BS24_R0.66_MC3_W100_TTFC', TODO
+#ex_name, checkpoint = 'two-stage/URMP_SPV_T_G_P_->+MNet_LR1E-4|2_BS24_R0.66_MC3_W100_TTFC', DONE
+#ex_name, checkpoint = 'two-stage/URMP_SPV_T_G_P_->+FMA_LR1E-4|2_BS24_R0.66_MC3_W100_TTFC', DONE
 
 #ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+NSynth_LR5E-4_2_BS10_R0.2_MC3_W100_TTFC', 9750
 #ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+NSynth_LR5E-4|2_BS12_R0.33_MC3_W100_TTFC', TODO
@@ -47,15 +48,15 @@ ex_name, checkpoint = 'additional/URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS24_R0.66_MC3_W1
 #ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+MNet_LR5E-4|2_BS12_R0.33_MC3_W100_TTFC', TODO
 #ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS16_R0.5_MC3_W100_TTFC', TODO
 
-#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS10_R0.2_MC3_W100_TTFC', TODO
-#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+FMA_LR5E-4|2_BS12_R0.33_MC3_W100_TTFC', TODO
-#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS16_R0.5_MC3_W100_TTFC', TODO
+#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS10_R0.2_MC3_W100_TTFC', LATER
+#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+FMA_LR5E-4|2_BS12_R0.33_MC3_W100_TTFC', LATER
+#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS16_R0.5_MC3_W100_TTFC', LATER
 
 #ex_name, checkpoint = 'URMP-T1_SPV_T_G_P_LR5E-4|2_BS8_MC3_W100_TTFC', 5500
-#ex_name, checkpoint = 'URMP-T1_SPV_T_G_P_+URMP-T2_LR5E-4_2_BS18_R0.56_MC3_W100_TTFC', TODO
-#ex_name, checkpoint = 'URMP-T1_SPV_T_G_P_+Bach10_LR5E-4_2_BS18_R0.56_MC3_W100_TTFC', TODO
-#ex_name, checkpoint = 'URMP-T1_SPV_T_G_P_+MNet-Test_LR5E-4_2_BS18_R0.56_MC3_W100_TTFC', TODO
-# TODO - others?
+#ex_name, checkpoint = 'URMP-T1_SPV_T_G_P_+URMP-T2_LR5E-4_2_BS18_R0.56_MC3_W100_TTFC', DONE
+#ex_name, checkpoint = 'URMP-T1_SPV_T_G_P_+Bach10_LR5E-4_2_BS18_R0.56_MC3_W100_TTFC', CANCELED
+#ex_name, checkpoint = 'URMP-T1_SPV_T_G_P_+MNet-Test_LR5E-4_2_BS18_R0.56_MC3_W100_TTFC', CANCELED
+
 
 # Choose the GPU on which to perform evaluation
 gpu_id = None
@@ -101,6 +102,9 @@ model_path = os.path.join(experiment_dir, 'models', f'model-{checkpoint}.pt')
 # Load a checkpoint of the SS-MPE model
 ss_mpe = SS_MPE.load(model_path, device=device)
 ss_mpe.eval()
+
+# Print out model parameters
+#TODO - summary(ss_mpe, input_size=(1, 6, 440, 344))
 
 
 ##############

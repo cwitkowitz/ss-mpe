@@ -21,10 +21,14 @@ import os
 
 
 # Disable CUDA to prevent cryptic errors
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+#os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
 # Choose the GPU on which to perform evaluation
-gpu_id = None
+#gpu_id = None
+gpu_id = 0
+
+# Initialize a device pointer for loading the models
+device = torch.device(f'cuda:{gpu_id}' if torch.cuda.is_available() and gpu_id is not None else 'cpu')
 
 # Flag to print results for each track separately
 verbose = True
@@ -135,9 +139,89 @@ deep_salience = model_def()
 # Load the weights from the paper
 deep_salience.load_weights(weights_path)
 
+# Construct a path to a top-level directory for ComparingDeepModelsMPE
+deep_models_dir = os.path.join('..', 'generated', 'deep_models')
+# Specify the names of the files to download from GitHub
+model_script_name = 'unet_cnns.py'
+hcqt_script_name = 'hcqt.py'
+data_script_name = 'hcqt_datasets.py'
+expr_name  = 'RETRAIN4_exp195f_musicnet_aligned_unet_extremelylarge_polyphony_softmax_rerun1.pt'
+# Create the necessary file hierarchy if it doesn't exist
+os.makedirs(os.path.join(deep_models_dir, 'models_pretrained'), exist_ok=True)
+# Construct paths for the downloaded files
+model_script_path = os.path.join(deep_models_dir, model_script_name)
+hcqt_script_path = os.path.join(deep_models_dir, hcqt_script_name)
+data_script_path = os.path.join(deep_models_dir, data_script_name)
+weights_path = os.path.join(deep_models_dir, 'models_pretrained', expr_name)
+try:
+    # Attempt to import the model and preprocessing code from ComparingDeepModelsMPE
+    from generated.deep_models.unet_cnns import simple_u_net_polyphony_classif_softmax
+    from generated.deep_models.hcqt import compute_efficient_hcqt
+    from generated.deep_models.hcqt_datasets import dataset_context
+except ModuleNotFoundError:
+    # Point to the top-level directory containing files to download
+    url_dir = 'https://raw.githubusercontent.com/christofw/multipitch_architectures/master'
+    # Construct the URLs of the files to download
+    model_script_url = f'{url_dir}/libdl/nn_models/{model_script_name}'
+    hcqt_script_url = f'{url_dir}/libdl/data_preprocessing/{hcqt_script_name}'
+    data_script_url = f'{url_dir}/libdl/data_loaders/{data_script_name}'
+    weights_url = f'{url_dir}/models_pretrained/{expr_name}'
+    # Download the script and weights files
+    stream_url_resource(model_script_url, model_script_path)
+    stream_url_resource(hcqt_script_url, hcqt_script_path)
+    stream_url_resource(data_script_url, data_script_path)
+    stream_url_resource(weights_url, weights_path)
 
-# Initialize a device pointer for loading the models
-device = torch.device(f'cuda:{gpu_id}' if torch.cuda.is_available() and gpu_id is not None else 'cpu')
+    # Fix one of the import lines
+    with open(hcqt_script_path, 'r+') as f:
+        # Read all the code lines
+        lines = f.readlines()  # Get a list of all lines
+        # Reset file pointer
+        f.seek(0)
+        # Update lines of code
+        lines[1] = 'import numpy as np\n'
+        lines[121] = '    tuning_est = librosa.estimate_tuning(y=f_audio, bins_per_octave=bins_per_octave)\n'
+        # Stop processing file
+        f.truncate()
+        # Overwrite the code
+        f.writelines(lines)
+
+    # Fix one of the import lines
+    with open(data_script_path, 'r+') as f:
+        # Read all the code lines
+        lines = f.readlines()  # Get a list of all lines
+        # Reset file pointer
+        f.seek(0)
+        # Remove unnecessary imports
+        lines.pop(5)
+        # Stop processing file
+        f.truncate()
+        # Overwrite the code
+        f.writelines(lines)
+
+    # Retry the original imports
+    from generated.deep_models.unet_cnns import simple_u_net_polyphony_classif_softmax
+    from generated.deep_models.hcqt import compute_efficient_hcqt
+    from generated.deep_models.hcqt_datasets import dataset_context
+
+# Initialize polyphony U-Net architecture
+PUnet_XL = simple_u_net_polyphony_classif_softmax(n_chan_input=6,
+                                                  n_chan_layers=[128, 180, 150, 100],
+                                                  #n_ch_out=2,
+                                                  n_bins_in=6 * 12 * 3,
+                                                  n_bins_out=72,
+                                                  a_lrelu=0.3,
+                                                  p_dropout=0.2,
+                                                  scalefac=2,
+                                                  num_polyphony_steps=24).to(device)
+
+# Define path to pre-trained weights for recommended MusicNet split (test set MuN-10full)
+model_path = os.path.join(deep_models_dir, 'models_pretrained', expr_name)
+
+# Load checkpoint, add to device, and switch to evaluation mode
+PUnet_XL.load_state_dict(torch.load(model_path))
+PUnet_XL.eval()
+
 
 # Construct the path to the final model checkpoint for the base Timbre-Trap model
 model_path = os.path.join('..', '..', 'timbre-trap', 'generated', 'experiments', 'Base', 'models', 'model-8750.pt')
@@ -267,6 +351,7 @@ for eval_set in [urmp_val, nsynth_val, bch10_test, su_test, trios_test, mnet_tes
     # Initialize evaluators for each algorithm/model
     bp_evaluator = MultipitchEvaluator()
     ds_evaluator = MultipitchEvaluator()
+    pu_evaluator = MultipitchEvaluator()
     tt_evaluator = MultipitchEvaluator()
     #cr_evaluator = MultipitchEvaluator()
     #pe_evaluator = MultipitchEvaluator()
@@ -297,6 +382,8 @@ for eval_set in [urmp_val, nsynth_val, bch10_test, su_test, trios_test, mnet_tes
 
         # Obtain a path for the track's audio
         audio_path = eval_set.get_audio_path(track)
+
+        """
         # Obtain predictions from the BasicPitch model
         model_output, _, _ = predict(audio_path, basic_pitch_model)
         # Extract the pitch salience predictions
@@ -331,11 +418,83 @@ for eval_set in [urmp_val, nsynth_val, bch10_test, su_test, trios_test, mnet_tes
         if verbose:
             # Print results for the individual track
             print_and_log(f'\t\t-(dp-slnc): {ds_results}', save_path)
+        """
+
+        # Load the audio using librosa for consistency
+        audio_lib, fs_lib = librosa.load(audio_path, sr=22050)
+
+        #n_bins_PUnet = 3 * 12 * 6
+        #min_pitch_PUnet = 24
+
+        f_hcqt, fs_hcqt, hopsize_cqt = compute_efficient_hcqt(audio_lib,
+                                                              fs=22050,
+                                                              fmin=librosa.note_to_hz('C1'),
+                                                              fs_hcqt_target=50,
+                                                              bins_per_octave=3 * 12,
+                                                              num_octaves=6,
+                                                              num_harmonics=5,
+                                                              num_subharmonics=1,
+                                                              center_bins=True)
+
+        test_params = {'batch_size': 1,
+                       'shuffle': False,
+                       'num_workers': 1
+                       }
+
+        test_dataset_params = {'context': 75,
+                               'stride': 1,
+                               'compression': 10
+                               }
+        half_context = test_dataset_params['context'] // 2
+
+        inputs = np.transpose(f_hcqt, (2, 1, 0))
+        targets = np.zeros(inputs.shape[1:])  # need dummy targets to use dataset object
+
+        inputs_context = torch.from_numpy(np.pad(inputs, ((0, 0), (half_context, half_context + 1), (0, 0))))
+        targets_context = torch.from_numpy(np.pad(targets, ((half_context, half_context + 1), (0, 0))))
+
+        test_set = dataset_context(inputs_context, targets_context, test_dataset_params)
+        test_generator = torch.utils.data.DataLoader(test_set, **test_params)
+
+        pred_tot = np.zeros((0, 72))
+
+        #max_frames = 160
+        #k = 0
+        for test_batch, test_labels in tqdm(test_generator, position=0, leave=True):
+            #k += 1
+            #if k > max_frames:
+            #    break
+            # Model computations
+            y_pred, n_pred = PUnet_XL(test_batch.to(device))
+            pred_log = torch.squeeze(torch.squeeze(y_pred, 2), 1).cpu().detach().numpy()
+            # pred_log = torch.squeeze(y_pred.to('cpu')).detach().numpy()
+            pred_tot = np.append(pred_tot, pred_log, axis=0)
+
+
+        pu_midi_freqs = 24 + np.arange(72)
+        pu_times = np.arange(pred_tot.shape[0]) / fs_hcqt
+
+        pu_salience = pred_tot.T
+        # Apply peak-picking and thresholding on the raw salience
+        #pu_salience = threshold(filter_non_peaks(pu_salience), 0.4)
+        # Apply thresholding on the raw salience
+        pu_salience = threshold(pu_salience, 0.4)
+        # Convert the activations to frame-level multi-pitch estimates
+        pu_multi_pitch = eval_set.activations_to_multi_pitch(pu_salience, pu_midi_freqs)
+        # Compute results for PUnet:XL predictions
+        pu_results = pu_evaluator.evaluate(pu_times, pu_multi_pitch, times_ref, multi_pitch_ref)
+        # Store results for this track
+        pu_evaluator.append_results(pu_results)
+
+        if verbose:
+            # Print results for the individual track
+            print_and_log(f'\t\t-(pu-netx): {pu_results}', save_path)
 
 
         # Extract audio and add to the appropriate device
         audio = data[constants.KEY_AUDIO].to(device).unsqueeze(0)
 
+        """
         # Pad audio to next multiple of block length
         audio_padded = tt_mpe.sliCQ.pad_to_block_length(audio)
         # Determine the times associated with features
@@ -356,6 +515,7 @@ for eval_set in [urmp_val, nsynth_val, bch10_test, su_test, trios_test, mnet_tes
         if verbose:
             # Print results for the individual track
             print_and_log(f'\t\t-(tt-mpe): {tt_results}', save_path)
+        """
 
         """
         # Obtain salience predictions from the CREPE model
