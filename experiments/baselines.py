@@ -21,11 +21,10 @@ import os
 
 
 # Disable CUDA to prevent cryptic errors
-#os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
 # Choose the GPU on which to perform evaluation
-#gpu_id = None
-gpu_id = 0
+gpu_id = None
 
 # Initialize a device pointer for loading the models
 device = torch.device(f'cuda:{gpu_id}' if torch.cuda.is_available() and gpu_id is not None else 'cpu')
@@ -383,7 +382,7 @@ for eval_set in [urmp_val, nsynth_val, bch10_test, su_test, trios_test, mnet_tes
         # Obtain a path for the track's audio
         audio_path = eval_set.get_audio_path(track)
 
-        """
+
         # Obtain predictions from the BasicPitch model
         model_output, _, _ = predict(audio_path, basic_pitch_model)
         # Extract the pitch salience predictions
@@ -418,7 +417,7 @@ for eval_set in [urmp_val, nsynth_val, bch10_test, su_test, trios_test, mnet_tes
         if verbose:
             # Print results for the individual track
             print_and_log(f'\t\t-(dp-slnc): {ds_results}', save_path)
-        """
+
 
         # Load the audio using librosa for consistency
         audio_lib, fs_lib = librosa.load(audio_path, sr=22050)
@@ -426,6 +425,7 @@ for eval_set in [urmp_val, nsynth_val, bch10_test, su_test, trios_test, mnet_tes
         #n_bins_PUnet = 3 * 12 * 6
         #min_pitch_PUnet = 24
 
+        # https://github.com/christofw/multipitch_architectures/blob/master/02_predict_with_pretrained_model.ipynb
         f_hcqt, fs_hcqt, hopsize_cqt = compute_efficient_hcqt(audio_lib,
                                                               fs=22050,
                                                               fmin=librosa.note_to_hz('C1'),
@@ -475,10 +475,9 @@ for eval_set in [urmp_val, nsynth_val, bch10_test, su_test, trios_test, mnet_tes
         pu_times = np.arange(pred_tot.shape[0]) / fs_hcqt
 
         pu_salience = pred_tot.T
-        # Apply peak-picking and thresholding on the raw salience
-        #pu_salience = threshold(filter_non_peaks(pu_salience), 0.4)
         # Apply thresholding on the raw salience
         pu_salience = threshold(pu_salience, 0.4)
+        #pu_salience = threshold(filter_non_peaks(pu_salience), 0.4)
         # Convert the activations to frame-level multi-pitch estimates
         pu_multi_pitch = eval_set.activations_to_multi_pitch(pu_salience, pu_midi_freqs)
         # Compute results for PUnet:XL predictions
@@ -494,7 +493,6 @@ for eval_set in [urmp_val, nsynth_val, bch10_test, su_test, trios_test, mnet_tes
         # Extract audio and add to the appropriate device
         audio = data[constants.KEY_AUDIO].to(device).unsqueeze(0)
 
-        """
         # Pad audio to next multiple of block length
         audio_padded = tt_mpe.sliCQ.pad_to_block_length(audio)
         # Determine the times associated with features
@@ -515,7 +513,6 @@ for eval_set in [urmp_val, nsynth_val, bch10_test, su_test, trios_test, mnet_tes
         if verbose:
             # Print results for the individual track
             print_and_log(f'\t\t-(tt-mpe): {tt_results}', save_path)
-        """
 
         """
         # Obtain salience predictions from the CREPE model
@@ -560,6 +557,7 @@ for eval_set in [urmp_val, nsynth_val, bch10_test, su_test, trios_test, mnet_tes
     # Print average results
     print_and_log(f'\t\t-(bsc-ptc): {bp_evaluator.average_results()[0]}', save_path)
     print_and_log(f'\t\t-(dp-slnc): {ds_evaluator.average_results()[0]}', save_path)
+    print_and_log(f'\t\t-(pu-netx): {pu_evaluator.average_results()[0]}', save_path)
     print_and_log(f'\t\t-(tt-mpe): {tt_evaluator.average_results()[0]}', save_path)
     #print_and_log(f'\t\t-(crepe): {cr_evaluator.average_results()[0]}', save_path)
     #print_and_log(f'\t\t-(pesto): {pe_evaluator.average_results()[0]}', save_path)

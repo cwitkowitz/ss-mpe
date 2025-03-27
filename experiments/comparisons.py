@@ -11,6 +11,7 @@ from timbre_trap.utils import *
 
 # Regular imports
 #from torchinfo import summary
+#from copy import deepcopy
 from tqdm import tqdm
 
 import librosa
@@ -26,7 +27,7 @@ import os
 #ex_name, checkpoint = 'base/URMP_SPV_T_G_LR5E-4_2_BS8_MC3_W100_TTFC', LATER
 #ex_name, checkpoint = 'base/URMP_SPV_T_P_LR5E-4_2_BS8_MC3_W100_TTFC', LATER
 #ex_name, checkpoint = 'base/URMP_SPV_G_P_LR5E-4_2_BS8_MC3_W100_TTFC', LATER
-#ex_name, checkpoint = 'base/URMP_SPV_T_G_P_LR5E-4_2_BS8_MC3_W100_TTFC', 9000
+ex_name, checkpoint = 'base/URMP_SPV_T_G_P_LR5E-4_2_BS8_MC3_W100_TTFC', 9000
 
 #ex_name, checkpoint = 'additional/URMP_SPV_T_G_P_+NSynth_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC', 7500
 #ex_name, checkpoint = 'additional/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC', 8500
@@ -34,28 +35,27 @@ import os
 
 #ex_name, checkpoint = 'energy/URMP_SPV_T_G_P_+NSynth_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC', 10000
 #ex_name, checkpoint = 'energy/URMP_SPV_T_G_P_+MNet_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC', 9750
-ex_name, checkpoint = 'energy/URMP_SPV_T_G_P_+FMA_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC', 8000
+#ex_name, checkpoint = 'energy/URMP_SPV_T_G_P_+FMA_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC', 8000
 
-#ex_name, checkpoint = 'two-stage/URMP_SPV_T_G_P_->+NSynth_LR1E-4|2_BS24_R0.66_MC3_W100_TTFC', TODO
-#ex_name, checkpoint = 'two-stage/URMP_SPV_T_G_P_->+MNet_LR1E-4|2_BS24_R0.66_MC3_W100_TTFC', DONE
-#ex_name, checkpoint = 'two-stage/URMP_SPV_T_G_P_->+FMA_LR1E-4|2_BS24_R0.66_MC3_W100_TTFC', DONE
+#ex_name, checkpoint = 'two-stage/URMP_SPV_T_G_P_-_+NSynth_LR1E-4_2_BS24_R0.66_MC3_W100_TTFC', LATER
+#ex_name, checkpoint = 'two-stage/URMP_SPV_T_G_P_-_+MNet_LR1E-4_2_BS24_R0.66_MC3_W100_TTFC', 7250
+#ex_name, checkpoint = 'two-stage/URMP_SPV_T_G_P_-_+FMA_LR1E-4_2_BS24_R0.66_MC3_W100_TTFC', 5500
 
 #ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+NSynth_LR5E-4_2_BS10_R0.2_MC3_W100_TTFC', 9750
-#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+NSynth_LR5E-4|2_BS12_R0.33_MC3_W100_TTFC', TODO
+#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+NSynth_LR5E-4_2_BS12_R0.33_MC3_W100_TTFC', LATER
 #ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+NSynth_LR5E-4_2_BS16_R0.5_MC3_W100_TTFC', 9250
 
 #ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS10_R0.2_MC3_W100_TTFC', TODO
-#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+MNet_LR5E-4|2_BS12_R0.33_MC3_W100_TTFC', TODO
-#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS16_R0.5_MC3_W100_TTFC', TODO
+#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS12_R0.33_MC3_W100_TTFC', TODO
+#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS16_R0.5_MC3_W100_TTFC', RUNNING
 
 #ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS10_R0.2_MC3_W100_TTFC', LATER
-#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+FMA_LR5E-4|2_BS12_R0.33_MC3_W100_TTFC', LATER
+#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS12_R0.33_MC3_W100_TTFC', LATER
 #ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS16_R0.5_MC3_W100_TTFC', LATER
 
-#ex_name, checkpoint = 'URMP-T1_SPV_T_G_P_LR5E-4|2_BS8_MC3_W100_TTFC', 5500
-#ex_name, checkpoint = 'URMP-T1_SPV_T_G_P_+URMP-T2_LR5E-4_2_BS18_R0.56_MC3_W100_TTFC', DONE
-#ex_name, checkpoint = 'URMP-T1_SPV_T_G_P_+Bach10_LR5E-4_2_BS18_R0.56_MC3_W100_TTFC', CANCELED
-#ex_name, checkpoint = 'URMP-T1_SPV_T_G_P_+MNet-Test_LR5E-4_2_BS18_R0.56_MC3_W100_TTFC', CANCELED
+#ex_name, checkpoint = 'dist/URMP-T1_SPV_T_G_P_LR5E-4_2_BS8_MC3_W100_TTFC', 5500 RERUN 10k
+#ex_name, checkpoint = 'dist/URMP-T1_SPV_T_G_P_+URMP-T2_LR5E-4_2_BS18_R0.56_MC3_W100_TTFC', 7250 RERUN 10k
+#ex_name, checkpoint = 'dist/URMP-T1_SPV_T_G_P_+URMP-T2_EG_SPR_LR5E-4_2_BS18_R0.56_MC3_W100_TTFC', RUNNING
 
 
 # Choose the GPU on which to perform evaluation
@@ -103,8 +103,11 @@ model_path = os.path.join(experiment_dir, 'models', f'model-{checkpoint}.pt')
 ss_mpe = SS_MPE.load(model_path, device=device)
 ss_mpe.eval()
 
-# Print out model parameters
-#TODO - summary(ss_mpe, input_size=(1, 6, 440, 344))
+# Create a copy of the model without the HCQT module
+#ss_mpe_copy = deepcopy(ss_mpe).cpu()
+#ss_mpe_copy.hcqt = None
+# Tabulate model layers and parameters
+#summary(ss_mpe_copy, input_size=(1, 6, 440, 345), device='cpu')
 
 
 ##############
