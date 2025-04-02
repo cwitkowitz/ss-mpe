@@ -207,7 +207,7 @@ class SS_MPE(nn.Module):
         """
 
         # Load a pre-existing model onto specified device
-        model = torch.load(model_path, map_location=device)
+        model = torch.load(model_path, map_location=device, weights_only=False)
         # Extract stored HCQT parameters
         hcqt_params = model.hcqt_params.copy()
         hcqt_params.pop('weights')

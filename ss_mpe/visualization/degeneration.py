@@ -82,7 +82,7 @@ for cp in [2500, 5000, 7500]:#, 10000]:
     model.eval()
 
     # Add the loaded model to dictionary
-    models.update({f'+FMA-2S@{cp}' : model})
+    models.update({f'+FMA-16-FT@{cp}' : model})
 
 
 ########################
@@ -207,7 +207,7 @@ for eval_set in [bch10_test, su_test, trios_test, mnet_test, gset_test]:
         # Axis management
         #axes[1].axis('on')
         axes[1].axis('off')
-        axes[1].set_title('All')
+        axes[1].set_title('Ref.')
         #axes[1].set_ylabel('')
         #axes[1].set_yticks([30, 40, 50, 60, 70, 80, 90, 100])
         #axes[1].set_yticklabels(['' for t in axes[1].get_yticks()])

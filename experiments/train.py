@@ -38,7 +38,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['URMP_SPV_T_G_P_LR1E-3|2_BS8_MC3_W100_TTFC'])
+EX_NAME = '_'.join(['URMP_SPV_T_G_P_LR5E-4|2_BS8_MC3_W100_TTFC'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -65,7 +65,7 @@ def config():
     n_secs = 4
 
     # Initial learning rate
-    learning_rate = 1e-3
+    learning_rate = 5e-4
 
     # Scaling factors for each loss term
     multipliers = {
@@ -84,6 +84,9 @@ def config():
         'feature' : 0,
         'supervised' : 1
     }
+
+    # Compute energy-based losses over supervised data as well
+    energy_based_on_supervised = False
 
     # Perform augmentations on input features for energy-based and/or supervised objectives
     augment_features = False
@@ -159,9 +162,10 @@ def config():
 
 @ex.automain
 def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_secs, learning_rate, multipliers,
-                augment_features, n_epochs_warmup, validation_criteria_set, validation_criteria_metric,
-                validation_criteria_maximize, n_epochs_decay, n_epochs_cooldown, n_epochs_early_stop, gpu_ids,
-                seed, sample_rate, hop_length, fmin, bins_per_octave, n_bins, harmonics, n_workers, root_dir):
+                energy_based_on_supervised, augment_features, n_epochs_warmup, validation_criteria_set,
+                validation_criteria_metric, validation_criteria_maximize, n_epochs_decay, n_epochs_cooldown,
+                n_epochs_early_stop, gpu_ids, seed, sample_rate, hop_length, fmin, bins_per_octave, n_bins,
+                harmonics, n_workers, root_dir):
     # Discard read-only types
     multipliers = dict(multipliers)
     harmonics = list(harmonics)
@@ -390,6 +394,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     # Determine number of samples for each type of training
     n_ss = batch_size_ss + batch_size_both
     n_sup = batch_size_sup + batch_size_both
+    n_eg = n_ss if energy_based_on_supervised else batch_size_ss
 
     # Default loaders to empty list
     loader_ss = list()
@@ -768,7 +773,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 with compute_grad(multipliers['energy']):
                     # Compute energy loss w.r.t. weighted harmonic sum for the batch
-                    energy_loss = compute_energy_loss(logits[:n_ss], features_db_h[:n_ss]) if n_ss else torch.tensor(0.)
+                    energy_loss = compute_energy_loss(logits[:n_eg], features_db_h[:n_eg]) if n_eg else torch.tensor(0.)
                     # Log the energy loss for this batch
                     writer.add_scalar('train/loss/energy', energy_loss.item(), batch_count)
 
@@ -776,7 +781,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 with compute_grad(multipliers['support']):
                     # Compute support loss w.r.t. first harmonic for the batch
-                    support_loss = compute_support_loss(logits[:n_ss], features_db_1[:n_ss]) if n_ss else torch.tensor(0.)
+                    support_loss = compute_support_loss(logits[:n_eg], features_db_1[:n_eg]) if n_eg else torch.tensor(0.)
                     # Log the support loss for this batch
                     writer.add_scalar('train/loss/support', support_loss.item(), batch_count)
 
@@ -784,7 +789,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 with compute_grad(multipliers['harmonic']):
                     # Compute harmonic loss w.r.t. weighted harmonic sum for the batch
-                    harmonic_loss = compute_harmonic_loss(logits[:n_ss], features_db_h[:n_ss]) if n_ss else torch.tensor(0.)
+                    harmonic_loss = compute_harmonic_loss(logits[:n_eg], features_db_h[:n_eg]) if n_eg else torch.tensor(0.)
                     # Log the harmonic loss for this batch
                     writer.add_scalar('train/loss/harmonic', harmonic_loss.item(), batch_count)
 
@@ -792,7 +797,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 with compute_grad(multipliers['sparsity']):
                     # Compute sparsity loss for the batch
-                    sparsity_loss = compute_sparsity_loss(activations[:n_ss]) if n_ss else torch.tensor(0.)
+                    sparsity_loss = compute_sparsity_loss(activations[:n_eg]) if n_eg else torch.tensor(0.)
                     # Log the sparsity loss for this batch
                     writer.add_scalar('train/loss/sparsity', sparsity_loss.item(), batch_count)
 
@@ -800,7 +805,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 with compute_grad(multipliers['entropy']):
                     # Compute entropy loss for the batch
-                    entropy_loss = compute_entropy_loss(logits[:n_ss]) if n_ss else torch.tensor(0.)
+                    entropy_loss = compute_entropy_loss(logits[:n_eg]) if n_eg else torch.tensor(0.)
                     # Log the entropy loss for this batch
                     writer.add_scalar('train/loss/entropy', entropy_loss.item(), batch_count)
 
@@ -808,7 +813,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 with compute_grad(multipliers['content']):
                     # Compute content loss for the batch
-                    content_loss = compute_content_loss(logits[:n_ss]) if n_ss else torch.tensor(0.)
+                    content_loss = compute_content_loss(logits[:n_eg]) if n_eg else torch.tensor(0.)
                     # Log the content loss for this batch
                     writer.add_scalar('train/loss/content', content_loss.item(), batch_count)
 
@@ -816,7 +821,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 with compute_grad(multipliers['contrastive']):
                     # Compute contrastive loss for the batch
-                    contrastive_loss = compute_contrastive_loss(activations[:n_ss]) if n_ss else torch.tensor(0.)
+                    contrastive_loss = compute_contrastive_loss(activations[:n_eg]) if n_eg else torch.tensor(0.)
                     # Log the contrastive loss for this batch
                     writer.add_scalar('train/loss/contrastive', contrastive_loss.item(), batch_count)
 

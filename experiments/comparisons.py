@@ -24,9 +24,9 @@ import os
 #ex_name, checkpoint = 'base/URMP_SPV_T_LR5E-4_2_BS8_MC3_W100_TTFC', 1000
 #ex_name, checkpoint = 'base/URMP_SPV_G_LR5E-4_2_BS8_MC3_W100_TTFC', 8750
 #ex_name, checkpoint = 'base/URMP_SPV_P_LR5E-4_2_BS8_MC3_W100_TTFC', 8500
-#ex_name, checkpoint = 'base/URMP_SPV_T_G_LR5E-4_2_BS8_MC3_W100_TTFC', LATER
-#ex_name, checkpoint = 'base/URMP_SPV_T_P_LR5E-4_2_BS8_MC3_W100_TTFC', LATER
-#ex_name, checkpoint = 'base/URMP_SPV_G_P_LR5E-4_2_BS8_MC3_W100_TTFC', LATER
+#ex_name, checkpoint = 'base/URMP_SPV_T_G_LR5E-4_2_BS8_MC3_W100_TTFC', 9500
+#ex_name, checkpoint = 'base/URMP_SPV_T_P_LR5E-4_2_BS8_MC3_W100_TTFC', 4250
+#ex_name, checkpoint = 'base/URMP_SPV_G_P_LR5E-4_2_BS8_MC3_W100_TTFC', 9250
 ex_name, checkpoint = 'base/URMP_SPV_T_G_P_LR5E-4_2_BS8_MC3_W100_TTFC', 9000
 
 #ex_name, checkpoint = 'additional/URMP_SPV_T_G_P_+NSynth_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC', 7500
@@ -37,24 +37,24 @@ ex_name, checkpoint = 'base/URMP_SPV_T_G_P_LR5E-4_2_BS8_MC3_W100_TTFC', 9000
 #ex_name, checkpoint = 'energy/URMP_SPV_T_G_P_+MNet_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC', 9750
 #ex_name, checkpoint = 'energy/URMP_SPV_T_G_P_+FMA_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC', 8000
 
-#ex_name, checkpoint = 'two-stage/URMP_SPV_T_G_P_-_+NSynth_LR1E-4_2_BS24_R0.66_MC3_W100_TTFC', LATER
+#ex_name, checkpoint = 'two-stage/URMP_SPV_T_G_P_-_+NSynth_LR1E-4_2_BS24_R0.66_MC3_W100_TTFC', 8750
 #ex_name, checkpoint = 'two-stage/URMP_SPV_T_G_P_-_+MNet_LR1E-4_2_BS24_R0.66_MC3_W100_TTFC', 7250
 #ex_name, checkpoint = 'two-stage/URMP_SPV_T_G_P_-_+FMA_LR1E-4_2_BS24_R0.66_MC3_W100_TTFC', 5500
 
 #ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+NSynth_LR5E-4_2_BS10_R0.2_MC3_W100_TTFC', 9750
-#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+NSynth_LR5E-4_2_BS12_R0.33_MC3_W100_TTFC', LATER
+#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+NSynth_LR5E-4_2_BS12_R0.33_MC3_W100_TTFC', 7500
 #ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+NSynth_LR5E-4_2_BS16_R0.5_MC3_W100_TTFC', 9250
 
-#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS10_R0.2_MC3_W100_TTFC', TODO
-#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS12_R0.33_MC3_W100_TTFC', TODO
-#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS16_R0.5_MC3_W100_TTFC', RUNNING
+#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS10_R0.2_MC3_W100_TTFC', 6750
+#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS12_R0.33_MC3_W100_TTFC', 10000
+#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS16_R0.5_MC3_W100_TTFC', 8500
 
-#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS10_R0.2_MC3_W100_TTFC', LATER
-#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS12_R0.33_MC3_W100_TTFC', LATER
-#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS16_R0.5_MC3_W100_TTFC', LATER
+#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS10_R0.2_MC3_W100_TTFC', 6750
+#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS12_R0.33_MC3_W100_TTFC', 9750
+#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS16_R0.5_MC3_W100_TTFC', 5250
 
-#ex_name, checkpoint = 'dist/URMP-T1_SPV_T_G_P_LR5E-4_2_BS8_MC3_W100_TTFC', 5500 RERUN 10k
-#ex_name, checkpoint = 'dist/URMP-T1_SPV_T_G_P_+URMP-T2_LR5E-4_2_BS18_R0.56_MC3_W100_TTFC', 7250 RERUN 10k
+#ex_name, checkpoint = 'dist/URMP-T1_SPV_T_G_P_LR5E-4_2_BS8_MC3_W100_TTFC', 5500 RERUN 10000
+#ex_name, checkpoint = 'dist/URMP-T1_SPV_T_G_P_+URMP-T2_LR5E-4_2_BS18_R0.56_MC3_W100_TTFC', 7250 RERUN 9500
 #ex_name, checkpoint = 'dist/URMP-T1_SPV_T_G_P_+URMP-T2_EG_SPR_LR5E-4_2_BS18_R0.56_MC3_W100_TTFC', RUNNING
 
 

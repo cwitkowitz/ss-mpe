@@ -1,5 +1,9 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
+# My imports
+from timbre_trap.utils import *
+
+# Regular imports
 import torch.nn.functional as F
 import torch
 
@@ -76,10 +80,12 @@ def compute_entropy_loss(embeddings):
 
 # TODO - can modulate by amount of energy in input (rms threshold 0.01)
 # TODO - should pick peaks before taking max if topk > 1
-def compute_content_loss(embeddings, n_bins_blur_decay=2.5):
+def compute_content_loss(embeddings, topk=1, rms_values=None, rms_thr=0.01, n_bins_blur_decay=2.5):
     with torch.no_grad():
         # Initialize targets for content loss
         targets = torch.zeros_like(embeddings)
+
+        # TODO - filter_non_peaks on embeddings
 
         # Determine index of maximum activation within each frame
         max_idcs = torch.argmax(embeddings, dim=-2, keepdim=True)

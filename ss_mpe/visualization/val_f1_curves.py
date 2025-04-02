@@ -14,25 +14,26 @@ import os
 # Experiments to plot
 experiments = {
     'base/URMP_SPV_T_G_P_LR5E-4_2_BS8_MC3_W100_TTFC' : ('Ref.', 'black'),
-    #'additional/URMP_SPV_T_G_P_+NSynth_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+NSynth', 'gold'),
-    #'energy/URMP_SPV_T_G_P_+NSynth_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+NSynth+EG', 'forestgreen'),
-    #'additional/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+MusicNet', 'red'),
-    #'two-stage/URMP_SPV_T_G_P_-_+MNet_LR1E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+MusicNet-2S', 'orangered'),
-    #'energy/URMP_SPV_T_G_P_+MNet_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+MusicNet+EG', 'darkorange'),
-    #'additional/URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+FMA', 'darkcyan'),
-    #'two-stage/URMP_SPV_T_G_P_-_+FMA_LR1E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+FMA-2S', 'blue'),
-    #'energy/URMP_SPV_T_G_P_+FMA_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+FMA+EG', 'purple'),
 
-    #'additional/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS10_R0.2_MC3_W100_TTFC' : ('+MN-2', 'gold'),
-    #'additional/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS12_R0.33_MC3_W100_TTFC' : ('+MN-4', 'gold'),
-    #'additional/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS16_R0.5_MC3_W100_TTFC' : ('+MN-8', 'darkorange'),
-    'additional/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+MN-16', 'red'),
-    #'energy/URMP_SPV_T_G_P_+MNet_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+MN+EG', 'arkorange'),
-    #'two-stage/URMP_SPV_T_G_P_-_+MNet_LR1E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+MN-16-FT', 'brown')
+    'additional/URMP_SPV_T_G_P_+NSynth_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+NS-16', 'darkorange'),
+    'energy/URMP_SPV_T_G_P_+NSynth_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+NS-16+EG', 'maroon'),
+    'additional/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+MN-16', 'violet'),
+    'energy/URMP_SPV_T_G_P_+MNet_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+MN-16+EG', 'deepskyblue'),
+    'two-stage/URMP_SPV_T_G_P_-_+MNet_LR1E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+MN-16-FT', 'darkslateblue'),
+    'additional/URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+FMA-16', 'darkgoldenrod'),
+    'energy/URMP_SPV_T_G_P_+FMA_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+FMA-16+EG', 'darkkhaki'),
+    'two-stage/URMP_SPV_T_G_P_-_+FMA_LR1E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+FMA-16-FT', 'darkgreen')
 
-    #'dist/URMP-T1_SPV_T_G_P_LR5E-4_2_BS8_MC3_W100_TTFC' : ('T1', 'purple'),
-    #'dist/URMP-T1_SPV_T_G_P_+URMP-T2_LR5E-4_2_BS18_R0.56_MC3_W100_TTFC' : ('T1/T2', 'blue'),
-    #'dist/URMP-T1_SPV_T_G_P_+URMP-T2_EG_SPR_LR5E-4_2_BS18_R0.56_MC3_W100_TTFC' : ('T1/T2+EG', 'green')
+    #'additional/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC': ('+MN-16', 'darkred'),
+    #'batch/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS16_R0.5_MC3_W100_TTFC' : ('+MN-8', 'orangered'),
+    #'batch/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS12_R0.33_MC3_W100_TTFC' : ('+MN-4', 'orange'),
+    #'batch/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS10_R0.2_MC3_W100_TTFC' : ('+MN-2', 'gold'),
+    #'energy/URMP_SPV_T_G_P_+MNet_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+MN-16+EG', 'deepskyblue'),
+    #'two-stage/URMP_SPV_T_G_P_-_+MNet_LR1E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+MN-16-FT', 'darkslateblue')
+
+    #'dist/URMP-T1_SPV_T_G_P_LR5E-4_2_BS8_MC3_W100_TTFC' : ('T1', 'blue'),
+    #'dist/URMP-T1_SPV_T_G_P_+URMP-T2_LR5E-4_2_BS18_R0.56_MC3_W100_TTFC' : ('T1/T2', 'green'),
+    #'dist/URMP-T1_SPV_T_G_P_+URMP-T2_EG_SPR_LR5E-4_2_BS18_R0.56_MC3_W100_TTFC' : ('T1/T2+EG', 'purple')
 }
 
 # File layout of system (0 - desktop | 1 - lab)
@@ -119,6 +120,7 @@ for exp, (tag, color) in experiments.items():
 
     df = pd.DataFrame(all_data).T
     df = df[:10000].dropna()
+    #df = df[:7500].dropna()
 
     steps = df.index.to_numpy()
     f1_urmp_val = df['URMP/mpe/f1-score'].to_numpy()
@@ -142,9 +144,9 @@ for (i, j) in idcs.values():
     axes[i, j].set_xlabel('# Batches')
     axes[i, j].set_ylabel('$\mathit{F_1}$-Score')
 # Add a legend below the subplots
-#fig.legend(labels, loc='lower center', bbox_to_anchor=(0.5, 0.0), ncol=9, frameon=False)
-#fig.legend(labels, loc='lower center', bbox_to_anchor=(0.5, 0.0), ncol=3, frameon=False)
-fig.legend(labels, loc='lower center', bbox_to_anchor=(0.5, 0.0), ncol=2, frameon=False)
+fig.legend(labels, loc='lower center', bbox_to_anchor=(0.5, 0.0), ncol=9, frameon=False)
+#fig.legend(labels, loc='lower center', bbox_to_anchor=(0.5, 0.0), ncol=7, frameon=False)
+#fig.legend(labels, loc='lower center', bbox_to_anchor=(0.5, 0.0), ncol=4, frameon=False)
 
 # Open the figure manually
 plt.show(block=False)
