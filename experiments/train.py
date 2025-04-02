@@ -741,6 +741,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             features_db = features['db']
             features_db_1 = features['db_1']
             features_db_h = features['db_h']
+            features_rms_vals = features['rms']
 
             if augment_features:
                 # Superimpose percussion audio onto augmented audio

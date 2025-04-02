@@ -1,7 +1,7 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from timbre_trap.utils import *
+from .utils import filter_non_peaks_torch
 
 # Regular imports
 import torch.nn.functional as F
@@ -78,20 +78,20 @@ def compute_entropy_loss(embeddings):
     return entropy_loss
 
 
-# TODO - can modulate by amount of energy in input (rms threshold 0.01)
-# TODO - should pick peaks before taking max if topk > 1
-def compute_content_loss(embeddings, topk=1, rms_values=None, rms_thr=0.01, n_bins_blur_decay=2.5):
+def compute_content_loss(embeddings, k=1, rms_vals=None, rms_thr=0.01, n_bins_blur_decay=2.5):
     with torch.no_grad():
         # Initialize targets for content loss
         targets = torch.zeros_like(embeddings)
 
-        # TODO - filter_non_peaks on embeddings
+        # Filter out all non-peaks (along frequency) from logits
+        #embeddings_peak = torch.from_numpy(filter_non_peaks(embeddings.sigmoid().cpu())).to(embeddings.device)
+        embeddings_peak = filter_non_peaks_torch(embeddings, fill_val=-torch.inf)
 
-        # Determine index of maximum activation within each frame
-        max_idcs = torch.argmax(embeddings, dim=-2, keepdim=True)
+        # Determine indices of maximum activation within each frame
+        topk_idcs = torch.topk(embeddings_peak, dim=-2, k=k).indices
 
-        # Insert unit activations at maximum
-        targets.scatter_(-2, max_idcs, 1)
+        # Insert unit activations at maxima
+        targets.scatter_(-2, topk_idcs, 1)
 
         if n_bins_blur_decay:
             # Compute standard deviation for kernel
@@ -119,8 +119,21 @@ def compute_content_loss(embeddings, topk=1, rms_values=None, rms_thr=0.01, n_bi
     # Compute content loss as BCE of activations with respect to binarized and blurred maximum activations (positive activations only)
     content_loss = F.binary_cross_entropy_with_logits(-embeddings, (1 - targets), reduction='none', pos_weight=neg_weight)
 
-    # Sum across frequency bins and average across time and batch
-    content_loss = content_loss.sum(-2).mean(-1).mean(-1)
+    # Sum loss across frequency bins
+    content_loss = content_loss.sum(-2)
+
+    if rms_vals is not None:
+        # Ignore loss for frames below RMS threshold
+        #content_loss = [c[rms_vals[i] >= rms_thr] for i, c in enumerate(content_loss)]
+        # Compute average for each sample protecting against empty frames
+        #content_loss = torch.Tensor([c.mean() if c.size(-1) else 0. for c in content_loss])
+        content_loss = torch.Tensor([c[rms_vals[i] >= rms_thr].mean() for i, c in enumerate(content_loss)]).to(embeddings.device)
+        # Compute average across batch
+        #content_loss = torch.mean(content_loss.to(embeddings.device))
+        content_loss = torch.mean(content_loss[torch.logical_not(content_loss.isnan())])
+    else:
+        # Average loss across time and batch
+        content_loss = content_loss.mean(-1).mean(-1)
 
     return content_loss
 
