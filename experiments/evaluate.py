@@ -103,8 +103,7 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
             evaluator.append_results({'loss/entropy' : entropy_loss.item()})
 
             # Compute content loss for the track
-            content_loss = compute_content_loss(logits, k=1)
-            #content_loss = compute_content_loss(logits, k=1, rms_vals=features_rms_vals)
+            content_loss = compute_content_loss(logits, k=1, rms_vals=features_rms_vals)
             # Store the content loss for the track
             evaluator.append_results({'loss/content' : content_loss.item()})
 

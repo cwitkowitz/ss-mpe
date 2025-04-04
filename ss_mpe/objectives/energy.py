@@ -1,9 +1,5 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
-# My imports
-from .utils import filter_non_peaks_torch
-
-# Regular imports
 import torch.nn.functional as F
 import torch
 
@@ -78,13 +74,54 @@ def compute_entropy_loss(embeddings):
     return entropy_loss
 
 
+def filter_non_peaks_torch(_tnsr, fill_val=0.):
+    """
+    Remove any values that are not peaks along the vertical axis.
+
+    Parameters
+    ----------
+    tnsr : Tensor (... x H x W)
+      Original data
+
+    Returns
+    ----------
+    tnsr : Tensor (... x H x W)
+      Data with non-peaks removed
+    """
+
+    # Initialize array to hold filtered data
+    tnsr = fill_val * torch.ones_like(_tnsr)
+
+    # Create a tensor for positive boolean values
+    bound = torch.BoolTensor([True]).to(_tnsr.device)
+    # Extend boolean tensor along additional dimensions
+    bound = bound.repeat(tuple(_tnsr.shape[:-2]) + (1, _tnsr.shape[-1]))
+
+    # Determine which frequency bins have increasing activations
+    increasing_activations = _tnsr[..., 1:, :] > _tnsr[..., :-1, :]
+    # Add boundary for first bin of activations assuming increase
+    increasing_activations = torch.cat([bound, increasing_activations], dim=-2)
+
+    # Determine which frequency bins have decreasing activations
+    decreasing_activations = _tnsr[..., :-1, :] > _tnsr[..., 1:, :]
+    # Add boundary for last bin of activations assuming decrease
+    decreasing_activations = torch.cat([decreasing_activations, bound], dim=-2)
+
+    # Determine which frequency bins have activation peaks
+    peaks = torch.logical_and(increasing_activations, decreasing_activations)
+
+    # Insert activations at peaks
+    tnsr[peaks] = _tnsr[peaks]
+
+    return tnsr
+
+
 def compute_content_loss(embeddings, k=1, rms_vals=None, rms_thr=0.01, n_bins_blur_decay=2.5):
     with torch.no_grad():
         # Initialize targets for content loss
         targets = torch.zeros_like(embeddings)
 
         # Filter out all non-peaks (along frequency) from logits
-        #embeddings_peak = torch.from_numpy(filter_non_peaks(embeddings.sigmoid().cpu())).to(embeddings.device)
         embeddings_peak = filter_non_peaks_torch(embeddings, fill_val=-torch.inf)
 
         # Determine indices of maximum activation within each frame
@@ -123,13 +160,11 @@ def compute_content_loss(embeddings, k=1, rms_vals=None, rms_thr=0.01, n_bins_bl
     content_loss = content_loss.sum(-2)
 
     if rms_vals is not None:
-        # Ignore loss for frames below RMS threshold
-        #content_loss = [c[rms_vals[i] >= rms_thr] for i, c in enumerate(content_loss)]
-        # Compute average for each sample protecting against empty frames
-        #content_loss = torch.Tensor([c.mean() if c.size(-1) else 0. for c in content_loss])
-        content_loss = torch.Tensor([c[rms_vals[i] >= rms_thr].mean() for i, c in enumerate(content_loss)]).to(embeddings.device)
-        # Compute average across batch
-        #content_loss = torch.mean(content_loss.to(embeddings.device))
+        # Ignore content loss for frames with energy below RMS threshold for each track
+        content_loss_ = [c[rms_vals[i] >= rms_thr] for i, c in enumerate(content_loss)]
+        # Compute average content loss across valid frames for each track and repack tensor
+        content_loss = torch.Tensor([c.mean() for c in content_loss_]).to(embeddings.device)
+        # Compute average across batch for valid (non-silent) tracks only
         content_loss = torch.mean(content_loss[torch.logical_not(content_loss.isnan())])
     else:
         # Average loss across time and batch
