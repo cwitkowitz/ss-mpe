@@ -14,6 +14,7 @@ from timbre_trap.datasets import ComboDataset
 
 from ss_mpe.datasets.SoloMultiPitch import NSynth
 from ss_mpe.datasets.AudioMixtures import E_GMD
+from ss_mpe.datasets import BalancedComboDataset
 
 from ss_mpe.framework import SS_MPE, TT_Base, TT_Enc, PerfectPitch
 from ss_mpe.objectives import *
@@ -53,7 +54,7 @@ def config():
     checkpoint_path = None
 
     # Maximum number of training iterations to conduct
-    max_epochs = 2500
+    max_epochs = 12500
 
     # Number of iterations between checkpoints
     checkpoint_interval = 250
@@ -352,9 +353,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     #train_ss.append(urmp_mixes_ss)
 
     # Combine training datasets
-    train_ss = ComboDataset(train_ss)
-    train_sup = ComboDataset(train_sup)
-    train_both = ComboDataset(train_both)
+    train_ss = BalancedComboDataset(train_ss)
+    train_sup = BalancedComboDataset(train_sup)
+    train_both = BalancedComboDataset(train_both)
 
     # Ratio for self-supervised to supervised training data
     ss_ratio = 0.66
@@ -704,6 +705,11 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     # Loop through epochs
     for i in range(max_epochs):
+        # Shuffle balanced combo datasets
+        train_ss.shuffle_datasets()
+        train_sup.shuffle_datasets()
+        train_both.shuffle_datasets()
+
         # Loop through batches of both types of data
         for (data_ss, data_sup, data_both) in tqdm(zip(loader_ss, loader_sup, loader_both), desc=f'Epoch {i + 1}'):
             # Increment the batch counter
@@ -814,7 +820,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 with compute_grad(multipliers['content']):
                     # Compute content loss for the batch
-                    content_loss = compute_content_loss(logits[:n_eg]) if n_eg else torch.tensor(0.)
+                    content_loss = compute_content_loss(logits[:n_eg], k=1) if n_eg else torch.tensor(0.)
+                    #content_loss = compute_content_loss(logits[:n_eg], k=1, rms_vals=features_rms_vals) if n_eg else torch.tensor(0.)
                     # Log the content loss for this batch
                     writer.add_scalar('train/loss/content', content_loss.item(), batch_count)
 
