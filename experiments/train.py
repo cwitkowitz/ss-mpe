@@ -820,6 +820,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 with compute_grad(multipliers['content']):
                     # Compute content loss for the batch
+                    # TODO - designated kwargs dictionary for content loss?
                     content_loss = compute_content_loss(logits[:n_eg], k=1, rms_vals=features_rms_vals[:n_eg]) if n_eg else torch.tensor(0.)
                     # Log the content loss for this batch
                     writer.add_scalar('train/loss/content', content_loss.item(), batch_count)

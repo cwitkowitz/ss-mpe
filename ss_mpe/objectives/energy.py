@@ -162,8 +162,8 @@ def compute_content_loss(embeddings, k=1, rms_vals=None, rms_thr=0.01, n_bins_bl
     if rms_vals is not None:
         # Ignore content loss for frames with energy below RMS threshold for each track
         content_loss_ = [c[rms_vals[i] >= rms_thr] for i, c in enumerate(content_loss)]
-        # Compute average content loss across valid frames for each track and repack tensor
-        content_loss = torch.Tensor([c.mean() for c in content_loss_]).to(embeddings.device)
+        # Compute average across valid frames for each track and repack
+        content_loss = torch.stack([c.mean() for c in content_loss_])
         # Compute average across batch for valid (non-silent) tracks only
         content_loss = torch.mean(content_loss[torch.logical_not(content_loss.isnan())])
     else:
