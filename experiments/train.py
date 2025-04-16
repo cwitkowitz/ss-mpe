@@ -645,7 +645,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     percussive_sets.append(egmd)
 
     # Combine percussive and noise datasets
-    percussive_set_combo = ComboDataset(percussive_sets)
+    percussive_set_combo = BalancedComboDataset(percussive_sets)
 
     # Maximum volume of percussion relative to original audio
     max_volume = 1.0
@@ -679,7 +679,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     additive_sets.append(nsynth_train)
 
     # Combine additive datasets
-    additive_set_combo = ComboDataset(additive_sets)
+    additive_set_combo = BalancedComboDataset(additive_sets)
 
     # Set keyword arguments for additive mixtures
     ad_kwargs = {
