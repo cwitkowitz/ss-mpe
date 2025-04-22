@@ -157,8 +157,10 @@ def compute_geometric_loss(model, features, targets, **gm_kwargs):
 
     # Compute geometric loss as BCE of embeddings computed from transformed features with respect to transformed targets
     geometric_loss = F.binary_cross_entropy_with_logits(transformation_embeddings, transformed_targets, reduction='none')
+    #geometric_loss = F.cross_entropy(transformation_embeddings, transformed_targets, reduction='none')
 
     # Sum across frequency bins and average across time and batch
     geometric_loss = geometric_loss.sum(-2).mean(-1).mean(-1)
+    #geometric_loss = geometric_loss.mean(-1).mean(-1)
 
     return geometric_loss

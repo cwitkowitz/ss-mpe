@@ -255,8 +255,10 @@ def compute_timbre_loss(model, features, targets, **eq_kwargs):
 
     # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original targets
     timbre_loss = F.binary_cross_entropy_with_logits(equalization_embeddings, targets, reduction='none')
+    #timbre_loss = F.cross_entropy(equalization_embeddings, targets, reduction='none')
 
     # Sum across frequency bins and average across time and batch
     timbre_loss = timbre_loss.sum(-2).mean(-1).mean(-1)
+    #timbre_loss = timbre_loss.mean(-1).mean(-1)
 
     return timbre_loss

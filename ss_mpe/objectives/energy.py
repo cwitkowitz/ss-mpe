@@ -1,5 +1,9 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
+# My imports
+from .utils import filter_non_peaks_torch, gate_and_average_loss
+
+# Regular imports
 from torch.distributions.categorical import Categorical
 
 import torch.nn.functional as F
@@ -76,49 +80,7 @@ def compute_entropy_loss(embeddings):
     return entropy_loss
 
 
-def filter_non_peaks_torch(_tnsr, fill_val=0.):
-    """
-    Remove any values that are not peaks along the vertical axis.
-
-    Parameters
-    ----------
-    tnsr : Tensor (... x H x W)
-      Original data
-
-    Returns
-    ----------
-    tnsr : Tensor (... x H x W)
-      Data with non-peaks removed
-    """
-
-    # Initialize array to hold filtered data
-    tnsr = fill_val * torch.ones_like(_tnsr)
-
-    # Create a tensor for positive boolean values
-    bound = torch.BoolTensor([True]).to(_tnsr.device)
-    # Extend boolean tensor along additional dimensions
-    bound = bound.repeat(tuple(_tnsr.shape[:-2]) + (1, _tnsr.shape[-1]))
-
-    # Determine which frequency bins have increasing activations
-    increasing_activations = _tnsr[..., 1:, :] > _tnsr[..., :-1, :]
-    # Add boundary for first bin of activations assuming increase
-    increasing_activations = torch.cat([bound, increasing_activations], dim=-2)
-
-    # Determine which frequency bins have decreasing activations
-    decreasing_activations = _tnsr[..., :-1, :] > _tnsr[..., 1:, :]
-    # Add boundary for last bin of activations assuming decrease
-    decreasing_activations = torch.cat([decreasing_activations, bound], dim=-2)
-
-    # Determine which frequency bins have activation peaks
-    peaks = torch.logical_and(increasing_activations, decreasing_activations)
-
-    # Insert activations at peaks
-    tnsr[peaks] = _tnsr[peaks]
-
-    return tnsr
-
-
-def compute_content_loss(embeddings, k=100, rms_vals=None, rms_thr=0.01, n_bins_blur_decay=2.5):
+def compute_content_loss(embeddings, n_bins_blur_decay=2.5, k=1, rms_vals=None, rms_thr=0.01):
     with torch.no_grad():
         # Initialize targets for content loss
         targets = torch.zeros_like(embeddings)
@@ -170,27 +132,23 @@ def compute_content_loss(embeddings, k=100, rms_vals=None, rms_thr=0.01, n_bins_
     #content_loss = F.binary_cross_entropy_with_logits(embeddings, targets, reduction='none')
     #content_loss = F.binary_cross_entropy_with_logits(-embeddings.repeat(k, 1, 1, 1), (1 - targets), reduction='none', pos_weight=neg_weight)
 
-    # Sum loss across frequency bins
+    # Sum across frequency bins
     content_loss = content_loss.sum(-2)
 
     # Average across samples
     #content_loss = content_loss.mean(0)
 
     if rms_vals is not None:
-        # Ignore content loss for frames with energy below RMS threshold for each track
-        content_loss_ = [c[rms_vals[i] >= rms_thr] for i, c in enumerate(content_loss)]
-        # Compute average across valid frames for each track and repack
-        content_loss = torch.stack([c.mean() for c in content_loss_])
-        # Compute average across batch for valid (non-silent) tracks only
-        content_loss = torch.mean(content_loss[torch.logical_not(content_loss.isnan())])
+        # Gate based on RMS values and average across time and batch
+        content_loss = gate_and_average_loss(content_loss, rms_vals, rms_thr)
     else:
-        # Average loss across time and batch
+        # Average across time and batch
         content_loss = content_loss.mean(-1).mean(-1)
 
     return content_loss
 
 
-def compute_contrastive_loss(activations, tau=0.1):
+def compute_contrastive_loss(activations, tau=0.1, rms_vals=None, rms_thr=0.01):
     # Determine batch size and number of frames
     (B, _, T) = activations.size()
 
@@ -209,9 +167,13 @@ def compute_contrastive_loss(activations, tau=0.1):
     labels = torch.arange(B, device=activations.device).repeat(T, 1)
 
     # Compute contrastive loss as CCE of similarities with respect to identity mapping
-    contrastive_loss = F.cross_entropy(similarities, labels, reduction='none')
+    contrastive_loss = F.cross_entropy(similarities, labels, reduction='none').transpose(-1, -2)
 
-    # Average across batch and time
-    contrastive_loss = contrastive_loss.mean(-1).mean(-1)
+    if rms_vals is not None:
+        # Gate based on RMS values and average across time and batch
+        contrastive_loss = gate_and_average_loss(contrastive_loss, rms_vals, rms_thr)
+    else:
+        # Average across batch and time
+        contrastive_loss = contrastive_loss.mean(-1).mean(-1)
 
     return contrastive_loss

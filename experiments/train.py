@@ -829,7 +829,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 with compute_grad(multipliers['contrastive']):
                     # Compute contrastive loss for the batch
-                    contrastive_loss = compute_contrastive_loss(activations[:n_eg]) if n_eg else torch.tensor(0.)
+                    contrastive_loss = compute_contrastive_loss(activations[:n_eg], rms_vals=features_rms_vals[:n_eg]) if n_eg else torch.tensor(0.)
                     # Log the contrastive loss for this batch
                     writer.add_scalar('train/loss/contrastive', contrastive_loss.item(), batch_count)
 
@@ -885,7 +885,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 with compute_grad(multipliers['supervised']):
                     # Compute supervised BCE loss for the batch
-                    supervised_loss = compute_supervised_loss(logits[batch_size_ss:], ground_truth, False) if n_sup else torch.tensor(0.)
+                    supervised_loss = compute_supervised_loss(logits[batch_size_ss:], ground_truth) if n_sup else torch.tensor(0.)
+                    #supervised_loss = compute_supervised_loss(logits[batch_size_ss:], ground_truth, rms_vals=features_rms_vals[batch_size_ss:]) if n_sup else torch.tensor(0.)
                     # Log the supervised BCE loss for this batch
                     writer.add_scalar('train/loss/supervised', supervised_loss.item(), batch_count)
 

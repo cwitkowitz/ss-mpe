@@ -108,8 +108,10 @@ def compute_additivity_loss(model, audio, targets, **ad_kwargs):
 
     # Compute additivity loss as BCE of embeddings computed from mixed features with respect to mixed targets
     additivity_loss = F.binary_cross_entropy_with_logits(mixed_embeddings, mixed_targets, reduction='none')
+    #additivity_loss = F.cross_entropy(mixed_embeddings, mixed_targets, reduction='none')
 
     # Sum across frequency bins and average across time and batch
     additivity_loss = additivity_loss.sum(-2).mean(-1).mean(-1)
+    #additivity_loss = additivity_loss.mean(-1).mean(-1)
 
     return additivity_loss

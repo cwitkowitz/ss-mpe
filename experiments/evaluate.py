@@ -61,11 +61,13 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
             logits = model(features_db)
             # Convert to (implicit) pitch salience activations
             raw_activations = torch.sigmoid(logits)
+            #raw_activations = torch.softmax(logits, dim=-2)
 
             # Determine the times associated with predictions
             times_est = model.hcqt.get_times(model.hcqt.get_expected_frames(audio.size(-1)))
             # Perform peak-picking and thresholding on the activations
             activations = threshold(filter_non_peaks(to_array(raw_activations)), 0.5).squeeze(0)
+            #activations = threshold(filter_non_peaks(to_array(raw_activations)), 0.01).squeeze(0)
 
             # Convert the activations to frame-level multi-pitch estimates
             multi_pitch_est = eval_set.activations_to_multi_pitch(activations, model.hcqt.get_midi_freqs())
@@ -108,12 +110,13 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
             evaluator.append_results({'loss/content' : content_loss.item()})
 
             # Compute contrastive loss for the track
-            contrastive_loss = compute_contrastive_loss(raw_activations)
+            contrastive_loss = compute_contrastive_loss(raw_activations, rms_vals=features_rms_vals)
             # Store the contrastive loss for the track
             evaluator.append_results({'loss/contrastive' : contrastive_loss.item()})
 
             # Compute supervised BCE loss for the batch
             supervised_loss = compute_supervised_loss(logits, ground_truth)
+            #supervised_loss = compute_supervised_loss(logits, ground_truth, rms_vals=features_rms_vals)
             # Store the supervised loss for the track
             evaluator.append_results({'loss/supervised' : supervised_loss.item()})
 
