@@ -165,6 +165,7 @@ class SS_MPE(nn.Module):
             features = self.hcqt.to_decibels(self.hcqt(audio), rescale=True)
 
             # Process features and convert to activations
+            # TODO - invalid for CCE-formulation
             salience = torch.sigmoid(self(features)[0])
 
         return salience

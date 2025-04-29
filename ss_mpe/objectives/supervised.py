@@ -14,9 +14,15 @@ __all__ = [
 
 
 def compute_supervised_loss(embeddings, ground_truth, weight_positive_class=False, rms_vals=None, rms_thr=0.01):
+    # Normalize activations for probabilities
+    total_energy = ground_truth.sum(-2)
+    ground_truth.transpose(-1, -2)[total_energy > 0] /= total_energy[total_energy > 0].unsqueeze(-1)
+
+    ground_truth = torch.cat(((total_energy == 0).unsqueeze(-2), ground_truth), dim=-2)
+
     # Compute supervised loss as BCE of activations with respect to ground-truth
-    supervised_loss = F.binary_cross_entropy_with_logits(embeddings, ground_truth, reduction='none')
-    #supervised_loss = F.cross_entropy(embeddings, ground_truth, reduction='none')
+    #supervised_loss = F.binary_cross_entropy_with_logits(embeddings, ground_truth, reduction='none')
+    supervised_loss = F.cross_entropy(embeddings, ground_truth, reduction='none')
 
     if weight_positive_class:
         # Sum binarized ground-truth and its complement for weights
@@ -34,7 +40,7 @@ def compute_supervised_loss(embeddings, ground_truth, weight_positive_class=Fals
         supervised_loss *= scaling
 
     # Sum across frequency bins
-    supervised_loss = supervised_loss.sum(-2)
+    #supervised_loss = supervised_loss.sum(-2)
 
     if rms_vals is not None:
         # Gate based on RMS values and average across time and batch

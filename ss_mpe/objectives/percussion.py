@@ -67,11 +67,11 @@ def compute_percussion_loss(model, audio, targets, **pc_kwargs):
     percussive_embeddings = model(percussive_features)
 
     # Compute percussion loss as BCE of embeddings computed from percussive features with respect to original targets
-    percussion_loss = F.binary_cross_entropy_with_logits(percussive_embeddings, targets, reduction='none')
-    #percussion_loss = F.cross_entropy(percussive_embeddings, targets, reduction='none')
+    #percussion_loss = F.binary_cross_entropy_with_logits(percussive_embeddings, targets, reduction='none')
+    percussion_loss = F.cross_entropy(percussive_embeddings, targets, reduction='none')
 
     # Sum across frequency bins and average across time and batch
-    percussion_loss = percussion_loss.sum(-2).mean(-1).mean(-1)
-    #percussion_loss = percussion_loss.mean(-1).mean(-1)
+    #percussion_loss = percussion_loss.sum(-2).mean(-1).mean(-1)
+    percussion_loss = percussion_loss.mean(-1).mean(-1)
 
     return percussion_loss

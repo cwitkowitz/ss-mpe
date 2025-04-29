@@ -150,17 +150,27 @@ def compute_geometric_loss(model, features, targets, **gm_kwargs):
     targets = targets.unsqueeze(-3)
 
     # Apply parallel geometric transformation to provided targets
-    transformed_targets = apply_geometric_transformations(targets, vs, hs, sfs)
+    transformed_targets = apply_geometric_transformations(targets, torch.zeros_like(vs), hs, sfs)
+
+    transformed_silence_targets = transformed_targets[..., :1, :]
+    transformed_targets = transformed_targets[..., 1:, :]
+
+    transformed_targets = apply_geometric_transformations(transformed_targets, vs, torch.zeros_like(hs), torch.ones_like(sfs))
+
+    transformed_targets = torch.cat([transformed_silence_targets, transformed_targets], dim=-2)
 
     # Remove temporarily added channel dimension
     transformed_targets = transformed_targets.squeeze(-3)
 
+    total_energy = transformed_targets.sum(-2)
+    transformed_targets[:, 0] += (1 - total_energy)
+
     # Compute geometric loss as BCE of embeddings computed from transformed features with respect to transformed targets
-    geometric_loss = F.binary_cross_entropy_with_logits(transformation_embeddings, transformed_targets, reduction='none')
-    #geometric_loss = F.cross_entropy(transformation_embeddings, transformed_targets, reduction='none')
+    #geometric_loss = F.binary_cross_entropy_with_logits(transformation_embeddings, transformed_targets, reduction='none')
+    geometric_loss = F.cross_entropy(transformation_embeddings, transformed_targets, reduction='none')
 
     # Sum across frequency bins and average across time and batch
-    geometric_loss = geometric_loss.sum(-2).mean(-1).mean(-1)
-    #geometric_loss = geometric_loss.mean(-1).mean(-1)
+    #geometric_loss = geometric_loss.sum(-2).mean(-1).mean(-1)
+    geometric_loss = geometric_loss.mean(-1).mean(-1)
 
     return geometric_loss

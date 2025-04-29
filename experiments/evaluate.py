@@ -60,14 +60,18 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
             # Process features to obtain logits
             logits = model(features_db)
             # Convert to (implicit) pitch salience activations
-            raw_activations = torch.sigmoid(logits)
-            #raw_activations = torch.softmax(logits, dim=-2)
+            #raw_activations = torch.sigmoid(logits)
+            raw_activations = torch.softmax(logits, dim=-2)
+
+            # Zero out activations for frames with low energy
+            #raw_activations[..., features_rms_vals < 0.01] = 0
+            #raw_activations = raw_activations[:, 1:]
 
             # Determine the times associated with predictions
             times_est = model.hcqt.get_times(model.hcqt.get_expected_frames(audio.size(-1)))
             # Perform peak-picking and thresholding on the activations
-            activations = threshold(filter_non_peaks(to_array(raw_activations)), 0.5).squeeze(0)
-            #activations = threshold(filter_non_peaks(to_array(raw_activations)), 0.01).squeeze(0)
+            #activations = threshold(filter_non_peaks(to_array(raw_activations)), 0.5).squeeze(0)
+            activations = threshold(filter_non_peaks(to_array(raw_activations[:, 1:])), 0.01).squeeze(0)
 
             # Convert the activations to frame-level multi-pitch estimates
             multi_pitch_est = eval_set.activations_to_multi_pitch(activations, model.hcqt.get_midi_freqs())
@@ -80,32 +84,32 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
             # TODO - the following is super similar to training loop
 
             # Compute energy loss w.r.t. weighted harmonic sum for the track
-            energy_loss = compute_energy_loss(logits, features_db_h)
+            energy_loss = compute_energy_loss(logits[:, 1:], features_db_h)
             # Store the energy loss for the track
             evaluator.append_results({'loss/energy' : energy_loss.item()})
 
             # Compute support loss w.r.t. first harmonic for the track
-            support_loss = compute_support_loss(logits, features_db_1)
+            support_loss = compute_support_loss(logits[:, 1:], features_db_1)
             # Store the support loss for the track
             evaluator.append_results({'loss/support' : support_loss.item()})
 
             # Compute harmonic loss w.r.t. weighted harmonic sum for the track
-            harmonic_loss = compute_harmonic_loss(logits, features_db_h)
+            harmonic_loss = compute_harmonic_loss(logits[:, 1:], features_db_h)
             # Store the harmonic loss for the track
             evaluator.append_results({'loss/harmonic' : harmonic_loss.item()})
 
             # Compute sparsity loss for the track
-            sparsity_loss = compute_sparsity_loss(raw_activations)
+            sparsity_loss = compute_sparsity_loss(raw_activations[:, 1:])
             # Store the sparsity loss for the track
             evaluator.append_results({'loss/sparsity' : sparsity_loss.item()})
 
             # Compute entropy loss for the track
-            entropy_loss = compute_entropy_loss(logits)
+            entropy_loss = compute_entropy_loss(logits[:, 1:])
             # Store the entropy loss for the track
             evaluator.append_results({'loss/entropy' : entropy_loss.item()})
 
             # Compute content loss for the track
-            content_loss = compute_content_loss(logits, k=1, rms_vals=features_rms_vals)
+            content_loss = compute_content_loss(logits[:, 1:], k=1, rms_vals=features_rms_vals)
             # Store the content loss for the track
             evaluator.append_results({'loss/content' : content_loss.item()})
 
@@ -193,7 +197,7 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
             # Add channel dimension to input/outputs
             features_log_1 = features_db_1.unsqueeze(-3)
             features_log_h = features_db_h.unsqueeze(-3)
-            transcription = raw_activations.unsqueeze(-3)
+            transcription = raw_activations[:, 1:].unsqueeze(-3)
             ground_truth = ground_truth.unsqueeze(-3)
 
             # Remove batch dimension from inputs

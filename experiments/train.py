@@ -39,7 +39,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['URMP_SPV_T_G_P_LR5E-4|2_BS8_MC3_W100_TTFC'])
+EX_NAME = '_'.join(['URMP_SPV_T_G_P_X_LR5E-4|2_BS8_MC3_W100_TTFCN_CCE*0.01'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -76,7 +76,7 @@ def config():
         'sparsity' : 0,
         'entropy' : 0,
         'content' : 0,
-        'contrastive' : 0,
+        'contrastive' : 1,
         'timbre' : 1,
         'geometric' : 1,
         'percussion' : 1,
@@ -87,7 +87,7 @@ def config():
     }
 
     # Compute energy-based losses over supervised data as well
-    energy_based_on_supervised = False
+    energy_based_on_supervised = True
 
     # Perform augmentations on input features for energy-based and/or supervised objectives
     augment_features = False
@@ -114,7 +114,7 @@ def config():
     n_epochs_early_stop = None
 
     # IDs of the GPUs to use, if available
-    gpu_ids = [0, 1]
+    gpu_ids = [1, 0]
 
     # Random seed for this experiment
     seed = 0
@@ -776,11 +776,12 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 # Process features to obtain logits
                 logits = model(features_in)
                 # Convert to (implicit) pitch salience activations
-                activations = torch.sigmoid(logits)
+                #activations = torch.sigmoid(logits)
+                activations = torch.softmax(logits, dim=-2)
 
                 with compute_grad(multipliers['energy']):
                     # Compute energy loss w.r.t. weighted harmonic sum for the batch
-                    energy_loss = compute_energy_loss(logits[:n_eg], features_db_h[:n_eg]) if n_eg else torch.tensor(0.)
+                    energy_loss = compute_energy_loss(logits[:n_eg, 1:], features_db_h[:n_eg]) if n_eg else torch.tensor(0.)
                     # Log the energy loss for this batch
                     writer.add_scalar('train/loss/energy', energy_loss.item(), batch_count)
 
@@ -788,7 +789,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 with compute_grad(multipliers['support']):
                     # Compute support loss w.r.t. first harmonic for the batch
-                    support_loss = compute_support_loss(logits[:n_eg], features_db_1[:n_eg]) if n_eg else torch.tensor(0.)
+                    support_loss = compute_support_loss(logits[:n_eg, 1:], features_db_1[:n_eg]) if n_eg else torch.tensor(0.)
                     # Log the support loss for this batch
                     writer.add_scalar('train/loss/support', support_loss.item(), batch_count)
 
@@ -796,7 +797,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 with compute_grad(multipliers['harmonic']):
                     # Compute harmonic loss w.r.t. weighted harmonic sum for the batch
-                    harmonic_loss = compute_harmonic_loss(logits[:n_eg], features_db_h[:n_eg]) if n_eg else torch.tensor(0.)
+                    harmonic_loss = compute_harmonic_loss(logits[:n_eg, 1:], features_db_h[:n_eg]) if n_eg else torch.tensor(0.)
                     # Log the harmonic loss for this batch
                     writer.add_scalar('train/loss/harmonic', harmonic_loss.item(), batch_count)
 
@@ -804,7 +805,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 with compute_grad(multipliers['sparsity']):
                     # Compute sparsity loss for the batch
-                    sparsity_loss = compute_sparsity_loss(activations[:n_eg]) if n_eg else torch.tensor(0.)
+                    sparsity_loss = compute_sparsity_loss(activations[:n_eg, 1:]) if n_eg else torch.tensor(0.)
                     # Log the sparsity loss for this batch
                     writer.add_scalar('train/loss/sparsity', sparsity_loss.item(), batch_count)
 
@@ -812,7 +813,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 with compute_grad(multipliers['entropy']):
                     # Compute entropy loss for the batch
-                    entropy_loss = compute_entropy_loss(logits[:n_eg]) if n_eg else torch.tensor(0.)
+                    entropy_loss = compute_entropy_loss(logits[:n_eg, 1:]) if n_eg else torch.tensor(0.)
                     # Log the entropy loss for this batch
                     writer.add_scalar('train/loss/entropy', entropy_loss.item(), batch_count)
 
@@ -821,7 +822,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 with compute_grad(multipliers['content']):
                     # Compute content loss for the batch
                     # TODO - designated kwargs dictionary for content loss?
-                    content_loss = compute_content_loss(logits[:n_eg], k=1, rms_vals=features_rms_vals[:n_eg]) if n_eg else torch.tensor(0.)
+                    content_loss = compute_content_loss(logits[:n_eg, 1:], k=1, rms_vals=features_rms_vals[:n_eg]) if n_eg else torch.tensor(0.)
                     # Log the content loss for this batch
                     writer.add_scalar('train/loss/content', content_loss.item(), batch_count)
 

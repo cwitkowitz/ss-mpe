@@ -71,6 +71,8 @@ class TT_Base(SS_MPE):
             *self.decoder.convin[1:]
         )
 
+        self.output = nn.Linear(n_bins, n_bins + 1)
+
         if skip_connections:
             # Start by adding encoder features with identity weighting
             self.skip_weights = torch.nn.Parameter(torch.ones(5))
@@ -154,7 +156,7 @@ class TT_Base(SS_MPE):
         # Collapse channel dimension
         output = output.squeeze(-3)
 
-        return output
+        return self.output(output.transpose(-1, -2)).transpose(-1, -2)
 
 
 class EncoderNorm(nn.Module):
