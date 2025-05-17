@@ -39,7 +39,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['URMP_SPV_T_G_P_LR5E-4|2_BS8_MC3_W100_TTFC'])
+EX_NAME = '_'.join(['Test'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -51,7 +51,7 @@ def config():
     ##############################
 
     # Specify a checkpoint from which to resume training (None to disable)
-    checkpoint_path = None
+    checkpoint_path = '../generated/experiments/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS16_R0.5_MC3_W100_TTFC/models/model-8500.pt'
 
     # Maximum number of training iterations to conduct
     max_epochs = 12500
@@ -60,7 +60,7 @@ def config():
     checkpoint_interval = 250
 
     # Number of samples to gather for a batch
-    batch_size = 8
+    batch_size = 12
 
     # Number of seconds of audio per sample
     n_secs = 4
@@ -76,14 +76,15 @@ def config():
         'sparsity' : 0,
         'entropy' : 0,
         'content' : 0,
-        'contrastive' : 0,
+        'contrastive' : 1,
         'timbre' : 1,
         'geometric' : 1,
         'percussion' : 1,
         'noise' : 0,
         'additivity' : 0,
         'feature' : 0,
-        'supervised' : 1
+        'supervised' : 1,
+        'adversarial' : 10
     }
 
     # Compute energy-based losses over supervised data as well
@@ -114,7 +115,7 @@ def config():
     n_epochs_early_stop = None
 
     # IDs of the GPUs to use, if available
-    gpu_ids = [0, 1]
+    gpu_ids = [1, 0]
 
     # Random seed for this experiment
     seed = 0
@@ -292,7 +293,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           sample_rate=sample_rate,
                           n_secs=n_secs,
                           seed=seed)
-    #train_ss.append(mnet_audio)
+    train_ss.append(mnet_audio)
 
     # Use all available splits for FMA
     fma_genres_harmonic = FMA.available_splits()
@@ -358,7 +359,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     train_both = BalancedComboDataset(train_both)
 
     # Ratio for self-supervised to supervised training data
-    ss_ratio = 0.66
+    ss_ratio = 0.50
 
     # Default batch size and workers
     batch_size_ss, n_workers_ss = 0, 0
@@ -526,12 +527,18 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ## PREPARATION ##
     #################
 
+    model.__setattr__('domain_classifier', None)
+    #model.__setattr__('domain_classifier', DomainClassifier(128).to(device))
+    #optimizer = torch.optim.AdamW([{'params': model.domain_classifier.parameters(), 'lr': learning_rate}])
+
+    """"""
     # Initialize an optimizer for the model's encoder parameters
     optimizer = torch.optim.AdamW([{'params' : model.encoder_parameters(), 'lr' : learning_rate}])
 
     if next(model.decoder_parameters(), None) is not None:
         # Add decoder parameters to the optimizer if the model has a decoder
         optimizer.add_param_group({'params' : model.decoder_parameters(), 'lr' : learning_rate / 2})
+    """"""
 
     # Determine the amount of batches in one epoch
     epoch_steps = min(len(loader_ss), len(loader_sup), len(loader_both))
@@ -614,11 +621,11 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ####################
 
     # Determine training sequence length in frames
-    n_frames = int(n_secs * sample_rate / hop_length)
+    n_frames_geo = math.ceil(n_secs * sample_rate / hop_length)
 
     # Define maximum time and frequency shift
     max_shift_v = round(1 * bins_per_octave)
-    max_shift_h = n_frames // 4
+    max_shift_h = n_frames_geo // 4
 
     # Maximum rate by which audio can be sped up or slowed down
     max_stretch_factor = 2
@@ -699,6 +706,26 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         'mode' : mode
     }
 
+    ######################
+    ## ADVERSARIAL LOSS ##
+    ######################
+
+    """"""
+    if model.domain_classifier is None:
+        # Instantiate a domain classifier
+        model.domain_classifier = DomainClassifier(n_bins).to(device)
+        #model.domain_classifier = DomainClassifier(128).to(device)
+
+    # Add domain classifier parameters to the optimizer
+    optimizer.add_param_group({'params' : model.domain_classifier.parameters(), 'lr' : learning_rate})
+    """"""
+
+    # Create (constant) ground-truth domain labels
+    domain_labels = torch.Tensor(([1] * n_sup) + ([0] * batch_size_ss)).to(device)
+
+    # Number of consecutive frames used for adversarial loss
+    n_frames_adv = int(0.25 * sample_rate / hop_length)
+
     ##############################
     ## TRAINING/VALIDATION LOOP ##
     ##############################
@@ -774,7 +801,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
             with torch.autocast(device_type=f'cuda'):
                 # Process features to obtain logits
-                logits = model(features_in)
+                logits, latents = model(features_in)
                 # Convert to (implicit) pitch salience activations
                 activations = torch.sigmoid(logits)
 
@@ -892,6 +919,18 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 debug_nans(supervised_loss, 'supervised')
 
+                with compute_grad(multipliers['adversarial']):
+                    # Compute adversarial loss for the batch
+                    adversarial_loss, (acc, acc_sp, acc_ss) = compute_adversarial_loss(model.domain_classifier, logits, domain_labels, multipliers['adversarial']) if batch_size_ss else torch.tensor(0.)
+                    #adversarial_loss, (acc, acc_sp, acc_ss) = compute_adversarial_loss(model.domain_classifier, latents, domain_labels, multipliers['adversarial'], n_frames=n_frames_adv) if batch_size_ss else torch.tensor(0.)
+                    # Log the adversarial loss for this batch
+                    writer.add_scalar('train/loss/adversarial', adversarial_loss.item(), batch_count)
+                    writer.add_scalar('train/adversarial/acc_total', acc.item(), batch_count)
+                    writer.add_scalar('train/adversarial/acc_sp', acc_sp.item(), batch_count)
+                    writer.add_scalar('train/adversarial/acc_ss', acc_ss.item(), batch_count)
+
+                debug_nans(adversarial_loss, 'adversarial')
+
                 # upward: (1 - cosine_anneal(batch_count, 1000 * epoch_steps, start=0, floor=0.))
 
                 # Compute the total loss for this batch
@@ -908,7 +947,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                              multipliers['noise'] * noise_loss + \
                              multipliers['additivity'] * additivity_loss + \
                              multipliers['feature'] * feature_loss + \
-                             multipliers['supervised'] * supervised_loss
+                             multipliers['supervised'] * supervised_loss + \
+                             adversarial_loss
 
                 # Log the total loss for this batch
                 writer.add_scalar('train/loss/total', total_loss.item(), batch_count)

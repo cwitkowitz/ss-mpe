@@ -78,6 +78,8 @@ class TT_Base(SS_MPE):
             # No skip connections
             self.skip_weights = None
 
+        self.domain_classifier = None
+
     def decoder_parameters(self):
         """
         Obtain parameters for decoder part of network.
@@ -154,7 +156,7 @@ class TT_Base(SS_MPE):
         # Collapse channel dimension
         output = output.squeeze(-3)
 
-        return output
+        return output, latents
 
 
 class EncoderNorm(nn.Module):

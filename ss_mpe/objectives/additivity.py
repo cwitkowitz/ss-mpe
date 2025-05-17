@@ -81,7 +81,7 @@ def mix_random_tracks(audio, targets, model, additive_set_combo):
     additive_features = model.hcqt.to_decibels(model.hcqt(additive_audio))
 
     # Process additive features and convert to activations
-    additive_targets = torch.sigmoid(model(additive_features))
+    additive_targets = torch.sigmoid(model(additive_features)[0])
 
     # Mix original and additive targets via the max operation
     mixed_targets = torch.maximum(targets, additive_targets)
@@ -104,7 +104,7 @@ def compute_additivity_loss(model, audio, targets, **ad_kwargs):
     mixed_features = model.hcqt.to_decibels(model.hcqt(mixed_audio))
 
     # Process features with provided model
-    mixed_embeddings = model(mixed_features)
+    mixed_embeddings, _ = model(mixed_features)
 
     # Compute additivity loss as BCE of embeddings computed from mixed features with respect to mixed targets
     additivity_loss = F.binary_cross_entropy_with_logits(mixed_embeddings, mixed_targets, reduction='none')

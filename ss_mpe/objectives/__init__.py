@@ -1,4 +1,5 @@
 from .energy import *
+from .adversarial import *
 from .timbre import *
 from .geometric import *
 from .percussion import *

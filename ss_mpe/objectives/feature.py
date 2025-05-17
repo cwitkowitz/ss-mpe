@@ -28,7 +28,7 @@ def compute_feature_loss(model, features, targets, **dp_kwargs):
     dropped_features = drop_random_features(features, **dp_kwargs)
 
     # Process dropped features with provided model
-    dropped_embeddings = model(dropped_features)
+    dropped_embeddings, _ = model(dropped_features)
 
     # Compute feature loss as BCE of embeddings computed from dropped features with respect to original targets
     feature_loss = F.binary_cross_entropy_with_logits(dropped_embeddings, targets, reduction='none')

@@ -34,7 +34,7 @@ def compute_noise_loss(model, audio, targets, **an_kwargs):
     noisy_features = model.hcqt.to_decibels(model.hcqt(noisy_audio))
 
     # Process noisy features with provided model
-    noisy_embeddings = model(noisy_features)
+    noisy_embeddings, _ = model(noisy_features)
 
     # Compute noise loss as BCE of embeddings computed from noisy features with respect to original targets
     noise_loss = F.binary_cross_entropy_with_logits(noisy_embeddings, targets, reduction='none')

@@ -64,7 +64,7 @@ def compute_percussion_loss(model, audio, targets, **pc_kwargs):
     percussive_features = model.hcqt.to_decibels(model.hcqt(percussive_audio))
 
     # Process percussive features with provided model
-    percussive_embeddings = model(percussive_features)
+    percussive_embeddings, _ = model(percussive_features)
 
     # Compute percussion loss as BCE of embeddings computed from percussive features with respect to original targets
     percussion_loss = F.binary_cross_entropy_with_logits(percussive_embeddings, targets, reduction='none')

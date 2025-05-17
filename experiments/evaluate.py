@@ -58,7 +58,7 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
             features_rms_vals = features['rms']
 
             # Process features to obtain logits
-            logits = model(features_db)
+            logits, _ = model(features_db)
             # Convert to (implicit) pitch salience activations
             raw_activations = torch.sigmoid(logits)
             #raw_activations = torch.softmax(logits, dim=-2)
@@ -109,11 +109,6 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
             # Store the content loss for the track
             evaluator.append_results({'loss/content' : content_loss.item()})
 
-            # Compute contrastive loss for the track
-            contrastive_loss = compute_contrastive_loss(raw_activations, rms_vals=features_rms_vals)
-            # Store the contrastive loss for the track
-            evaluator.append_results({'loss/contrastive' : contrastive_loss.item()})
-
             # Compute supervised BCE loss for the batch
             supervised_loss = compute_supervised_loss(logits, ground_truth)
             #supervised_loss = compute_supervised_loss(logits, ground_truth, rms_vals=features_rms_vals)
@@ -127,7 +122,6 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
                          multipliers['sparsity'] * sparsity_loss + \
                          multipliers['entropy'] * entropy_loss + \
                          multipliers['content'] * content_loss + \
-                         multipliers['contrastive'] * contrastive_loss + \
                          multipliers['supervised'] * supervised_loss
 
             # TODO - why don't I check for the kwargs?
