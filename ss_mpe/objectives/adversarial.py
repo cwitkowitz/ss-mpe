@@ -1,5 +1,9 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
+# My imports
+from .utils import gate_and_average_loss
+
+# Regular imports
 from torch.autograd import Function
 
 import torch.nn.functional as F
@@ -34,20 +38,24 @@ class DomainClassifier(nn.Module):
         """
         #self.simple_classifier = nn.Linear(n_bins, 1)
 
-        self.conv = nn.Conv1d(1, 1, 7, padding='same')
+        self.conv = nn.Conv1d(1, 4, 5, padding='same')
         #self.rnn = nn.GRU(n_bins, 440, batch_first=True, bidirectional=False)
         #self.mp = nn.MaxPool1d(5, padding=0)
         self.mp = nn.MaxPool2d((5, 1), padding=0)
-        self.fc = nn.Linear(88, 1)
+        self.fc = nn.Linear(1, 1)
 
     def forward(self, x):
         B, E, T = x.size()
-        x = F.relu(self.conv(x.transpose(-1, -2).reshape(B * T, 1, E)).reshape(B, T, E).transpose(-1, -2))
+        #x = F.relu(self.conv(x.transpose(-1, -2).reshape(B * T, 1, E)).reshape(B, T, E).transpose(-1, -2))
+        x = self.conv(x.transpose(-1, -2).reshape(B * T, 1, E))
+        x = F.relu(x.sum(-2).reshape(B, T, E).transpose(-1, -2))
         #x = F.relu(self.rnn(x.transpose(-1, -2))[1].transpose(0, 1)).reshape(-1, 440)
         #x = F.dropout(self.mp(x)[..., torch.randperm(88)], 0.5)
-        x = F.dropout(self.mp(x)[..., torch.randperm(88), :], 0.5)
+        #x = F.dropout(self.mp(x)[..., torch.randperm(88), :], 0.25)
+        x = F.dropout(self.mp(x), 0.25)
         #return self.fc(x).squeeze(-1)
-        return self.fc(x.transpose(-1, -2)).squeeze(-1)
+        #return self.fc(x.transpose(-1, -2)).squeeze(-1)
+        return self.fc(x.transpose(-1, -2).sum(-1, keepdim=True)).squeeze(-1)
         #x = F.dropout(x, 0.5)
         #x = F.relu(self.rnn(x.transpose(-1, -2))[1].transpose(0, 1))
         #return self.fc(F.dropout(x.reshape(-1, 128), 0.0)).squeeze(-1)
@@ -68,7 +76,7 @@ def reverse_gradient(x, lmbda=1.0):
     return GradientReversalFunction.apply(x, lmbda)
 
 
-def compute_adversarial_loss(classifier, features, labels, lmbda=1.0, n_frames=None):
+def compute_adversarial_loss(classifier, features, labels, lmbda=1.0, n_frames=None, rms_vals=None, rms_thr=0.01):
     if n_frames is not None and features.size(-1) >= n_frames:
         # Sample a random starting point within the provided frames
         start = torch.randint(low=0, high=features.size(-1) - n_frames + 1, size=(1,))
@@ -95,9 +103,12 @@ def compute_adversarial_loss(classifier, features, labels, lmbda=1.0, n_frames=N
     # Compute adversarial loss as BCE of embeddings for source predictions with respect to true domains
     adversarial_loss = F.binary_cross_entropy_with_logits(domains, labels, reduction='none')
 
-    # Average across time and batch
-    adversarial_loss = adversarial_loss.mean(-1).mean(-1)
-    #adversarial_loss = adversarial_loss.mean(-1)
+    if rms_vals is not None:
+        # Gate based on RMS values and average across time and batch
+        adversarial_loss = gate_and_average_loss(adversarial_loss, rms_vals, rms_thr)
+    else:
+        # Average across batch and time
+        adversarial_loss = adversarial_loss.mean(-1).mean(-1)
 
     # Determine which predictions were correct
     correct = torch.logical_not(torch.logical_xor(torch.sigmoid(domains).round(), labels))

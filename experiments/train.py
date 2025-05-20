@@ -57,7 +57,7 @@ def config():
     max_epochs = 12500
 
     # Number of iterations between checkpoints
-    checkpoint_interval = 250
+    checkpoint_interval = 10000
 
     # Number of samples to gather for a batch
     batch_size = 12
@@ -84,7 +84,7 @@ def config():
         'additivity' : 0,
         'feature' : 0,
         'supervised' : 1,
-        'adversarial' : 10
+        'adversarial' : 5
     }
 
     # Compute energy-based losses over supervised data as well
@@ -717,7 +717,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         #model.domain_classifier = DomainClassifier(128).to(device)
 
     # Add domain classifier parameters to the optimizer
-    optimizer.add_param_group({'params' : model.domain_classifier.parameters(), 'lr' : learning_rate})
+    optimizer.add_param_group({'params' : model.domain_classifier.parameters(), 'lr' : 10 * learning_rate})
     """"""
 
     # Create (constant) ground-truth domain labels
@@ -921,7 +921,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 with compute_grad(multipliers['adversarial']):
                     # Compute adversarial loss for the batch
-                    adversarial_loss, (acc, acc_sp, acc_ss) = compute_adversarial_loss(model.domain_classifier, logits, domain_labels, multipliers['adversarial']) if batch_size_ss else torch.tensor(0.)
+                    adversarial_loss, (acc, acc_sp, acc_ss) = compute_adversarial_loss(model.domain_classifier, logits, domain_labels, (1 - cosine_anneal(batch_count, 500)) * multipliers['adversarial'], rms_vals=features_rms_vals) if batch_size_ss else torch.tensor(0.)
                     #adversarial_loss, (acc, acc_sp, acc_ss) = compute_adversarial_loss(model.domain_classifier, latents, domain_labels, multipliers['adversarial'], n_frames=n_frames_adv) if batch_size_ss else torch.tensor(0.)
                     # Log the adversarial loss for this batch
                     writer.add_scalar('train/loss/adversarial', adversarial_loss.item(), batch_count)
