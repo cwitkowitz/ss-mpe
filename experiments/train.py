@@ -84,7 +84,8 @@ def config():
         'additivity' : 0,
         'feature' : 0,
         'supervised' : 1,
-        'adversarial' : 5
+        'adversarial' : 1,
+        'confusion' : 1 # lambda
     }
 
     # Compute energy-based losses over supervised data as well
@@ -533,11 +534,11 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     """"""
     # Initialize an optimizer for the model's encoder parameters
-    optimizer = torch.optim.AdamW([{'params' : model.encoder_parameters(), 'lr' : learning_rate}])
+    optimizer_tt = torch.optim.AdamW([{'params' : model.encoder_parameters(), 'lr' : learning_rate}])
 
     if next(model.decoder_parameters(), None) is not None:
         # Add decoder parameters to the optimizer if the model has a decoder
-        optimizer.add_param_group({'params' : model.decoder_parameters(), 'lr' : learning_rate / 2})
+        optimizer_tt.add_param_group({'params' : model.decoder_parameters(), 'lr' : learning_rate / 2})
     """"""
 
     # Determine the amount of batches in one epoch
@@ -555,10 +556,10 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         n_checkpoints_early_stop = None
 
     # Warmup global learning rate over a fixed number of steps according to a cosine function
-    warmup_scheduler = CosineWarmup(optimizer, n_steps=n_epochs_warmup * epoch_steps)
+    warmup_scheduler = CosineWarmup(optimizer_tt, n_steps=n_epochs_warmup * epoch_steps)
 
     # Decay global learning rate by a factor of 1/2 after validation performance has plateaued
-    decay_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,
+    decay_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_tt,
                                                                  mode='max' if validation_criteria_maximize else 'min',
                                                                  factor=0.5,
                                                                  patience=n_checkpoints_decay,
@@ -716,8 +717,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         model.domain_classifier = DomainClassifier(n_bins).to(device)
         #model.domain_classifier = DomainClassifier(128).to(device)
 
-    # Add domain classifier parameters to the optimizer
-    optimizer.add_param_group({'params' : model.domain_classifier.parameters(), 'lr' : 10 * learning_rate})
+    # Initialize an optimizer for the domain classifier parameters
+    optimizer_dc = torch.optim.AdamW([{'params' : model.domain_classifier.parameters(), 'lr' : 10 * learning_rate}])
     """"""
 
     # Create (constant) ground-truth domain labels
@@ -743,7 +744,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             batch_count += 1
 
             # Log the current learning rates for this batch
-            writer.add_scalar('train/loss/learning_rate/encoder', optimizer.param_groups[0]['lr'], batch_count)
+            writer.add_scalar('train/loss/learning_rate/encoder', optimizer_tt.param_groups[0]['lr'], batch_count)
 
             # Initialize a list for audio and ground-truth from all data partitions
             audio, ground_truth = list(), list()
@@ -804,6 +805,39 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 logits, latents = model(features_in)
                 # Convert to (implicit) pitch salience activations
                 activations = torch.sigmoid(logits)
+
+                with compute_grad(multipliers['adversarial']):
+                    # Compute adversarial loss for the batch
+                    adversarial_loss, (acc, acc_sp, acc_ss) = compute_adversarial_loss(model.domain_classifier, logits, domain_labels) if batch_size_ss else torch.tensor(0.)
+                    #adversarial_loss, (acc, acc_sp, acc_ss) = compute_adversarial_loss(model.domain_classifier, latents, domain_labels, multipliers['adversarial'], n_frames=n_frames_adv) if batch_size_ss else torch.tensor(0.)
+                    # Log the adversarial loss for this batch
+                    writer.add_scalar('train/loss/adversarial', adversarial_loss.item(), batch_count)
+                    writer.add_scalar('train/adversarial/acc_total', acc.item(), batch_count)
+                    writer.add_scalar('train/adversarial/acc_sp', acc_sp.item(), batch_count)
+                    writer.add_scalar('train/adversarial/acc_ss', acc_ss.item(), batch_count)
+
+                debug_nans(adversarial_loss, 'adversarial')
+
+                # Zero the accumulated gradients
+                optimizer_dc.zero_grad()
+                # Compute gradients using adversarial loss
+                (multipliers['adversarial'] * adversarial_loss).backward()
+
+                if next(model.decoder_parameters(), None) is not None:
+                    # Compute the average gradient norm across the domain_classifier
+                    avg_norm_classifier = average_gradient_norms(model.domain_classifier)
+                    # Log the average gradient norm of the classifier for this batch
+                    writer.add_scalar('train/avg_norm/classifier', avg_norm_classifier, batch_count)
+                    # Determine the maximum gradient norm across classifier
+                    max_norm_classifier = get_max_gradient_norm(model.domain_classifier)
+                    # Log the maximum gradient norm of the classifier for this batch
+                    writer.add_scalar('train/max_norm/classifier', max_norm_classifier, batch_count)
+
+                # Apply gradient clipping for training stability
+                torch.nn.utils.clip_grad_norm_(model.domain_classifier.parameters(), 1.0)
+
+                # Perform an optimization step
+                optimizer_dc.step()
 
                 with compute_grad(multipliers['energy']):
                     # Compute energy loss w.r.t. weighted harmonic sum for the batch
@@ -919,17 +953,13 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 debug_nans(supervised_loss, 'supervised')
 
-                with compute_grad(multipliers['adversarial']):
-                    # Compute adversarial loss for the batch
-                    adversarial_loss, (acc, acc_sp, acc_ss) = compute_adversarial_loss(model.domain_classifier, logits, domain_labels, (1 - cosine_anneal(batch_count, 500)) * multipliers['adversarial'], rms_vals=features_rms_vals) if batch_size_ss else torch.tensor(0.)
-                    #adversarial_loss, (acc, acc_sp, acc_ss) = compute_adversarial_loss(model.domain_classifier, latents, domain_labels, multipliers['adversarial'], n_frames=n_frames_adv) if batch_size_ss else torch.tensor(0.)
-                    # Log the adversarial loss for this batch
-                    writer.add_scalar('train/loss/adversarial', adversarial_loss.item(), batch_count)
-                    writer.add_scalar('train/adversarial/acc_total', acc.item(), batch_count)
-                    writer.add_scalar('train/adversarial/acc_sp', acc_sp.item(), batch_count)
-                    writer.add_scalar('train/adversarial/acc_ss', acc_ss.item(), batch_count)
+                with compute_grad(multipliers['confusion']):
+                    # Compute confusion loss for the batch
+                    confusion_loss = compute_confusion_loss(model.domain_classifier, logits) if batch_size_ss else torch.tensor(0.)
+                    # Log the confusion loss for this batch
+                    writer.add_scalar('train/loss/confusion', confusion_loss.item(), batch_count)
 
-                debug_nans(adversarial_loss, 'adversarial')
+                debug_nans(confusion_loss, 'confusion')
 
                 # upward: (1 - cosine_anneal(batch_count, 1000 * epoch_steps, start=0, floor=0.))
 
@@ -948,13 +978,13 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                              multipliers['additivity'] * additivity_loss + \
                              multipliers['feature'] * feature_loss + \
                              multipliers['supervised'] * supervised_loss + \
-                             adversarial_loss
+                             multipliers['confusion'] * confusion_loss
 
                 # Log the total loss for this batch
                 writer.add_scalar('train/loss/total', total_loss.item(), batch_count)
 
                 # Zero the accumulated gradients
-                optimizer.zero_grad()
+                optimizer_tt.zero_grad()
                 # Compute gradients using total loss
                 total_loss.backward()
 
@@ -978,10 +1008,11 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     writer.add_scalar('train/max_norm/decoder', max_norm_decoder, batch_count)
 
                 # Apply gradient clipping for training stability
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                torch.nn.utils.clip_grad_norm_(model.encoder_parameters(), 1.0)
+                torch.nn.utils.clip_grad_norm_(model.decoder_parameters(), 1.0)
 
                 # Perform an optimization step
-                optimizer.step()
+                optimizer_tt.step()
 
             if warmup_scheduler.is_active():
                 # Step the learning rate warmup scheduler

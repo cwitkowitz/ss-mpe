@@ -14,7 +14,8 @@ import torch
 __all__ = [
     'DomainClassifier',
     'reverse_gradient',
-    'compute_adversarial_loss'
+    'compute_adversarial_loss',
+    'compute_confusion_loss'
 ]
 
 
@@ -52,7 +53,8 @@ class DomainClassifier(nn.Module):
         #x = F.relu(self.rnn(x.transpose(-1, -2))[1].transpose(0, 1)).reshape(-1, 440)
         #x = F.dropout(self.mp(x)[..., torch.randperm(88)], 0.5)
         #x = F.dropout(self.mp(x)[..., torch.randperm(88), :], 0.25)
-        x = F.dropout(self.mp(x), 0.25)
+        #x = F.dropout(self.mp(x), 0.25)
+        x = self.mp(x)
         #return self.fc(x).squeeze(-1)
         #return self.fc(x.transpose(-1, -2)).squeeze(-1)
         return self.fc(x.transpose(-1, -2).sum(-1, keepdim=True)).squeeze(-1)
@@ -84,7 +86,8 @@ def compute_adversarial_loss(classifier, features, labels, lmbda=1.0, n_frames=N
         features = features[..., start : start + n_frames]
 
     # Attempt to classify the features as originating from supervised (1) vs. fully self-supervised (0) data
-    domains = classifier(reverse_gradient(features, lmbda))
+    #domains = classifier(reverse_gradient(features, lmbda))
+    domains = classifier(features.detach())
 
     # Repeat ground-truth labels across time
     labels = labels.unsqueeze(-1).repeat(1, domains.size(-1))
@@ -127,3 +130,15 @@ def compute_adversarial_loss(classifier, features, labels, lmbda=1.0, n_frames=N
     #plt.show()
 
     return adversarial_loss, (accuracy, accuracy_sp, accuracy_ss)
+
+def compute_confusion_loss(classifier, features):
+    # Attempt to classify the features
+    domains = classifier(features)
+
+    # Compute adversarial loss as BCE of embeddings for source predictions with respect to true domains
+    confusion_loss = F.binary_cross_entropy_with_logits(domains, 0.5 * torch.ones_like(domains), reduction='none')
+
+    # Average across batch and time
+    confusion_loss = confusion_loss.mean(-1).mean(-1)
+
+    return confusion_loss
