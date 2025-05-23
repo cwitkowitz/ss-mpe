@@ -39,17 +39,33 @@ class DomainClassifier(nn.Module):
         """
         #self.simple_classifier = nn.Linear(n_bins, 1)
 
-        self.conv = nn.Conv1d(1, 4, 5, padding='same')
+        self.conv = nn.Conv1d(1, 1, 9, padding='same')
         #self.rnn = nn.GRU(n_bins, 440, batch_first=True, bidirectional=False)
-        #self.mp = nn.MaxPool1d(5, padding=0)
-        self.mp = nn.MaxPool2d((5, 1), padding=0)
+        self.mp = nn.MaxPool1d(5, padding=0)
+        #self.mp = nn.MaxPool2d((5, 1))#, padding=(2, 0)) # TODO - ideally actually doing padding on conv
         self.fc = nn.Linear(1, 1)
+
+        n_bins_blur_decay = 2.5
+        # Compute standard deviation for kernel
+        std_dev = (2 * n_bins_blur_decay) / 5
+        # Truncate kernel at 4 deviations
+        kernel_size = int(8 * std_dev + 1)
+        # Initialize indices for the kernel
+        idcs = torch.arange(kernel_size) - kernel_size // 2
+        # Compute weights for a Gaussian kernel
+        kernel = torch.exp(-0.5 * (idcs / std_dev) ** 2)
+        # Set weight of convolutional filter to Gaussian
+        self.conv.weight = torch.nn.Parameter(kernel.reshape(1, 1, -1), requires_grad=False)
+
+        self.fc.weight = torch.nn.Parameter(torch.tensor([[1.]]))
+        self.fc.bias = torch.nn.Parameter(torch.tensor([[0.]]))
 
     def forward(self, x):
         B, E, T = x.size()
         #x = F.relu(self.conv(x.transpose(-1, -2).reshape(B * T, 1, E)).reshape(B, T, E).transpose(-1, -2))
-        x = self.conv(x.transpose(-1, -2).reshape(B * T, 1, E))
-        x = F.relu(x.sum(-2).reshape(B, T, E).transpose(-1, -2))
+        #x = self.conv(x.transpose(-1, -2).reshape(B * T, 1, E))
+        #x = F.elu(x).sum(-2).reshape(B, T, -1).transpose(-1, -2)
+        x = F.leaky_relu(x).transpose(-1, -2)
         #x = F.relu(self.rnn(x.transpose(-1, -2))[1].transpose(0, 1)).reshape(-1, 440)
         #x = F.dropout(self.mp(x)[..., torch.randperm(88)], 0.5)
         #x = F.dropout(self.mp(x)[..., torch.randperm(88), :], 0.25)
@@ -57,7 +73,8 @@ class DomainClassifier(nn.Module):
         x = self.mp(x)
         #return self.fc(x).squeeze(-1)
         #return self.fc(x.transpose(-1, -2)).squeeze(-1)
-        return self.fc(x.transpose(-1, -2).sum(-1, keepdim=True)).squeeze(-1)
+        #return self.fc(x.transpose(-1, -2).sum(-1, keepdim=True)).squeeze(-1)
+        return self.fc(x.sum(-1, keepdim=True)).squeeze(-1)
         #x = F.dropout(x, 0.5)
         #x = F.relu(self.rnn(x.transpose(-1, -2))[1].transpose(0, 1))
         #return self.fc(F.dropout(x.reshape(-1, 128), 0.0)).squeeze(-1)
@@ -136,7 +153,7 @@ def compute_confusion_loss(classifier, features):
     domains = classifier(features)
 
     # Compute adversarial loss as BCE of embeddings for source predictions with respect to true domains
-    confusion_loss = F.binary_cross_entropy_with_logits(domains, 0.5 * torch.ones_like(domains), reduction='none')
+    confusion_loss = F.binary_cross_entropy_with_logits(domains, torch.ones_like(domains), reduction='none')
 
     # Average across batch and time
     confusion_loss = confusion_loss.mean(-1).mean(-1)

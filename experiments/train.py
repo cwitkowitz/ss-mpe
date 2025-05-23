@@ -39,7 +39,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['Test'])
+EX_NAME = '_'.join(['Test44'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -57,7 +57,7 @@ def config():
     max_epochs = 12500
 
     # Number of iterations between checkpoints
-    checkpoint_interval = 10000
+    checkpoint_interval = 175
 
     # Number of samples to gather for a batch
     batch_size = 12
@@ -85,7 +85,7 @@ def config():
         'feature' : 0,
         'supervised' : 1,
         'adversarial' : 1,
-        'confusion' : 1 # lambda
+        'confusion' : 10 # lambda
     }
 
     # Compute energy-based losses over supervised data as well
@@ -722,7 +722,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     """"""
 
     # Create (constant) ground-truth domain labels
-    domain_labels = torch.Tensor(([1] * n_sup) + ([0] * batch_size_ss)).to(device)
+    # TODO - are these the correct proportions?
+    domain_labels = torch.Tensor(([0] * batch_size_ss) + ([1] * n_sup)).to(device)
 
     # Number of consecutive frames used for adversarial loss
     n_frames_adv = int(0.25 * sample_rate / hop_length)
@@ -955,7 +956,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 with compute_grad(multipliers['confusion']):
                     # Compute confusion loss for the batch
-                    confusion_loss = compute_confusion_loss(model.domain_classifier, logits) if batch_size_ss else torch.tensor(0.)
+                    confusion_loss = compute_confusion_loss(model.domain_classifier, logits[:n_eg]) if batch_size_ss else torch.tensor(0.)
                     # Log the confusion loss for this batch
                     writer.add_scalar('train/loss/confusion', confusion_loss.item(), batch_count)
 
