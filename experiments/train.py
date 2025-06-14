@@ -39,7 +39,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['Test44'])
+EX_NAME = '_'.join(['Test'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -51,13 +51,13 @@ def config():
     ##############################
 
     # Specify a checkpoint from which to resume training (None to disable)
-    checkpoint_path = '../generated/experiments/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS16_R0.5_MC3_W100_TTFC/models/model-8500.pt'
+    checkpoint_path = '/storage/frank/ss-mpe_journal/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS16_R0.5_MC3_W100_TTFC/models/model-8500.pt'
 
     # Maximum number of training iterations to conduct
-    max_epochs = 12500
+    max_epochs = 2500
 
     # Number of iterations between checkpoints
-    checkpoint_interval = 175
+    checkpoint_interval = 250
 
     # Number of samples to gather for a batch
     batch_size = 12
@@ -85,7 +85,7 @@ def config():
         'feature' : 0,
         'supervised' : 1,
         'adversarial' : 1,
-        'confusion' : 10 # lambda
+        'confusion' : 1 # lambda
     }
 
     # Compute energy-based losses over supervised data as well
@@ -718,7 +718,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         #model.domain_classifier = DomainClassifier(128).to(device)
 
     # Initialize an optimizer for the domain classifier parameters
-    optimizer_dc = torch.optim.AdamW([{'params' : model.domain_classifier.parameters(), 'lr' : 10 * learning_rate}])
+    optimizer_dc = torch.optim.AdamW([{'params' : model.domain_classifier.parameters(), 'lr' : 2 * learning_rate}])
     """"""
 
     # Create (constant) ground-truth domain labels
@@ -731,6 +731,23 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ##############################
     ## TRAINING/VALIDATION LOOP ##
     ##############################
+
+    """
+    for val_set in validation_sets:
+        # TODO - validate at 0 for models starting from checkpoints?
+        evaluate(model=model,
+                 eval_set=val_set,
+                 multipliers=multipliers,
+                 writer=writer,
+                 i=batch_count,
+                 device=device,
+                 eq_kwargs=eq_kwargs,
+                 gm_kwargs=gm_kwargs,
+                 pc_kwargs=pc_kwargs,
+                 an_kwargs=an_kwargs,
+                 ad_kwargs=ad_kwargs,
+                 dp_kwargs=dp_kwargs)
+    """
 
     # Loop through epochs
     for i in range(max_epochs):
@@ -809,16 +826,19 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 with compute_grad(multipliers['adversarial']):
                     # Compute adversarial loss for the batch
-                    adversarial_loss, (acc, acc_sp, acc_ss) = compute_adversarial_loss(model.domain_classifier, logits, domain_labels) if batch_size_ss else torch.tensor(0.)
+                    adversarial_loss, (acc, acc_sp, acc_ss, avg_sum_sup, avg_sum_ss) = compute_adversarial_loss(model.domain_classifier, logits, domain_labels) if batch_size_ss else torch.tensor(0.)
                     #adversarial_loss, (acc, acc_sp, acc_ss) = compute_adversarial_loss(model.domain_classifier, latents, domain_labels, multipliers['adversarial'], n_frames=n_frames_adv) if batch_size_ss else torch.tensor(0.)
                     # Log the adversarial loss for this batch
                     writer.add_scalar('train/loss/adversarial', adversarial_loss.item(), batch_count)
                     writer.add_scalar('train/adversarial/acc_total', acc.item(), batch_count)
                     writer.add_scalar('train/adversarial/acc_sp', acc_sp.item(), batch_count)
                     writer.add_scalar('train/adversarial/acc_ss', acc_ss.item(), batch_count)
+                    writer.add_scalar('train/adversarial/avg_sum_sup', avg_sum_sup.item(), batch_count)
+                    writer.add_scalar('train/adversarial/avg_sum_ss', avg_sum_ss.item(), batch_count)
 
                 debug_nans(adversarial_loss, 'adversarial')
 
+                """
                 # Zero the accumulated gradients
                 optimizer_dc.zero_grad()
                 # Compute gradients using adversarial loss
@@ -839,6 +859,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 # Perform an optimization step
                 optimizer_dc.step()
+                """
 
                 with compute_grad(multipliers['energy']):
                     # Compute energy loss w.r.t. weighted harmonic sum for the batch
@@ -955,8 +976,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 debug_nans(supervised_loss, 'supervised')
 
                 with compute_grad(multipliers['confusion']):
+                    #scaling = 1 / multipliers['confusion'] + (multipliers['confusion'] - 1) * (max(0, acc - 0.5) / 0.5) / multipliers['confusion']
                     # Compute confusion loss for the batch
-                    confusion_loss = compute_confusion_loss(model.domain_classifier, logits[:n_eg]) if batch_size_ss else torch.tensor(0.)
+                    confusion_loss = compute_confusion_loss(model.domain_classifier, logits, domain_labels, rms_vals=features_rms_vals) if batch_size_ss else torch.tensor(0.)
                     # Log the confusion loss for this batch
                     writer.add_scalar('train/loss/confusion', confusion_loss.item(), batch_count)
 
