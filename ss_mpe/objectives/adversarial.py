@@ -4,6 +4,7 @@
 from .utils import gate_and_average_loss
 
 # Regular imports
+from torch.nn.utils.parametrizations import weight_norm
 from torch.autograd import Function
 
 import torch.nn.functional as F
@@ -39,14 +40,21 @@ class DomainClassifier(nn.Module):
         """
         #self.simple_classifier = nn.Linear(n_bins, 1)
 
-        self.conv = nn.Conv1d(1, 1, 9, padding='same')
-        #self.rnn = nn.GRU(n_bins, 440, batch_first=True, bidirectional=False)
+        n_filters = 32
+
+        self.conv = weight_norm(nn.Conv1d(1, n_filters, 7, padding='same'))
+        #self.conv = nn.Conv1d(1, n_filters, 9, padding='same')
+        #self.conv.requires_grad_(False)
+        self.rnn = nn.GRU(n_bins, 440, batch_first=True, bidirectional=False)
         self.mp = nn.MaxPool1d(5, padding=0)
-        self.ap = nn.AvgPool1d(5, stride=1)
+        #self.ap = nn.AvgPool1d(5, stride=1, padding=0)
         #self.ap = nn.AvgPool1d(5, padding=0)
         #self.mp = nn.MaxPool2d((5, 1))#, padding=(2, 0)) # TODO - ideally actually doing padding on conv
-        self.fc = nn.Linear(1, 1)
+        #self.fc = nn.Linear(1, 1)
+        self.bn = nn.BatchNorm1d(n_filters)
+        self.fc = nn.Linear(n_filters, 1)
 
+        """
         n_bins_blur_decay = 2.5
         # Compute standard deviation for kernel
         std_dev = (2 * n_bins_blur_decay) / 5
@@ -58,23 +66,43 @@ class DomainClassifier(nn.Module):
         kernel = torch.exp(-0.5 * (idcs / std_dev) ** 2)
         # Set weight of convolutional filter to Gaussian
         self.conv.weight = torch.nn.Parameter(kernel.reshape(1, 1, -1), requires_grad=False)
+        """
 
-        self.fc.weight = torch.nn.Parameter(torch.tensor([[1.]]))
-        self.fc.bias = torch.nn.Parameter(torch.tensor([[0.]]))
+        #self.fc.weight = torch.nn.Parameter(torch.tensor([[1.]]))
+        #self.fc.bias = torch.nn.Parameter(torch.tensor([[0.]]))
+
+        self.m = torch.nn.Parameter(torch.tensor([[1.]]))
+        self.b = torch.nn.Parameter(torch.tensor([[0.]]))
+
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
+        self.conv4 = nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1)
+        self.conv5 = nn.Conv2d(256, 1, kernel_size=5, stride=1, padding=2)
 
     def forward(self, x):
+        """
         B, E, T = x.size()
         #x = F.relu(self.conv(x.transpose(-1, -2).reshape(B * T, 1, E)).reshape(B, T, E).transpose(-1, -2))
-        #x = self.conv(x.transpose(-1, -2).reshape(B * T, 1, E))
+        x = self.conv(x.transpose(-1, -2).reshape(B * T, 1, E))
+        #x = self.bn(x)
         #x = F.elu(x).sum(-2).reshape(B, T, -1).transpose(-1, -2)
         #x = F.leaky_relu(x, negative_slope=0.3).transpose(-1, -2)
+        #x = F.leaky_relu(x, negative_slope=0.1).transpose(-1, -2)
         x = F.leaky_relu(x).transpose(-1, -2)
         #x = F.relu(self.rnn(x.transpose(-1, -2))[1].transpose(0, 1)).reshape(-1, 440)
         #x = F.dropout(self.mp(x)[..., torch.randperm(88)], 0.5)
         #x = F.dropout(self.mp(x)[..., torch.randperm(88), :], 0.25)
         #x = F.dropout(self.mp(x), 0.25)
+        x = F.dropout(x, 0.5)
         #x = x.transpose(-1, -2)
+        x = self.fc(x).reshape(B, T, -1)
+        #x = x.reshape(B, T, -1)
+        #x = F.leaky_relu(x)
+        #x = F.dropout(x, 0.5)
         x = self.mp(x)
+        x = F.leaky_relu(x)
+        #x = x.masked_fill(~(torch.rand_like(x) > 0.5), float('-inf'))
         #x = self.ap(x) # TODO - pooling before or after weighting?
         #x = x * x.softmax(dim=-1)
         #return self.fc(x).squeeze(-1)
@@ -82,6 +110,15 @@ class DomainClassifier(nn.Module):
         #return self.fc(x.transpose(-1, -2).sum(-1, keepdim=True)).squeeze(-1)
         #return self.fc(x.sum(-1, keepdim=True)).squeeze(-1)
         x = x.sum(-1)
+        #x = x.max(-1)[0]
+        y = self.m * x + self.b
+        """
+        x = x.unsqueeze(-3)
+        x = F.dropout(F.leaky_relu(self.conv1(x), negative_slope=0.2), 0.5)
+        x = F.dropout(F.leaky_relu(self.conv2(x), negative_slope=0.2), 0.5)
+        x = F.dropout(F.leaky_relu(self.conv3(x), negative_slope=0.2), 0.5)
+        x = F.dropout(F.leaky_relu(self.conv4(x), negative_slope=0.2), 0.5)
+        x = self.conv5(x).mean(-1).mean(-1)
         return x
         #return self.fc(x.max(-1, keepdim=True)[0]).squeeze(-1)
         #return self.fc(x.topk(x.size(-1) // 10)[0].sum(-1, keepdim=True)).squeeze(-1)
@@ -137,6 +174,7 @@ def compute_adversarial_loss(classifier, features, labels, lmbda=1.0, n_frames=N
     adversarial_loss = F.binary_cross_entropy_with_logits(domains, labels, reduction='none')
 
     if rms_vals is not None:
+        # TODO - may mess up 50/50 balance
         # Gate based on RMS values and average across time and batch
         adversarial_loss = gate_and_average_loss(adversarial_loss, rms_vals, rms_thr)
     else:
@@ -159,13 +197,21 @@ def compute_adversarial_loss(classifier, features, labels, lmbda=1.0, n_frames=N
     #plot_latents(features[..., 100].cpu().detach(), labels.cpu().detach().numpy().tolist(), fig=fig)
     #plt.show()
 
+    dc_m, dc_b = classifier.m, classifier.b
+
     return adversarial_loss, (accuracy, accuracy_sp, accuracy_ss, mean_sum_sup, mean_sum_ss)
 
-def compute_confusion_loss(classifier, features, labels=None, rms_vals=None, rms_thr=0.01):
+def compute_confusion_loss(classifier, features, labels=None, n_frames=None, rms_vals=None, rms_thr=0.01):
+    if n_frames is not None and features.size(-1) >= n_frames:
+        # Sample a random starting point within the provided frames
+        start = torch.randint(low=0, high=features.size(-1) - n_frames + 1, size=(1,))
+        # Slice the features before feeding into domain classifier
+        features = features[..., start : start + n_frames]
+
     # Attempt to classify the features
     domains = classifier(features)
 
-    """
+    """"""
     # Compute adversarial loss as BCE of embeddings for source predictions with respect to true domains
     confusion_loss = F.binary_cross_entropy_with_logits(domains, torch.ones_like(domains), reduction='none')
 
@@ -175,9 +221,9 @@ def compute_confusion_loss(classifier, features, labels=None, rms_vals=None, rms
     else:
         # Average across batch and time
         confusion_loss = confusion_loss.mean(-1).mean(-1)
-    """
-
     """"""
+
+    """
     #mean_sum_sup = gate_and_average_loss(domains[labels == 1].detach(), rms_vals, rms_thr)
     #mean_sum_ss = gate_and_average_loss(domains[labels == 0], rms_vals, rms_thr)
 
@@ -185,6 +231,6 @@ def compute_confusion_loss(classifier, features, labels=None, rms_vals=None, rms
     mean_sum_ss = torch.cat([c[rms_vals[i] >= rms_thr] for i, c in enumerate(domains[labels == 0])]).mean()
 
     confusion_loss = (mean_sum_sup - mean_sum_ss) ** 2 # TODO - l1?
-    """"""
+    """
 
     return confusion_loss

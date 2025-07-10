@@ -39,7 +39,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['Test'])
+EX_NAME = '_'.join(['Test66-NoX-x3-LR--Scratch'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -51,7 +51,7 @@ def config():
     ##############################
 
     # Specify a checkpoint from which to resume training (None to disable)
-    checkpoint_path = '/storage/frank/ss-mpe_journal/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS16_R0.5_MC3_W100_TTFC/models/model-8500.pt'
+    checkpoint_path = None
 
     # Maximum number of training iterations to conduct
     max_epochs = 2500
@@ -76,7 +76,7 @@ def config():
         'sparsity' : 0,
         'entropy' : 0,
         'content' : 0,
-        'contrastive' : 1,
+        'contrastive' : 0,
         'timbre' : 1,
         'geometric' : 1,
         'percussion' : 1,
@@ -85,7 +85,7 @@ def config():
         'feature' : 0,
         'supervised' : 1,
         'adversarial' : 1,
-        'confusion' : 1 # lambda
+        'confusion' : 3 # lambda
     }
 
     # Compute energy-based losses over supervised data as well
@@ -116,7 +116,7 @@ def config():
     n_epochs_early_stop = None
 
     # IDs of the GPUs to use, if available
-    gpu_ids = [1, 0]
+    gpu_ids = [0]
 
     # Random seed for this experiment
     seed = 0
@@ -718,7 +718,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         #model.domain_classifier = DomainClassifier(128).to(device)
 
     # Initialize an optimizer for the domain classifier parameters
-    optimizer_dc = torch.optim.AdamW([{'params' : model.domain_classifier.parameters(), 'lr' : 2 * learning_rate}])
+    optimizer_dc = torch.optim.AdamW([{'params' : model.domain_classifier.parameters(), 'lr' : 5E-4}])
     """"""
 
     # Create (constant) ground-truth domain labels
@@ -835,16 +835,18 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     writer.add_scalar('train/adversarial/acc_ss', acc_ss.item(), batch_count)
                     writer.add_scalar('train/adversarial/avg_sum_sup', avg_sum_sup.item(), batch_count)
                     writer.add_scalar('train/adversarial/avg_sum_ss', avg_sum_ss.item(), batch_count)
+                    #writer.add_scalar('train/adversarial/m', dc_m.item(), batch_count)
+                    #writer.add_scalar('train/adversarial/b', dc_b.item(), batch_count)
 
                 debug_nans(adversarial_loss, 'adversarial')
 
-                """
+                """"""
                 # Zero the accumulated gradients
                 optimizer_dc.zero_grad()
                 # Compute gradients using adversarial loss
                 (multipliers['adversarial'] * adversarial_loss).backward()
 
-                if next(model.decoder_parameters(), None) is not None:
+                if next(model.domain_classifier.parameters(), None) is not None:
                     # Compute the average gradient norm across the domain_classifier
                     avg_norm_classifier = average_gradient_norms(model.domain_classifier)
                     # Log the average gradient norm of the classifier for this batch
@@ -859,7 +861,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
                 # Perform an optimization step
                 optimizer_dc.step()
-                """
+                """"""
 
                 with compute_grad(multipliers['energy']):
                     # Compute energy loss w.r.t. weighted harmonic sum for the batch
@@ -978,7 +980,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 with compute_grad(multipliers['confusion']):
                     #scaling = 1 / multipliers['confusion'] + (multipliers['confusion'] - 1) * (max(0, acc - 0.5) / 0.5) / multipliers['confusion']
                     # Compute confusion loss for the batch
-                    confusion_loss = compute_confusion_loss(model.domain_classifier, logits, domain_labels, rms_vals=features_rms_vals) if batch_size_ss else torch.tensor(0.)
+                    confusion_loss = compute_confusion_loss(model.domain_classifier, logits, domain_labels) if n_ss and n_sup else torch.tensor(0.)
+                    #confusion_loss = compute_confusion_loss(model.domain_classifier, logits[:n_eg], domain_labels[:n_eg]) if n_eg else torch.tensor(0.)
                     # Log the confusion loss for this batch
                     writer.add_scalar('train/loss/confusion', confusion_loss.item(), batch_count)
 
