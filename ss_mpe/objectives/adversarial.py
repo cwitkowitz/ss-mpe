@@ -54,6 +54,8 @@ class DomainClassifier(nn.Module):
         self.bn = nn.BatchNorm1d(n_filters)
         self.fc = nn.Linear(n_filters, 1)
 
+        self.a = 0
+
         """
         n_bins_blur_decay = 2.5
         # Compute standard deviation for kernel
@@ -142,27 +144,49 @@ def reverse_gradient(x, lmbda=1.0):
     return GradientReversalFunction.apply(x, lmbda)
 
 
-def compute_adversarial_loss(classifier, features, labels, lmbda=1.0, n_frames=None, rms_vals=None, rms_thr=0.01):
+def compute_adversarial_loss(classifier, features, labels, n_frames=None, rms_vals=None, rms_thr=0.01):
     if n_frames is not None and features.size(-1) >= n_frames:
         # Sample a random starting point within the provided frames
         start = torch.randint(low=0, high=features.size(-1) - n_frames + 1, size=(1,))
         # Slice the features before feeding into domain classifier
         features = features[..., start : start + n_frames]
 
+    n_sup = (labels == 1).sum().item()
+    n_ss = (labels == 0).sum().item()
+
+    #activations = torch.sigmoid(features)
+
+    #activations_sup = activations[labels == 1].detach()
+    #activations_ss = activations[labels == 0].detach()
+    features_sup = features[labels == 1].detach()
+    features_ss = features[labels == 0].detach()
+
+    #sup_idcs = torch.randint(high=n_sup, size=(n_ss,))
+
+    if classifier.a > 0:
+        lmbdas = torch.distributions.Beta(classifier.a, classifier.a).sample((n_ss,)).reshape(-1, 1, 1).to(features.device)
+    else:
+        lmbdas = torch.randint(0, 2, (n_ss,), dtype=torch.float).reshape(-1, 1, 1).to(features.device)
+
+    #mixed_features = lmbdas * features_sup[sup_idcs] + (1 - lmbdas) * features_ss
+    #mixed_features = lmbdas * features_sup + (1 - lmbdas) * features_ss
+    mixed_features1 = lmbdas * features_sup + (1 - lmbdas) * features_ss
+    mixed_features2 = (1 - lmbdas) * features_sup + lmbdas * features_ss
+    mixed_features = torch.cat((mixed_features1, mixed_features2), dim=0)
+    lmbdas = torch.cat((lmbdas, (1 - lmbdas)), dim=0)
+
     # Attempt to classify the features as originating from supervised (1) vs. fully self-supervised (0) data
     #domains = classifier(reverse_gradient(features, lmbda))
-    domains = classifier(features.detach())
-
-    mean_sum_sup = domains[labels == 1].mean()
-    mean_sum_ss = domains[labels == 0].mean()
+    #domains = classifier(features.detach())
+    domains = classifier(mixed_features)
 
     # Repeat ground-truth labels across time
-    labels = labels.unsqueeze(-1).repeat(1, domains.size(-1))
+    #labels = labels.unsqueeze(-1).repeat(1, domains.size(-1))
 
     # Obtain counts for each domain
     n_total = len(labels.flatten())
-    n_pos = (labels == 1).sum().item()
-    n_neg = (labels == 0).sum().item()
+    #n_pos = (labels == 1).sum().item()
+    #n_neg = (labels == 0).sum().item()
 
     # Compute ratios for equal class weighting
     #weight = torch.tensor([n_neg / n_total, n_pos / n_total])
@@ -171,7 +195,8 @@ def compute_adversarial_loss(classifier, features, labels, lmbda=1.0, n_frames=N
     #weight /= weight.min()
 
     # Compute adversarial loss as BCE of embeddings for source predictions with respect to true domains
-    adversarial_loss = F.binary_cross_entropy_with_logits(domains, labels, reduction='none')
+    #adversarial_loss = F.binary_cross_entropy_with_logits(domains, labels, reduction='none')
+    adversarial_loss = F.binary_cross_entropy_with_logits(domains, lmbdas.squeeze(-1), reduction='none')
 
     if rms_vals is not None:
         # TODO - may mess up 50/50 balance
@@ -181,15 +206,21 @@ def compute_adversarial_loss(classifier, features, labels, lmbda=1.0, n_frames=N
         # Average across batch and time
         adversarial_loss = adversarial_loss.mean(-1).mean(-1)
 
-    # Determine which predictions were correct
-    correct = torch.logical_not(torch.logical_xor(torch.sigmoid(domains).round(), labels))
+    with torch.no_grad():
+        domains_unmixed = classifier(features).squeeze(-1)
 
-    # Compute accuracy for the batch (TODO - precision / recall / FN/TN/TP/FP)
-    accuracy = correct.sum() / n_total
+        mean_sup = domains_unmixed[labels == 1].mean()
+        mean_ss = domains_unmixed[labels == 0].mean()
 
-    # Determine accuracy for each class independently
-    accuracy_sp = correct[labels == 1].sum() / n_pos
-    accuracy_ss = correct[labels == 0].sum() / n_neg
+        # Determine which predictions were correct
+        correct = torch.logical_not(torch.logical_xor(torch.sigmoid(domains_unmixed).round(), labels))
+
+        # Compute accuracy for the batch (TODO - precision / recall / FN/TN/TP/FP)
+        accuracy = correct.sum() / len(correct)
+
+        # Determine accuracy for each class independently
+        accuracy_sp = correct[labels == 1].sum() / n_sup
+        accuracy_ss = correct[labels == 0].sum() / n_ss
 
     #from timbre_trap.utils import plot_latents
     #import matplotlib.pyplot as plt
@@ -199,7 +230,7 @@ def compute_adversarial_loss(classifier, features, labels, lmbda=1.0, n_frames=N
 
     dc_m, dc_b = classifier.m, classifier.b
 
-    return adversarial_loss, (accuracy, accuracy_sp, accuracy_ss, mean_sum_sup, mean_sum_ss)
+    return adversarial_loss, (accuracy, accuracy_sp, accuracy_ss, mean_sup, mean_ss)
 
 def compute_confusion_loss(classifier, features, labels=None, n_frames=None, rms_vals=None, rms_thr=0.01):
     if n_frames is not None and features.size(-1) >= n_frames:
@@ -208,12 +239,39 @@ def compute_confusion_loss(classifier, features, labels=None, n_frames=None, rms
         # Slice the features before feeding into domain classifier
         features = features[..., start : start + n_frames]
 
+    n_sup = (labels == 1).sum().item()
+    n_ss = (labels == 0).sum().item()
+
+    #activations = torch.sigmoid(features)
+
+    #activations_sup = activations[labels == 1]
+    #activations_ss = activations[labels == 0]
+    features_sup = features[labels == 1]
+    features_ss = features[labels == 0]
+
+    #sup_idcs = torch.randint(high=n_sup, size=(n_ss,))
+
+    if classifier.a > 0:
+        lmbdas = torch.distributions.Beta(classifier.a, classifier.a).sample((n_ss,)).reshape(-1, 1, 1).to(features.device)
+    else:
+        lmbdas = torch.randint(0, 2, (n_ss,), dtype=torch.float).reshape(-1, 1, 1).to(features.device)
+
+    #mixed_features = lmbdas * features_sup[sup_idcs] + (1 - lmbdas) * features_ss
+    #mixed_features = lmbdas * features_sup + (1 - lmbdas) * features_ss
+    mixed_features1 = lmbdas * features_sup + (1 - lmbdas) * features_ss
+    mixed_features2 = (1 - lmbdas) * features_sup + lmbdas * features_ss
+    mixed_features = torch.cat((mixed_features1, mixed_features2), dim=0)
+    lmbdas = torch.cat((lmbdas, (1 - lmbdas)), dim=0)
+
     # Attempt to classify the features
-    domains = classifier(features)
+    #domains = classifier(features)
+    domains = classifier(mixed_features)
 
     """"""
     # Compute adversarial loss as BCE of embeddings for source predictions with respect to true domains
-    confusion_loss = F.binary_cross_entropy_with_logits(domains, torch.ones_like(domains), reduction='none')
+    #confusion_loss = F.binary_cross_entropy_with_logits(domains, torch.ones_like(domains), reduction='none')
+    #confusion_loss = F.binary_cross_entropy_with_logits(domains, (1 - lmbdas.squeeze(-1)), reduction='none')
+    confusion_loss = F.binary_cross_entropy_with_logits(domains, torch.maximum(lmbdas.squeeze(-1), (1 - lmbdas.squeeze(-1))), reduction='none')
 
     if rms_vals is not None:
         # Gate based on RMS values and average across time and batch

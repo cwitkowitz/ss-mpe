@@ -39,7 +39,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['Test66-NoX-x3-LR--Scratch'])
+EX_NAME = '_'.join(['Test66-RPR-NoW-BS12-LR1E-4-x10-DCLR5E-4'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -51,10 +51,10 @@ def config():
     ##############################
 
     # Specify a checkpoint from which to resume training (None to disable)
-    checkpoint_path = None
+    checkpoint_path = '../generated/experiments/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS16_R0.5_MC3_W100_TTFC/models/model-8500.pt'
 
     # Maximum number of training iterations to conduct
-    max_epochs = 2500
+    max_epochs = 5000
 
     # Number of iterations between checkpoints
     checkpoint_interval = 250
@@ -66,7 +66,7 @@ def config():
     n_secs = 4
 
     # Initial learning rate
-    learning_rate = 5e-4
+    learning_rate = 1e-4
 
     # Scaling factors for each loss term
     multipliers = {
@@ -76,7 +76,7 @@ def config():
         'sparsity' : 0,
         'entropy' : 0,
         'content' : 0,
-        'contrastive' : 0,
+        'contrastive' : 1,
         'timbre' : 1,
         'geometric' : 1,
         'percussion' : 1,
@@ -85,7 +85,7 @@ def config():
         'feature' : 0,
         'supervised' : 1,
         'adversarial' : 1,
-        'confusion' : 3 # lambda
+        'confusion' : 10 # lambda
     }
 
     # Compute energy-based losses over supervised data as well
@@ -95,7 +95,7 @@ def config():
     augment_features = False
 
     # Number of epochs spanning warmup phase (0 to disable)
-    n_epochs_warmup = 100
+    n_epochs_warmup = 0
 
     # Set validation dataset to compare for learning rate decay and early stopping
     validation_criteria_set = URMP.name()
@@ -116,7 +116,7 @@ def config():
     n_epochs_early_stop = None
 
     # IDs of the GPUs to use, if available
-    gpu_ids = [0]
+    gpu_ids = [1, 0]
 
     # Random seed for this experiment
     seed = 0
@@ -719,6 +719,9 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     # Initialize an optimizer for the domain classifier parameters
     optimizer_dc = torch.optim.AdamW([{'params' : model.domain_classifier.parameters(), 'lr' : 5E-4}])
+
+    # Determine number of samples available from smaller domain
+    n_min_domain = min(batch_size_ss, n_sup)
     """"""
 
     # Create (constant) ground-truth domain labels
@@ -825,16 +828,18 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 activations = torch.sigmoid(logits)
 
                 with compute_grad(multipliers['adversarial']):
+                    logits_balanced = torch.cat([logits[:n_min_domain], logits[batch_size_ss : batch_size_ss + n_min_domain]])
+                    domain_labels_balanced = torch.cat([domain_labels[:n_min_domain], domain_labels[batch_size_ss : batch_size_ss + n_min_domain]])
+
                     # Compute adversarial loss for the batch
-                    adversarial_loss, (acc, acc_sp, acc_ss, avg_sum_sup, avg_sum_ss) = compute_adversarial_loss(model.domain_classifier, logits, domain_labels) if batch_size_ss else torch.tensor(0.)
-                    #adversarial_loss, (acc, acc_sp, acc_ss) = compute_adversarial_loss(model.domain_classifier, latents, domain_labels, multipliers['adversarial'], n_frames=n_frames_adv) if batch_size_ss else torch.tensor(0.)
+                    adversarial_loss, (acc, acc_sp, acc_ss, avg_sup, avg_ss) = compute_adversarial_loss(model.domain_classifier, logits_balanced, domain_labels_balanced) if batch_size_ss else torch.tensor(0.)
                     # Log the adversarial loss for this batch
                     writer.add_scalar('train/loss/adversarial', adversarial_loss.item(), batch_count)
                     writer.add_scalar('train/adversarial/acc_total', acc.item(), batch_count)
                     writer.add_scalar('train/adversarial/acc_sp', acc_sp.item(), batch_count)
                     writer.add_scalar('train/adversarial/acc_ss', acc_ss.item(), batch_count)
-                    writer.add_scalar('train/adversarial/avg_sum_sup', avg_sum_sup.item(), batch_count)
-                    writer.add_scalar('train/adversarial/avg_sum_ss', avg_sum_ss.item(), batch_count)
+                    writer.add_scalar('train/adversarial/avg_sum_sup', avg_sup.item(), batch_count)
+                    writer.add_scalar('train/adversarial/avg_sum_ss', avg_ss.item(), batch_count)
                     #writer.add_scalar('train/adversarial/m', dc_m.item(), batch_count)
                     #writer.add_scalar('train/adversarial/b', dc_b.item(), batch_count)
 
