@@ -34,6 +34,8 @@ class SS_MPE(nn.Module):
         self.encoder = None
         self.decoder = None
 
+        self.domain_classifier = None
+
     def encoder_parameters(self):
         """
         Obtain parameters for encoder part of network.

@@ -39,7 +39,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['Test66-RPR-NoW-BS12-LR1E-4-x10-DCLR5E-4'])
+EX_NAME = '_'.join(['Test66-RPR-LR1E-4-x10-DCLR1E-3-4L-'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -718,7 +718,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         #model.domain_classifier = DomainClassifier(128).to(device)
 
     # Initialize an optimizer for the domain classifier parameters
-    optimizer_dc = torch.optim.AdamW([{'params' : model.domain_classifier.parameters(), 'lr' : 5E-4}])
+    optimizer_dc = torch.optim.AdamW([{'params' : model.domain_classifier.parameters(), 'lr' : 1E-3}])
 
     # Determine number of samples available from smaller domain
     n_min_domain = min(batch_size_ss, n_sup)
@@ -830,7 +830,6 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 with compute_grad(multipliers['adversarial']):
                     logits_balanced = torch.cat([logits[:n_min_domain], logits[batch_size_ss : batch_size_ss + n_min_domain]])
                     domain_labels_balanced = torch.cat([domain_labels[:n_min_domain], domain_labels[batch_size_ss : batch_size_ss + n_min_domain]])
-
                     # Compute adversarial loss for the batch
                     adversarial_loss, (acc, acc_sp, acc_ss, avg_sup, avg_ss) = compute_adversarial_loss(model.domain_classifier, logits_balanced, domain_labels_balanced) if batch_size_ss else torch.tensor(0.)
                     # Log the adversarial loss for this batch

@@ -37,7 +37,6 @@ class DomainClassifier(nn.Module):
             nn.Linear(128, 1),
             #nn.Sigmoid()
         )
-        """
         #self.simple_classifier = nn.Linear(n_bins, 1)
 
         n_filters = 32
@@ -53,6 +52,7 @@ class DomainClassifier(nn.Module):
         #self.fc = nn.Linear(1, 1)
         self.bn = nn.BatchNorm1d(n_filters)
         self.fc = nn.Linear(n_filters, 1)
+        """
 
         self.a = 0
 
@@ -73,14 +73,17 @@ class DomainClassifier(nn.Module):
         #self.fc.weight = torch.nn.Parameter(torch.tensor([[1.]]))
         #self.fc.bias = torch.nn.Parameter(torch.tensor([[0.]]))
 
+        """
         self.m = torch.nn.Parameter(torch.tensor([[1.]]))
         self.b = torch.nn.Parameter(torch.tensor([[0.]]))
+        """
 
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
-        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
-        self.conv4 = nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1)
-        self.conv5 = nn.Conv2d(256, 1, kernel_size=5, stride=1, padding=2)
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)
+        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
+        #self.conv4 = nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1)
+        #self.conv5 = nn.Conv2d(256, 1, kernel_size=5, stride=1, padding=2)
+        self.conv5 = nn.Conv2d(64, 1, kernel_size=5, stride=1, padding=2)
 
     def forward(self, x):
         """
@@ -119,8 +122,8 @@ class DomainClassifier(nn.Module):
         x = F.dropout(F.leaky_relu(self.conv1(x), negative_slope=0.2), 0.5)
         x = F.dropout(F.leaky_relu(self.conv2(x), negative_slope=0.2), 0.5)
         x = F.dropout(F.leaky_relu(self.conv3(x), negative_slope=0.2), 0.5)
-        x = F.dropout(F.leaky_relu(self.conv4(x), negative_slope=0.2), 0.5)
-        x = self.conv5(x).mean(-1).mean(-1)
+        #x = F.dropout(F.leaky_relu(self.conv4(x), negative_slope=0.2), 0.5)
+        x = self.conv5(x)
         return x
         #return self.fc(x.max(-1, keepdim=True)[0]).squeeze(-1)
         #return self.fc(x.topk(x.size(-1) // 10)[0].sum(-1, keepdim=True)).squeeze(-1)
@@ -178,7 +181,7 @@ def compute_adversarial_loss(classifier, features, labels, n_frames=None, rms_va
     # Attempt to classify the features as originating from supervised (1) vs. fully self-supervised (0) data
     #domains = classifier(reverse_gradient(features, lmbda))
     #domains = classifier(features.detach())
-    domains = classifier(mixed_features)
+    domains = classifier(mixed_features).mean(-1).mean(-1)
 
     # Repeat ground-truth labels across time
     #labels = labels.unsqueeze(-1).repeat(1, domains.size(-1))
@@ -207,7 +210,7 @@ def compute_adversarial_loss(classifier, features, labels, n_frames=None, rms_va
         adversarial_loss = adversarial_loss.mean(-1).mean(-1)
 
     with torch.no_grad():
-        domains_unmixed = classifier(features).squeeze(-1)
+        domains_unmixed = classifier(features).mean(-1).mean(-1).squeeze(-1)
 
         mean_sup = domains_unmixed[labels == 1].mean()
         mean_ss = domains_unmixed[labels == 0].mean()
@@ -228,7 +231,7 @@ def compute_adversarial_loss(classifier, features, labels, n_frames=None, rms_va
     #plot_latents(features[..., 100].cpu().detach(), labels.cpu().detach().numpy().tolist(), fig=fig)
     #plt.show()
 
-    dc_m, dc_b = classifier.m, classifier.b
+    #dc_m, dc_b = classifier.m, classifier.b
 
     return adversarial_loss, (accuracy, accuracy_sp, accuracy_ss, mean_sup, mean_ss)
 
@@ -258,20 +261,20 @@ def compute_confusion_loss(classifier, features, labels=None, n_frames=None, rms
 
     #mixed_features = lmbdas * features_sup[sup_idcs] + (1 - lmbdas) * features_ss
     #mixed_features = lmbdas * features_sup + (1 - lmbdas) * features_ss
-    mixed_features1 = lmbdas * features_sup + (1 - lmbdas) * features_ss
-    mixed_features2 = (1 - lmbdas) * features_sup + lmbdas * features_ss
-    mixed_features = torch.cat((mixed_features1, mixed_features2), dim=0)
-    lmbdas = torch.cat((lmbdas, (1 - lmbdas)), dim=0)
+    #mixed_features1 = lmbdas * features_sup + (1 - lmbdas) * features_ss
+    #mixed_features2 = (1 - lmbdas) * features_sup + lmbdas * features_ss
+    #mixed_features = torch.cat((mixed_features1, mixed_features2), dim=0)
+    #lmbdas = torch.cat((lmbdas, (1 - lmbdas)), dim=0)
 
     # Attempt to classify the features
-    #domains = classifier(features)
-    domains = classifier(mixed_features)
+    domains = classifier(features).mean(-1).mean(-1)
+    #domains = classifier(mixed_features)
 
     """"""
     # Compute adversarial loss as BCE of embeddings for source predictions with respect to true domains
-    #confusion_loss = F.binary_cross_entropy_with_logits(domains, torch.ones_like(domains), reduction='none')
+    confusion_loss = F.binary_cross_entropy_with_logits(domains, torch.ones_like(domains), reduction='none')
     #confusion_loss = F.binary_cross_entropy_with_logits(domains, (1 - lmbdas.squeeze(-1)), reduction='none')
-    confusion_loss = F.binary_cross_entropy_with_logits(domains, torch.maximum(lmbdas.squeeze(-1), (1 - lmbdas.squeeze(-1))), reduction='none')
+    #confusion_loss = F.binary_cross_entropy_with_logits(domains, torch.maximum(lmbdas.squeeze(-1), (1 - lmbdas.squeeze(-1))), reduction='none')
 
     if rms_vals is not None:
         # Gate based on RMS values and average across time and batch

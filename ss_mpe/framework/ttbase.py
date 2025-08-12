@@ -4,6 +4,7 @@
 from timbre_trap.framework import *
 from timbre_trap.utils import *
 
+from ss_mpe.objectives.adversarial import DomainClassifier
 from . import SS_MPE
 
 # Regular imports
@@ -78,7 +79,7 @@ class TT_Base(SS_MPE):
             # No skip connections
             self.skip_weights = None
 
-        self.domain_classifier = None
+        self.domain_classifier = DomainClassifier(n_bins)
 
     def decoder_parameters(self):
         """

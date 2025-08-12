@@ -64,6 +64,11 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
             raw_activations = torch.sigmoid(logits)
             #raw_activations = torch.softmax(logits, dim=-2)
 
+            model.train()
+            frame_offset = 345
+            domain_classifier_activations = torch.sigmoid(model.domain_classifier(logits[..., frame_offset : frame_offset + 345]))
+            model.eval()
+
             # Determine the times associated with predictions
             times_est = model.hcqt.get_times(model.hcqt.get_expected_frames(audio.size(-1)))
             # Perform peak-picking and thresholding on the activations
@@ -196,6 +201,7 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
             features_log_h = features_log_h.squeeze(0)
             transcription = transcription.squeeze(0)
             ground_truth = ground_truth.squeeze(0)
+            domain_classifier_activations = domain_classifier_activations.squeeze(0)
 
             # TODO - plot constants images only for first validation loop?
 
@@ -204,6 +210,7 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kw
             writer.add_image(f'{eval_set.name()}/W.Avg. HCQT', features_log_h.flip(-2), i)
             writer.add_image(f'{eval_set.name()}/transcription', transcription.flip(-2), i)
             writer.add_image(f'{eval_set.name()}/ground-truth', ground_truth.flip(-2), i)
+            writer.add_image(f'{eval_set.name()}/DC-embeddings', domain_classifier_activations.flip(-2), i)
 
             #os.makedirs(f'../generated/visualization/regeneration/{eval_set.name()}', exist_ok=True)
             #plot_magnitude(transcription[0].cpu().numpy(), save_path=f'../generated/visualization/regeneration/{eval_set.name()}/{i}.jpg')
