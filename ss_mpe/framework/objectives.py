@@ -13,7 +13,8 @@ __all__ = [
     'sample_gaussian_equalization',
     'compute_timbre_loss',
     'compute_geometric_loss',
-    'compute_supervised_loss'
+    'compute_supervised_loss',
+    'compute_percussion_loss'
 ]
 
 
@@ -207,7 +208,7 @@ def apply_random_eq(features, hcqt, eq_fn, **eq_kwargs):
     # Round, convert equalization bins to integers, and flatten
     equalization_bins = equalization_bins.round().long().flatten()
     # Obtain indices corresponding to equalization for each sample in the batch
-    equalization_idcs = torch.meshgrid(torch.arange(B, device=device), equalization_bins)
+    equalization_idcs = torch.meshgrid(torch.arange(B, device=device), equalization_bins, indexing='ij')
     # Obtain the equalization for each sample in the batch
     equalization = curves[equalization_idcs].view(B, H, K, -1)
 
@@ -217,18 +218,15 @@ def apply_random_eq(features, hcqt, eq_fn, **eq_kwargs):
     return equalized_features
 
 
-def compute_timbre_loss(model, features, embeddings, eq_fn, **eq_kwargs):
+def compute_timbre_loss(model, features, targets, eq_fn=sample_gaussian_equalization, **eq_kwargs):
     # Perform random equalizations on batch of features
     equalized_features = apply_random_eq(features, model.hcqt, eq_fn, **eq_kwargs)
 
     # Process equalized features with provided model
     equalization_embeddings = model(equalized_features)[0]
 
-    # Convert both sets of logits to activations (implicit pitch salience)
-    original_salience, equalization_salience = torch.sigmoid(embeddings), torch.sigmoid(equalization_embeddings)
-
-    # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original activations
-    timbre_loss = F.binary_cross_entropy_with_logits(equalization_embeddings, original_salience, reduction='none')
+    # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original targets
+    timbre_loss = F.binary_cross_entropy_with_logits(equalization_embeddings, targets, reduction='none')
 
     # Sum across frequency bins and average across time and batch
     timbre_loss = timbre_loss.sum(-2).mean(-1).mean(-1)
@@ -326,7 +324,7 @@ def apply_distortion(tensor, stretch_factors):
     return distorted
 
 
-def compute_geometric_loss(model, features, embeddings, max_shift_v, max_shift_h, max_stretch_factor):
+def compute_geometric_loss(model, features, targets, max_shift_v, max_shift_h, max_stretch_factor):
     # Determine batch size
     B = features.size(0)
 
@@ -355,19 +353,19 @@ def compute_geometric_loss(model, features, embeddings, max_shift_v, max_shift_h
     # Process transformed features with provided model
     transformation_embeddings = model(transformed_features)[0]
 
-    # Convert logits to activations (implicit pitch salience)
-    salience = torch.sigmoid(embeddings).unsqueeze(-3)
+    # Add a temporary channel dimension
+    targets = targets.unsqueeze(-3)
 
     # Apply same transformations to activations produced for original features
-    transformed_salience = apply_translation(salience, v_shifts, axis=-2, val=0)
-    transformed_salience = apply_translation(transformed_salience, h_shifts, axis=-1, val=0)
-    transformed_salience = apply_distortion(transformed_salience, stretch_factors)
+    transformed_targets = apply_translation(targets, v_shifts, axis=-2, val=0)
+    transformed_targets = apply_translation(transformed_targets, h_shifts, axis=-1, val=0)
+    transformed_targets = apply_distortion(transformed_targets, stretch_factors)
 
     # Remove temporarily added channel dimension
-    transformed_salience = transformed_salience.squeeze(-3)
+    transformed_targets = transformed_targets.squeeze(-3)
 
-    # Compute geometric loss as BCE of embeddings computed from transformed features with respect to transformed activations
-    geometric_loss = F.binary_cross_entropy_with_logits(transformation_embeddings, transformed_salience, reduction='none')
+    # Compute geometric loss as BCE of embeddings computed from transformed features with respect to transformed targets
+    geometric_loss = F.binary_cross_entropy_with_logits(transformation_embeddings, transformed_targets, reduction='none')
 
     # Sum across frequency bins and average across time and batch
     geometric_loss = geometric_loss.sum(-2).mean(-1).mean(-1)
@@ -375,11 +373,39 @@ def compute_geometric_loss(model, features, embeddings, max_shift_v, max_shift_h
     return geometric_loss
 
 
-def compute_supervised_loss(embeddings, ground_truth):
+def compute_supervised_loss(embeddings, ground_truth, weight_positive_class=False):
     # Compute supervised loss as BCE of activations with respect to ground-truth
     supervised_loss = F.binary_cross_entropy_with_logits(embeddings, ground_truth, reduction='none')
+
+    if weight_positive_class:
+        # Sum ground-truth and its complement for weights
+        positive_weight = torch.sum(ground_truth, dim=-2, keepdim=True)
+        negative_weight = torch.sum(1 - ground_truth, dim=-2, keepdim=True)
+        # Compute multi-class imbalance ratio for each frame
+        positive_scaling = negative_weight / (positive_weight + torch.finfo().eps)
+        # Determine scaling for each loss element
+        scaling = positive_scaling * (ground_truth == 1)
+        # Correct scaling for negative activations
+        scaling[scaling == 0] = 1
+        # Scale transcription loss
+        supervised_loss *= scaling
 
     # Sum across frequency bins and average across time and batch
     supervised_loss = supervised_loss.sum(-2).mean(-1).mean(-1)
 
     return supervised_loss
+
+
+def compute_percussion_loss(model, unpitched_features, targets):
+    # Process unpitched features with provided model
+    unpitched_embeddings = model(unpitched_features)[0]
+
+    # Compute timbre loss as BCE of embeddings computed from equalized features with respect to original targets
+    unpitched_loss = F.binary_cross_entropy_with_logits(unpitched_embeddings, targets, reduction='none')
+
+    # Sum across frequency bins and average across time and batch
+    unpitched_loss = unpitched_loss.sum(-2).mean(-1).mean(-1)
+
+    return unpitched_loss
+
+# TODO - abstract invariance / equivariance losses?

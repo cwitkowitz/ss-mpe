@@ -2,10 +2,11 @@
 
 # My imports
 from timbre_trap.datasets.MixedMultiPitch import URMP as URMP_Mixtures, Bach10 as Bach10_Mixtures, Su, TRIOS
-from timbre_trap.datasets.SoloMultiPitch import GuitarSet
+from timbre_trap.datasets.SoloMultiPitch import GuitarSet, MAESTRO
 from timbre_trap.datasets import ComboDataset
 
 from ss_mpe.datasets.SoloMultiPitch import NSynth
+from ss_mpe.datasets.AudioMixtures import E_GMD
 
 from ss_mpe.framework import SS_MPE, TT_Base
 from ss_mpe.framework.objectives import *
@@ -29,7 +30,7 @@ import os
 
 DEBUG = 0 # (0 - off | 1 - on)
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['<EXPERIMENT_NAME>'])
+EX_NAME = '_'.join(['URMP_SU_EG_TM_GM_PC_1'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -44,19 +45,19 @@ def config():
     checkpoint_path = None
 
     # Maximum number of training iterations to conduct
-    max_epochs = 3
+    max_epochs = 5000
 
     # Number of iterations between checkpoints
     checkpoint_interval = 250
 
     # Number of samples to gather for a batch
-    batch_size = 4 if DEBUG else 20
+    batch_size = 4 if DEBUG else 8
 
     # Number of seconds of audio per sample
     n_secs = 4
 
     # Initial learning rate for encoder
-    learning_rate_encoder = 1e-4
+    learning_rate_encoder = 1e-3
 
     # Initial learning rate for decoder
     learning_rate_decoder = learning_rate_encoder
@@ -71,38 +72,39 @@ def config():
         'sparsity' : 1,
         'timbre' : 1,
         'geometric' : 1,
-        'supervised' : 0
+        'percussion' : 1,
+        'supervised' : 1
     }
 
+    # Whether to formulate objectives as self-supervision or augmentation
+    self_supervised_targets = True
+
     # Number of epochs spanning warmup phase (0 to disable)
-    n_epochs_warmup = 0
+    n_epochs_warmup = 50
 
     # Set validation dataset to compare for learning rate decay and early stopping
-    validation_criteria_set = NSynth.name()
+    validation_criteria_set = URMP_Mixtures.name()
 
     # Set validation metric to compare for learning rate decay and early stopping
-    validation_criteria_metric = 'loss/total'
+    validation_criteria_metric = 'mpe/f1-score'
 
     # Select whether the validation criteria should be maximized or minimized
-    validation_criteria_maximize = False # (False - minimize | True - maximize)
-
-    # Late starting point (0 to disable)
-    n_epochs_late_start = 0
+    validation_criteria_maximize = True # (False - minimize | True - maximize)
 
     # Number of epochs without improvement before reducing learning rate (0 to disable)
-    n_epochs_decay = 0.5
+    n_epochs_decay = 500
 
     # Number of epochs before starting epoch counter for learning rate decay
-    n_epochs_cooldown = 0
+    n_epochs_cooldown = 100
 
     # Number of epochs without improvement before early stopping (None to disable)
-    n_epochs_early_stop = 1.0
+    n_epochs_early_stop = None
 
     # IDs of the GPUs to use, if available
-    gpu_ids = [0]
+    gpu_ids = [1]
 
     # Random seed for this experiment
-    seed = 0
+    seed = 1
 
     ########################
     ## FEATURE EXTRACTION ##
@@ -131,11 +133,11 @@ def config():
     ############
 
     # Number of threads to use for data loading
-    n_workers = 0 if DEBUG else 8 * len(gpu_ids)
+    n_workers = 0 #if DEBUG else 8 * len(gpu_ids)
 
     # Top-level directory under which to save all experiment files
     if CONFIG == 1:
-        root_dir = os.path.join('/', 'storage', 'frank', 'self-supervised-pitch', EX_NAME)
+        root_dir = os.path.join('/', 'storage', 'frank', 'ss-mpe_leveraging', EX_NAME)
     else:
         root_dir = os.path.join('..', 'generated', 'experiments', EX_NAME)
 
@@ -151,11 +153,10 @@ def config():
 
 
 @ex.automain
-def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_secs, learning_rates,
-                multipliers, n_epochs_warmup, validation_criteria_set, validation_criteria_metric,
-                validation_criteria_maximize, n_epochs_late_start, n_epochs_decay, n_epochs_cooldown,
-                n_epochs_early_stop, gpu_ids, seed, sample_rate, hop_length, fmin, bins_per_octave,
-                n_bins, harmonics, n_workers, root_dir):
+def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_secs, learning_rates, multipliers,
+                self_supervised_targets, n_epochs_warmup, validation_criteria_set, validation_criteria_metric,
+                validation_criteria_maximize, n_epochs_decay, n_epochs_cooldown, n_epochs_early_stop, gpu_ids,
+                seed, sample_rate, hop_length, fmin, bins_per_octave, n_bins, harmonics, n_workers, root_dir):
     # Discard read-only types
     learning_rates = list(learning_rates)
     multipliers = dict(multipliers)
@@ -194,8 +195,11 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                    'harmonics': harmonics,
                    'weights' : harmonic_weights}
 
+    # Infer the number of bins per semitone
+    bins_per_semitone = bins_per_octave / 12
+
     # Determine maximum supported MIDI frequency
-    fmax = fmin + n_bins / (bins_per_octave / 12)
+    fmax = fmin + n_bins / bins_per_semitone
 
     ###########
     ## MODEL ##
@@ -204,8 +208,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     if checkpoint_path is None:
         # Initialize autoencoder model
         model = TT_Base(hcqt_params,
-                        latent_size=128,
-                        model_complexity=2,
+                        model_complexity=3,
                         skip_connections=False)
     else:
         # Load weights of the specified model checkpoint
@@ -234,49 +237,51 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ##############
 
     # Point to the datasets within the storage drive containing them or use the default location
-    nsynth_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
-    mnet_base_dir      = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if CONFIG else None
-    mydb_base_dir      = os.path.join('/', 'storage', 'frank', 'MedleyDB') if CONFIG else None
-    magna_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'MagnaTagATune') if CONFIG else None
-    fma_base_dir       = os.path.join('/', 'storageNVME', 'frank', 'FMA') if CONFIG else None
-    mydb_ptch_base_dir = os.path.join('/', 'storage', 'frank', 'MedleyDB-Pitch') if CONFIG else None
-    urmp_base_dir      = os.path.join('/', 'storage', 'frank', 'URMP') if CONFIG else None
-    bch10_base_dir     = os.path.join('/', 'storage', 'frank', 'Bach10') if CONFIG else None
-    gset_base_dir      = os.path.join('/', 'storage', 'frank', 'GuitarSet') if CONFIG else None
-    mstro_base_dir     = os.path.join('/', 'storage', 'frank', 'MAESTRO') if CONFIG else None
-    swd_base_dir       = os.path.join('/', 'storage', 'frank', 'SWD') if CONFIG else None
-    su_base_dir        = os.path.join('/', 'storage', 'frank', 'Su') if CONFIG else None
-    trios_base_dir     = os.path.join('/', 'storage', 'frank', 'TRIOS') if CONFIG else None
+    nsynth_base_dir = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
+    urmp_base_dir   = os.path.join('/', 'storage', 'frank', '1', 'URMP') if CONFIG else None
+    bch10_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'Bach10') if CONFIG else None
+    su_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'Su') if CONFIG else None
+    trios_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'TRIOS') if CONFIG else None
+    gset_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'GuitarSet') if CONFIG else None
+    mstro_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'MAESTRO') if CONFIG else None
+    egmd_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'E-GMD') if CONFIG else None
 
-    # Initialize list to hold all training datasets
+    # Initialize list to hold training datasets
     all_train = list()
 
-    if DEBUG:
-        # Instantiate NSynth validation split for training
-        nsynth_stems_train = NSynth(base_dir=nsynth_base_dir,
-                                    splits=['valid'],
-                                    n_tracks=200,
-                                    midi_range=np.array([fmin, fmax]),
-                                    sample_rate=sample_rate,
-                                    cqt=model.hcqt,
-                                    n_secs=n_secs,
-                                    seed=seed)
-        all_train.append(nsynth_stems_train)
-    else:
-        # Instantiate NSynth training split for training
-        nsynth_stems_train = NSynth(base_dir=nsynth_base_dir,
-                                    splits=['train'],
-                                    midi_range=np.array([fmin, fmax]),
-                                    sample_rate=sample_rate,
-                                    cqt=model.hcqt,
-                                    n_secs=n_secs,
-                                    seed=seed)
-        all_train.append(nsynth_stems_train)
+    # Set the URMP validation set in accordance with the MT3 paper
+    urmp_val_splits = ['01', '02', '12', '13', '24', '25', '31', '38', '39']
 
-    # Combine all training datasets
+    # Allocate remaining tracks to URMP training set
+    urmp_train_splits = URMP_Mixtures.available_splits()
+
+    for t in urmp_val_splits:
+        # Remove validation tracks
+        urmp_train_splits.remove(t)
+
+    if DEBUG:
+        # Instantiate URMP dataset (validation) mixtures for training
+        urmp_mixes_train = URMP_Mixtures(base_dir=urmp_base_dir,
+                                         splits=urmp_val_splits,
+                                         sample_rate=sample_rate,
+                                         cqt=model.hcqt,
+                                         n_secs=n_secs,
+                                         seed=seed)
+        all_train.append(urmp_mixes_train)
+    else:
+        # Instantiate URMP dataset mixtures for training
+        urmp_mixes_train = URMP_Mixtures(base_dir=urmp_base_dir,
+                                         splits=urmp_train_splits,
+                                         sample_rate=sample_rate,
+                                         cqt=model.hcqt,
+                                         n_secs=n_secs,
+                                         seed=seed)
+        all_train.append(urmp_mixes_train)
+
+    # Combine training datasets
     all_train = ComboDataset(all_train)
 
-    # Initialize a PyTorch dataloader
+    # Initialize a PyTorch dataloader for data
     loader = DataLoader(dataset=all_train,
                         batch_size=batch_size,
                         shuffle=True,
@@ -293,21 +298,12 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                         cqt=model.hcqt,
                         seed=seed)
 
-    # Set the URMP validation set as was defined in the MT3 paper
-    urmp_val_splits = ['01', '02', '12', '13', '24', '25', '31', '38', '39']
     # Instantiate URMP dataset mixtures for validation
     urmp_val = URMP_Mixtures(base_dir=urmp_base_dir,
                              splits=urmp_val_splits,
                              sample_rate=sample_rate,
                              cqt=model.hcqt,
                              seed=seed)
-
-    # Instantiate NSynth testing split for evaluation
-    nsynth_test = NSynth(base_dir=nsynth_base_dir,
-                         splits=['test'],
-                         sample_rate=sample_rate,
-                         cqt=model.hcqt,
-                         seed=seed)
 
     # Instantiate Bach10 dataset mixtures for evaluation
     bch10_test = Bach10_Mixtures(base_dir=bch10_base_dir,
@@ -323,19 +319,19 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                  cqt=model.hcqt,
                  seed=seed)
 
-    # Instantiate URMP dataset mixtures for evaluation
-    urmp_test = URMP_Mixtures(base_dir=urmp_base_dir,
-                              splits=None,
-                              sample_rate=sample_rate,
-                              cqt=model.hcqt,
-                              seed=seed)
-
     # Instantiate TRIOS dataset for evaluation
     trios_test = TRIOS(base_dir=trios_base_dir,
                        splits=None,
                        sample_rate=sample_rate,
                        cqt=model.hcqt,
                        seed=seed)
+
+    # Instantiate GuitarSet dataset for validation
+    gset_val = GuitarSet(base_dir=gset_base_dir,
+                         splits=['05'],
+                         sample_rate=sample_rate,
+                         cqt=model.hcqt,
+                         seed=seed)
 
     # Instantiate GuitarSet dataset for evaluation
     gset_test = GuitarSet(base_dir=gset_base_dir,
@@ -345,10 +341,10 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           seed=seed)
 
     # Add all validation datasets to a list
-    validation_sets = [nsynth_val, urmp_val, bch10_test, su_test, trios_test]
+    validation_sets = [nsynth_val, urmp_val, bch10_test, su_test, trios_test, gset_val]
 
     # Add all evaluation datasets to a list
-    evaluation_sets = [nsynth_test, bch10_test, su_test, trios_test, urmp_test, gset_test]
+    evaluation_sets = [nsynth_val, bch10_test, su_test, trios_test, gset_test]
 
     #################
     ## PREPARATION ##
@@ -358,7 +354,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     optimizer = torch.optim.AdamW([{'params' : model.encoder_parameters(), 'lr' : learning_rates[0]},
                                    {'params' : model.decoder_parameters(), 'lr' : learning_rates[1]}])
 
-    # Determine amount of batches in one epoch
+    # Determine the amount of batches in one epoch
     epoch_steps = len(loader)
 
     # Compute number of validation checkpoints corresponding to learning rate decay cooldown and window
@@ -380,11 +376,11 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                                                  mode='max' if validation_criteria_maximize else 'min',
                                                                  factor=0.5,
                                                                  patience=n_checkpoints_decay,
-                                                                 threshold=2E-3,
+                                                                 threshold=1E-3,
                                                                  cooldown=n_checkpoints_cooldown)
 
     # Enable anomaly detection to debug any NaNs (can increase overhead)
-    #torch.autograd.set_detect_anomaly(True)
+    torch.autograd.set_detect_anomaly(True)
 
     # Enable cuDNN auto-tuner to optimize CUDA kernel (might improve
     # performance, but adds initial overhead to find the best kernel)
@@ -420,7 +416,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     #################
 
     # Number of random points to sample per octave
-    points_per_octave = 2
+    points_per_octave = 3
 
     # Infer the number of bins per semitone
     bins_per_semitone = bins_per_octave / 12
@@ -438,20 +434,12 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     n_points = 1 + points_per_octave * n_octaves
 
     # Standard deviation of boost/cut
-    std_dev = 0.10
+    std_dev = 0.25
 
     # Set keyword arguments for random equalization
     random_kwargs = {
         'n_points' : n_points,
         'std_dev' : std_dev
-    }
-
-    # Pointiness for parabolic equalization
-    pointiness = 5
-
-    # Set keyword arguments for parabolic equalization
-    parabolic_kwargs = {
-        'pointiness' : pointiness
     }
 
     # Maximum amplitude for Gaussian equalization
@@ -471,7 +459,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     }
 
     # Set equalization type and corresponding parameter values
-    eq_fn, eq_kwargs = sample_gaussian_equalization, gaussian_kwargs
+    eq_fn, eq_kwargs = sample_random_equalization, random_kwargs
 
     ####################
     ## GEOMETRIC LOSS ##
@@ -494,23 +482,49 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         'max_stretch_factor' : max_stretch_factor
     }
 
+    #####################
+    ## PERCUSSION LOSS ##
+    #####################
+
+    # Initialize list to hold unpitched datasets
+    perc_train = list()
+
+    # Instantiate E-GMD audio for percussion-invariance
+    egmd = E_GMD(base_dir=egmd_base_dir,
+                 splits=['train'],
+                 sample_rate=sample_rate,
+                 n_secs=n_secs,
+                 seed=seed)
+    perc_train.append(egmd)
+
+    # TODO - other noise / percussion datasets
+
+    # Combine unpitched datasets
+    perc_train = ComboDataset(perc_train)
+
+    # Initialize a PyTorch dataloader for percussion data
+    percussion_loader = DataLoader(dataset=perc_train,
+                                   batch_size=batch_size,
+                                   shuffle=True,
+                                   num_workers=n_workers,
+                                   pin_memory=True,
+                                   drop_last=True)
+
     ##############################
     ## TRAINING/VALIDATION LOOP ##
     ##############################
 
     # Loop through epochs
     for i in range(max_epochs):
-        # Loop through batches of audio
+        # Loop through batches of both types of data
         for data in tqdm(loader, desc=f'Epoch {i + 1}'):
             # Increment the batch counter
             batch_count += 1
 
-            if warmup_scheduler.is_active():
-                # Step the learning rate warmup scheduler
-                warmup_scheduler.step()
-
-            # Extract audio and add to appropriate device
+            # Extract audio and add audio to appropriate device
             audio = data[constants.KEY_AUDIO].to(device)
+            # Extract ground-truth pitch salience activations
+            ground_truth = data[constants.KEY_GROUND_TRUTH].to(device)
 
             # Log the current learning rates for this batch
             writer.add_scalar('train/loss/learning_rate/encoder', optimizer.param_groups[0]['lr'], batch_count)
@@ -524,43 +538,103 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             features_db_1 = features['db_1']
             features_db_h = features['db_h']
 
+            # Sample a batch of percussion audio
+            percussion_data = next(iter(percussion_loader))
+            # Sample random volumes for percussion audio
+            volumes = 2.0 * torch.rand((batch_size, 1, 1), device=device)
+            # Superimpose percussion audio onto original audio
+            percussion_audio = audio + volumes * percussion_data[constants.KEY_AUDIO].to(device)
+            # Compute spectral features for percussion audio mixture
+            features_perc = model.hcqt.to_decibels(model.hcqt(percussion_audio))
+
             with torch.autocast(device_type=f'cuda'):
                 # Process features to obtain logits
-                logits, _, losses = model(features_db)
+                logits, _, _ = model(features_db)
                 # Convert to (implicit) pitch salience activations
-                estimate = torch.sigmoid(logits)
+                activations = torch.sigmoid(logits)
+
+                # Keep track of total loss
+                #total_loss = 0.
 
                 # Compute support loss w.r.t. first harmonic for the batch
                 support_loss = compute_support_loss(logits, features_db_1)
                 # Log the support loss for this batch
                 writer.add_scalar('train/loss/support', support_loss.item(), batch_count)
 
+                debug_nans(support_loss, 'support')
+
+                #if multipliers['support']:
+                #    # Add the support loss to the total loss
+                #    total_loss.add(multipliers['support'] * support_loss)
+
                 # Compute harmonic loss w.r.t. weighted harmonic sum for the batch
                 harmonic_loss = compute_harmonic_loss(logits, features_db_h)
                 # Log the harmonic loss for this batch
                 writer.add_scalar('train/loss/harmonic', harmonic_loss.item(), batch_count)
 
+                debug_nans(harmonic_loss, 'harmonic')
+
+                #if multipliers['harmonic']:
+                #    # Add the harmonic loss to the total loss
+                #    total_loss.add(multipliers['harmonic'] * harmonic_loss)
+
                 # Compute sparsity loss for the batch
-                sparsity_loss = compute_sparsity_loss(estimate)
+                sparsity_loss = compute_sparsity_loss(activations)
                 # Log the sparsity loss for this batch
                 writer.add_scalar('train/loss/sparsity', sparsity_loss.item(), batch_count)
 
+                debug_nans(sparsity_loss, 'sparsity')
+
+                #if multipliers['sparsity']:
+                #    # Add the sparsity loss to the total loss
+                #    total_loss.add(multipliers['sparsity'] * sparsity_loss)
+
+                # Determine whether targets should be logits or ground-truth
+                targets = activations if self_supervised_targets else ground_truth
+
                 # Compute timbre-invariance loss for the batch
-                timbre_loss = compute_timbre_loss(model, features_db, logits, eq_fn, **eq_kwargs)
+                timbre_loss = compute_timbre_loss(model, features_db, targets, eq_fn=eq_fn, **eq_kwargs)
                 # Log the timbre-invariance loss for this batch
                 writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
 
-                # Compute geometric-invariance loss for the batch
-                geometric_loss = compute_geometric_loss(model, features_db, logits, **gm_kwargs)
-                # Log the geometric-invariance loss for this batch
+                debug_nans(timbre_loss, 'timbre')
+
+                #if multipliers['timbre']:
+                #    # Add the timbre-invariance loss to the total loss
+                #    total_loss.add(multipliers['timbre'] * timbre_loss)
+
+                # Compute geometric-equivariance loss for the batch
+                geometric_loss = compute_geometric_loss(model, features_db, targets, **gm_kwargs)
+                # Log the geometric-equivariance loss for this batch
                 writer.add_scalar('train/loss/geometric', geometric_loss.item(), batch_count)
 
-                # Extract ground-truth pitch salience activations
-                psuedo_ground_truth = data[constants.KEY_GROUND_TRUTH].to(device)
+                debug_nans(geometric_loss, 'geometric')
+
+                #if multipliers['geometric']:
+                #    # Add the geometric-equivariance loss to the total loss
+                #    total_loss.add(multipliers['geometric'] * geometric_loss)
+
+                # Compute percussion-invariance loss for the batch
+                percussion_loss = compute_percussion_loss(model, features_perc, targets)
+                # Log the percussion-invariance loss for this batch
+                writer.add_scalar('train/loss/percussion', percussion_loss.item(), batch_count)
+
+                debug_nans(percussion_loss, 'percussion')
+
+                #if multipliers['percussion']:
+                #    # Add the percussion-invariance loss to the total loss
+                #    total_loss.add(multipliers['percussion'] * percussion_loss)
+
                 # Compute supervised BCE loss for the batch
-                supervised_loss = compute_supervised_loss(logits, psuedo_ground_truth)
+                supervised_loss = compute_supervised_loss(logits, ground_truth, True)
                 # Log the supervised BCE loss for this batch
                 writer.add_scalar('train/loss/supervised', supervised_loss.item(), batch_count)
+
+                debug_nans(supervised_loss, 'supervised')
+
+                #if multipliers['supervised']:
+                #    # Add the supervised loss to the total loss
+                #    total_loss.add(multipliers['supervised'] * supervised_loss)
 
                 # Compute the total loss for this batch
                 total_loss = multipliers['support'] * support_loss + \
@@ -568,18 +642,8 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                              multipliers['sparsity'] * sparsity_loss + \
                              multipliers['timbre'] * timbre_loss + \
                              multipliers['geometric'] * geometric_loss + \
+                             multipliers['percussion'] * percussion_loss + \
                              multipliers['supervised'] * supervised_loss
-
-                if i >= n_epochs_late_start:
-                    # Currently no late-state losses
-                    # TODO - remove if unnecessary
-                    pass
-
-                for key_loss, val_loss in losses.items():
-                    # Log the model loss for this batch
-                    writer.add_scalar(f'train/loss/{key_loss}', val_loss.item(), batch_count)
-                    # Add the model loss to the total loss
-                    total_loss += multipliers.get(key_loss, 1) * val_loss
 
                 # Log the total loss for this batch
                 writer.add_scalar('train/loss/total', total_loss.item(), batch_count)
@@ -613,6 +677,10 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 # Perform an optimization step
                 optimizer.step()
 
+            if warmup_scheduler.is_active():
+                # Step the learning rate warmup scheduler
+                warmup_scheduler.step()
+
             if batch_count % checkpoint_interval == 0:
                 # Construct a path to save the model checkpoint
                 model_path = os.path.join(log_dir, f'model-{batch_count}.pt')
@@ -627,16 +695,21 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 validation_results = dict()
 
                 for val_set in validation_sets:
-                    # Validate the model checkpoint on each validation dataset
-                    validation_results[val_set.name()] = evaluate(model=model,
-                                                                  eval_set=val_set,
-                                                                  multipliers=multipliers,
-                                                                  writer=writer,
-                                                                  i=batch_count,
-                                                                  device=device,
-                                                                  eq_fn=eq_fn,
-                                                                  eq_kwargs=eq_kwargs,
-                                                                  gm_kwargs=gm_kwargs)
+                    try:
+                        # Validate the model checkpoint on each validation dataset
+                        validation_results[val_set.name()] = evaluate(model=model,
+                                                                      eval_set=val_set,
+                                                                      multipliers=multipliers,
+                                                                      writer=writer,
+                                                                      i=batch_count,
+                                                                      device=device,
+                                                                      self_supervised_targets=self_supervised_targets,
+                                                                      eq_fn=eq_fn,
+                                                                      eq_kwargs=eq_kwargs,
+                                                                      gm_kwargs=gm_kwargs,
+                                                                      pc_set=egmd)
+                    except Exception as e:
+                        print(f'Error validating \'{val_set.name()}\': {repr(e)}')
 
                 # Make sure model is on correct device and switch to training mode
                 model = model.to(device)
@@ -646,7 +719,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     # Re-enable benchmarking after validation
                     torch.backends.cudnn.benchmark = True
 
-                if decay_scheduler.patience and not warmup_scheduler.is_active() and i >= n_epochs_late_start:
+                if decay_scheduler.patience and not warmup_scheduler.is_active():
                     # Step the learning rate decay scheduler by logging the validation metric for the checkpoint
                     decay_scheduler.step(validation_results[validation_criteria_set][validation_criteria_metric])
 
@@ -703,14 +776,19 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
         torch.backends.cudnn.benchmark = False
 
     for eval_set in evaluation_sets:
-        # Evaluate the model using testing split
-        final_results = evaluate(model=best_model,
-                                 eval_set=eval_set,
-                                 multipliers=multipliers,
-                                 device=device,
-                                 eq_fn=eq_fn,
-                                 eq_kwargs=eq_kwargs,
-                                 gm_kwargs=gm_kwargs)
+        try:
+            # Evaluate the model using testing split
+            final_results = evaluate(model=best_model,
+                                     eval_set=eval_set,
+                                     multipliers=multipliers,
+                                     device=device,
+                                     self_supervised_targets=self_supervised_targets,
+                                     eq_fn=eq_fn,
+                                     eq_kwargs=eq_kwargs,
+                                     gm_kwargs=gm_kwargs,
+                                     pc_set=egmd)
+        except Exception as e:
+            print(f'Error evaluating \'{eval_set.name()}\': {repr(e)}')
 
         # Log the evaluation results for this dataset in metrics.json
         ex.log_scalar(f'Evaluation Results ({eval_set.name()})', final_results, best_model_checkpoint)

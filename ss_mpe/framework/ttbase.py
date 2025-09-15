@@ -2,6 +2,7 @@
 
 # My imports
 from timbre_trap.framework import *
+from timbre_trap.utils import *
 
 from . import SS_MPE
 
@@ -44,14 +45,17 @@ class TT_Base(SS_MPE):
         self.decoder = DecoderNorm(feature_size=n_bins, latent_size=latent_size, model_complexity=model_complexity)
 
         convin_out_channels = self.encoder.convin[0].out_channels
-        convout_in_channels = self.decoder.convout.in_channels
+        convout_in_channels = self.decoder.convout[0].in_channels
 
         self.encoder.convin = nn.Sequential(
             nn.Conv2d(n_harmonics, convin_out_channels, kernel_size=3, padding='same'),
-            nn.ELU(inplace=True)
+            *self.encoder.convin[1:]
         )
 
-        self.decoder.convout = nn.Conv2d(convout_in_channels, 1, kernel_size=3, padding='same')
+        self.decoder.convout = nn.Sequential(
+            nn.Conv2d(convout_in_channels, 1, kernel_size=3, padding='same'),
+            LayerNormPermute(normalized_shape=[1, n_bins])
+        )
 
         latent_channels = self.decoder.convin[0].out_channels
         latent_kernel = self.decoder.convin[0].kernel_size
@@ -135,11 +139,15 @@ class TT_Base(SS_MPE):
         # Process features with the encoder
         latents, embeddings, losses = self.encoder(features)
 
+        debug_nans(latents, 'encoder output')
+
         # Apply skip connections if applicable
         embeddings = self.apply_skip_connections(embeddings)
 
         # Process latents with the decoder
         output = self.decoder(latents, embeddings)
+
+        debug_nans(latents, 'decoder output')
 
         # Collapse channel dimension
         output = output.squeeze(-3)
@@ -287,8 +295,10 @@ class DecoderNorm(Decoder):
             LayerNormPermute(normalized_shape=[channels[4], embedding_sizes[4]])
         )
 
-        # TODO - add layer normalization after final convolution?
-        self.convout = nn.Conv2d(channels[4], 2, kernel_size=3, padding='same')
+        self.convout = nn.Sequential(
+            nn.Conv2d(channels[4], 2, kernel_size=3, padding='same'),
+            LayerNormPermute(normalized_shape=[2, feature_size])
+        )
 
 
 class LayerNormPermute(nn.LayerNorm):
