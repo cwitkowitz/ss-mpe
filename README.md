@@ -1,5 +1,9 @@
 ## Self-Supervised Multi-Pitch Estimation (SS-MPE)
-Code for the paper "[Toward Fully Self-Supervised Multi-Pitch Estimation](https://arxiv.org/pdf/2402.15569)".
+Code for the papers:
+- [Toward Fully Self-Supervised Multi-Pitch Estimation](https://arxiv.org/pdf/2402.15569)
+- [Investigating an Overfitting and Degeneration Phenomenon in Self-Supervised Multi-Pitch Estimation](https://arxiv.org/pdf/2506.23371)
+
+See the official releases for the exact code corresponding to each paper.
 
 ## Installation
 Clone the following repositories and install them along with their requirements:
@@ -21,7 +25,7 @@ pip install -r ss-mpe/requirements.txt
 pip install -e ss-mpe/
 ```
 
-All code for experiments and visualization is located under ```ss-mpe/experiments```.
+All code for experiments is located under ```ss-mpe/experiments```.
 To reproduce our experiments, simply run ```train.py``` and update the ```multipliers``` parameter to reflect the desired loss configuration
 You may also want to update ```EX_NAME``` and ```root_dir``` to your liking. 
 
