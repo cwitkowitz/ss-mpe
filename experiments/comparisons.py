@@ -1,7 +1,7 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from timbre_trap.datasets.MixedMultiPitch import Bach10, URMP, Su, TRIOS
+from timbre_trap.datasets.MixedMultiPitch import Bach10, URMP, Su, TRIOS, MusicNet
 from timbre_trap.datasets.SoloMultiPitch import GuitarSet
 from timbre_trap.datasets.NoteDataset import NoteDataset
 from ss_mpe.datasets.SoloMultiPitch import NSynth
@@ -10,6 +10,8 @@ from ss_mpe.framework import SS_MPE
 from timbre_trap.utils import *
 
 # Regular imports
+#from torchinfo import summary
+#from copy import deepcopy
 from tqdm import tqdm
 
 import librosa
@@ -17,19 +19,44 @@ import torch
 import os
 
 
-# Name of the model to evaluate
-ex_name = '<EXPERIMENT_DIR>'
-#ex_name = 'SS-MPE'
-#ex_name = 'Timbre'
-#ex_name = 'Geometric'
-#ex_name = 'Energy'
+# Name of the model to evaluate and model checkpoint to compare
+#ex_name, checkpoint = 'base/URMP_SPV_LR5E-4_2_BS8_MC3_W100_TTFC', 2000
+#ex_name, checkpoint = 'base/URMP_SPV_T_LR5E-4_2_BS8_MC3_W100_TTFC', 1000
+#ex_name, checkpoint = 'base/URMP_SPV_G_LR5E-4_2_BS8_MC3_W100_TTFC', 8750
+#ex_name, checkpoint = 'base/URMP_SPV_P_LR5E-4_2_BS8_MC3_W100_TTFC', 8500
+#ex_name, checkpoint = 'base/URMP_SPV_T_G_LR5E-4_2_BS8_MC3_W100_TTFC', 9500
+#ex_name, checkpoint = 'base/URMP_SPV_T_P_LR5E-4_2_BS8_MC3_W100_TTFC', 4250
+#ex_name, checkpoint = 'base/URMP_SPV_G_P_LR5E-4_2_BS8_MC3_W100_TTFC', 9250
+ex_name, checkpoint = 'base/URMP_SPV_T_G_P_LR5E-4_2_BS8_MC3_W100_TTFC', 9000
 
-# Choose the model checkpoint to compare
-checkpoint = 0
-#checkpoint = 37000
-#checkpoint = 41750
-#checkpoint = 37000
-#checkpoint = 43000
+#ex_name, checkpoint = 'additional/URMP_SPV_T_G_P_+NSynth_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC', 7500
+#ex_name, checkpoint = 'additional/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC', 8500
+#ex_name, checkpoint = 'additional/URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC', 9000
+
+#ex_name, checkpoint = 'energy/URMP_SPV_T_G_P_+NSynth_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC', 10000
+#ex_name, checkpoint = 'energy/URMP_SPV_T_G_P_+MNet_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC', 9750
+#ex_name, checkpoint = 'energy/URMP_SPV_T_G_P_+FMA_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC', 8000
+
+#ex_name, checkpoint = 'two-stage/URMP_SPV_T_G_P_-_+NSynth_LR1E-4_2_BS24_R0.66_MC3_W100_TTFC', 8750
+#ex_name, checkpoint = 'two-stage/URMP_SPV_T_G_P_-_+MNet_LR1E-4_2_BS24_R0.66_MC3_W100_TTFC', 7250
+#ex_name, checkpoint = 'two-stage/URMP_SPV_T_G_P_-_+FMA_LR1E-4_2_BS24_R0.66_MC3_W100_TTFC', 5500
+
+#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+NSynth_LR5E-4_2_BS10_R0.2_MC3_W100_TTFC', 9750
+#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+NSynth_LR5E-4_2_BS12_R0.33_MC3_W100_TTFC', 7500
+#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+NSynth_LR5E-4_2_BS16_R0.5_MC3_W100_TTFC', 9250
+
+#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS10_R0.2_MC3_W100_TTFC', 6750
+#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS12_R0.33_MC3_W100_TTFC', 10000
+#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS16_R0.5_MC3_W100_TTFC', 8500
+
+#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS10_R0.2_MC3_W100_TTFC', 6750
+#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS12_R0.33_MC3_W100_TTFC', 9750
+#ex_name, checkpoint = 'batch/URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS16_R0.5_MC3_W100_TTFC', 5250
+
+#ex_name, checkpoint = 'dist/URMP-T1_SPV_T_G_P_LR5E-4_2_BS8_MC3_W100_TTFC', 5500 RERUN 10000
+#ex_name, checkpoint = 'dist/URMP-T1_SPV_T_G_P_+URMP-T2_LR5E-4_2_BS18_R0.56_MC3_W100_TTFC', 7250 RERUN 9500
+#ex_name, checkpoint = 'dist/URMP-T1_SPV_T_G_P_+URMP-T2_EG_SPR_LR5E-4_2_BS18_R0.56_MC3_W100_TTFC', RUNNING
+
 
 # Choose the GPU on which to perform evaluation
 gpu_id = None
@@ -44,7 +71,8 @@ path_layout = 0
 if path_layout == 1:
     experiment_dir = os.path.join('/', 'storage', 'frank', 'self-supervised-pitch', ex_name)
 else:
-    experiment_dir = os.path.join('..', 'generated', 'experiments', ex_name)
+    #experiment_dir = os.path.join('..', 'generated', 'experiments', ex_name)
+    experiment_dir = f'/media/rockstar/Icarus/ss-mpe_ISMIR_overfitting_degeneration/{ex_name}'
 
 # Set randomization seed
 seed = 0
@@ -75,26 +103,32 @@ model_path = os.path.join(experiment_dir, 'models', f'model-{checkpoint}.pt')
 ss_mpe = SS_MPE.load(model_path, device=device)
 ss_mpe.eval()
 
+# Create a copy of the model without the HCQT module
+#ss_mpe_copy = deepcopy(ss_mpe).cpu()
+#ss_mpe_copy.hcqt = None
+# Tabulate model layers and parameters
+#summary(ss_mpe_copy, input_size=(1, 6, 440, 345), device='cpu')
+
 
 ##############
 ## DATASETS ##
 ##############
 
 # Point to the datasets within the storage drive containing them or use the default location
-nsynth_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if path_layout else None
-bch10_base_dir     = os.path.join('/', 'storage', 'frank', 'Bach10') if path_layout else None
-urmp_base_dir      = os.path.join('/', 'storage', 'frank', 'URMP') if path_layout else None
-su_base_dir        = os.path.join('/', 'storage', 'frank', 'Su') if path_layout else None
-trios_base_dir     = os.path.join('/', 'storage', 'frank', 'TRIOS') if path_layout else None
-gset_base_dir      = os.path.join('/', 'storage', 'frank', 'GuitarSet') if path_layout else None
+urmp_base_dir   = os.path.join('/', 'storage', 'frank', 'URMP') if path_layout else None
+nsynth_base_dir = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if path_layout else None
+bch10_base_dir  = os.path.join('/', 'storage', 'frank', 'Bach10') if path_layout else None
+su_base_dir     = os.path.join('/', 'storage', 'frank', 'Su') if path_layout else None
+trios_base_dir  = os.path.join('/', 'storage', 'frank', 'TRIOS') if path_layout else None
+mnet_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if path_layout else None
+gset_base_dir   = os.path.join('/', 'storage', 'frank', 'GuitarSet') if path_layout else None
 
 # Instantiate NSynth validation split for validation
 nsynth_val = NSynth(base_dir=nsynth_base_dir,
                     splits=['valid'],
                     n_tracks=200,
                     sample_rate=sample_rate,
-                    cqt=ss_mpe.hcqt,
-                    seed=seed)
+                    cqt=ss_mpe.hcqt)
 
 # Instantiate Bach10 dataset mixtures for evaluation
 bch10_test = Bach10(base_dir=bch10_base_dir,
@@ -102,11 +136,13 @@ bch10_test = Bach10(base_dir=bch10_base_dir,
                     sample_rate=sample_rate,
                     cqt=ss_mpe.hcqt)
 
-# Instantiate URMP dataset mixtures for evaluation
-urmp_test = URMP(base_dir=urmp_base_dir,
-                 splits=None,
-                 sample_rate=sample_rate,
-                 cqt=ss_mpe.hcqt)
+# Set the URMP validation set in accordance with the MT3 paper
+urmp_val_splits = ['01', '02', '12', '13', '24', '25', '31', '38', '39']
+# Instantiate URMP dataset mixtures for validation
+urmp_val = URMP(base_dir=urmp_base_dir,
+                splits=urmp_val_splits,
+                sample_rate=sample_rate,
+                cqt=ss_mpe.hcqt)
 
 # Instantiate Su dataset for evaluation
 su_test = Su(base_dir=su_base_dir,
@@ -119,6 +155,12 @@ trios_test = TRIOS(base_dir=trios_base_dir,
                    splits=None,
                    sample_rate=sample_rate,
                    cqt=ss_mpe.hcqt)
+
+# Instantiate MusicNet dataset mixtures for evaluation
+mnet_test = MusicNet(base_dir=mnet_base_dir,
+                     splits=['test'],
+                     sample_rate=sample_rate,
+                     cqt=ss_mpe.hcqt)
 
 # Instantiate GuitarSet dataset for evaluation
 gset_test = GuitarSet(base_dir=gset_base_dir,
@@ -145,7 +187,7 @@ if os.path.exists(save_path):
     os.remove(save_path)
 
 # Loop through validation and evaluation datasets
-for eval_set in [nsynth_val, bch10_test, urmp_test, su_test, trios_test, gset_test]:
+for eval_set in [urmp_val, nsynth_val, bch10_test, su_test, trios_test, mnet_test, gset_test]:
     # Initialize evaluators for each algorithm/model
     ln1_evaluator = MultipitchEvaluator()
     lg1_evaluator = MultipitchEvaluator()

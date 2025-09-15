@@ -5,6 +5,7 @@ from . import HCQT
 
 # Regular imports
 import torch.nn as nn
+import librosa
 import torch
 
 
@@ -31,7 +32,7 @@ class SS_MPE(nn.Module):
         self.hcqt = HCQT(**hcqt_params)
 
         self.encoder = None
-        self.encoder = None
+        self.decoder = None
 
     def encoder_parameters(self):
         """
@@ -78,6 +79,11 @@ class SS_MPE(nn.Module):
           Various sets of spectral features
         """
 
+        # Compute frame-level RMS values
+        features_rms = librosa.feature.rms(y=audio.squeeze().cpu(), hop_length=self.hcqt_params['hop_length'])
+        # Convert to Tensor, remove channel dimension, and add to device
+        features_rms = torch.from_numpy(features_rms).squeeze(-2).to(audio.device)
+
         # Compute features for audio
         features_lin = self.hcqt(audio)
 
@@ -92,7 +98,7 @@ class SS_MPE(nn.Module):
 
         # Extract relevant parameters
         harmonics = self.hcqt_params['harmonics']
-        harmonic_weights = self.hcqt_params['weights']
+        weights = self.hcqt_params['weights']
 
         # Determine first harmonic index
         h_idx = harmonics.index(1)
@@ -103,11 +109,12 @@ class SS_MPE(nn.Module):
         features_db_1 = features_db[:, h_idx]
 
         # Compute a weighted sum of features to obtain a rough salience estimate
-        features_pw_h = torch.sum((features_am * harmonic_weights) ** 2, dim=-3)
+        features_pw_h = torch.sum((features_am * weights.to(audio.device)) ** 2, dim=-3)
         features_db_h = self.hcqt.to_decibels(features_pw_h ** 0.5, rescale=False)
         features_db_h = self.hcqt.rescale_decibels(features_db_h)
 
         features = {
+            'rms'  : features_rms,
             'am'   : features_am,
             'pw'   : features_pw,
             'db'   : features_db,
@@ -200,7 +207,7 @@ class SS_MPE(nn.Module):
         """
 
         # Load a pre-existing model onto specified device
-        model = torch.load(model_path, map_location=device)
+        model = torch.load(model_path, map_location=device, weights_only=False)
         # Extract stored HCQT parameters
         hcqt_params = model.hcqt_params.copy()
         hcqt_params.pop('weights')

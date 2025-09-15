@@ -1,9 +1,10 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from timbre_trap.datasets.MixedMultiPitch import Bach10, URMP, Su, TRIOS
+from timbre_trap.datasets.MixedMultiPitch import Bach10, URMP, Su, TRIOS, MusicNet
 from timbre_trap.datasets.SoloMultiPitch import GuitarSet
 from timbre_trap.datasets.NoteDataset import NoteDataset
+from ss_mpe.datasets.SoloMultiPitch import NSynth
 from timbre_trap.framework import TimbreTrap
 
 from ss_mpe.framework import HCQT
@@ -19,8 +20,14 @@ import torch
 import os
 
 
+# Disable CUDA to prevent cryptic errors
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+
 # Choose the GPU on which to perform evaluation
 gpu_id = None
+
+# Initialize a device pointer for loading the models
+device = torch.device(f'cuda:{gpu_id}' if torch.cuda.is_available() and gpu_id is not None else 'cpu')
 
 # Flag to print results for each track separately
 verbose = True
@@ -69,14 +76,13 @@ hcqt = HCQT(**hcqt_params)
 ############
 
 from basic_pitch.note_creation import model_frames_to_time
+from basic_pitch.inference import predict, Model
 from basic_pitch import ICASSP_2022_MODEL_PATH
-from basic_pitch.inference import predict
-import tensorflow as tf
 
 # Number of bins in a single octave
 bp_bins_per_octave = 36
 # Load the Basic-Pitch model checkpoint corresponding to paper
-basic_pitch = tf.saved_model.load(str(ICASSP_2022_MODEL_PATH))
+basic_pitch_model = Model(ICASSP_2022_MODEL_PATH)
 # Compute the MIDI frequency associated with each bin of Basic-Pitch predictions
 bp_midi_freqs = librosa.note_to_midi('A0') + np.arange(264) / (bp_bins_per_octave / 12)
 
@@ -132,9 +138,89 @@ deep_salience = model_def()
 # Load the weights from the paper
 deep_salience.load_weights(weights_path)
 
+# Construct a path to a top-level directory for ComparingDeepModelsMPE
+deep_models_dir = os.path.join('..', 'generated', 'deep_models')
+# Specify the names of the files to download from GitHub
+model_script_name = 'unet_cnns.py'
+hcqt_script_name = 'hcqt.py'
+data_script_name = 'hcqt_datasets.py'
+expr_name  = 'RETRAIN4_exp195f_musicnet_aligned_unet_extremelylarge_polyphony_softmax_rerun1.pt'
+# Create the necessary file hierarchy if it doesn't exist
+os.makedirs(os.path.join(deep_models_dir, 'models_pretrained'), exist_ok=True)
+# Construct paths for the downloaded files
+model_script_path = os.path.join(deep_models_dir, model_script_name)
+hcqt_script_path = os.path.join(deep_models_dir, hcqt_script_name)
+data_script_path = os.path.join(deep_models_dir, data_script_name)
+weights_path = os.path.join(deep_models_dir, 'models_pretrained', expr_name)
+try:
+    # Attempt to import the model and preprocessing code from ComparingDeepModelsMPE
+    from generated.deep_models.unet_cnns import simple_u_net_polyphony_classif_softmax
+    from generated.deep_models.hcqt import compute_efficient_hcqt
+    from generated.deep_models.hcqt_datasets import dataset_context
+except ModuleNotFoundError:
+    # Point to the top-level directory containing files to download
+    url_dir = 'https://raw.githubusercontent.com/christofw/multipitch_architectures/master'
+    # Construct the URLs of the files to download
+    model_script_url = f'{url_dir}/libdl/nn_models/{model_script_name}'
+    hcqt_script_url = f'{url_dir}/libdl/data_preprocessing/{hcqt_script_name}'
+    data_script_url = f'{url_dir}/libdl/data_loaders/{data_script_name}'
+    weights_url = f'{url_dir}/models_pretrained/{expr_name}'
+    # Download the script and weights files
+    stream_url_resource(model_script_url, model_script_path)
+    stream_url_resource(hcqt_script_url, hcqt_script_path)
+    stream_url_resource(data_script_url, data_script_path)
+    stream_url_resource(weights_url, weights_path)
 
-# Initialize a device pointer for loading the models
-device = torch.device(f'cuda:{gpu_id}' if torch.cuda.is_available() and gpu_id is not None else 'cpu')
+    # Fix one of the import lines
+    with open(hcqt_script_path, 'r+') as f:
+        # Read all the code lines
+        lines = f.readlines()  # Get a list of all lines
+        # Reset file pointer
+        f.seek(0)
+        # Update lines of code
+        lines[1] = 'import numpy as np\n'
+        lines[121] = '    tuning_est = librosa.estimate_tuning(y=f_audio, bins_per_octave=bins_per_octave)\n'
+        # Stop processing file
+        f.truncate()
+        # Overwrite the code
+        f.writelines(lines)
+
+    # Fix one of the import lines
+    with open(data_script_path, 'r+') as f:
+        # Read all the code lines
+        lines = f.readlines()  # Get a list of all lines
+        # Reset file pointer
+        f.seek(0)
+        # Remove unnecessary imports
+        lines.pop(5)
+        # Stop processing file
+        f.truncate()
+        # Overwrite the code
+        f.writelines(lines)
+
+    # Retry the original imports
+    from generated.deep_models.unet_cnns import simple_u_net_polyphony_classif_softmax
+    from generated.deep_models.hcqt import compute_efficient_hcqt
+    from generated.deep_models.hcqt_datasets import dataset_context
+
+# Initialize polyphony U-Net architecture
+PUnet_XL = simple_u_net_polyphony_classif_softmax(n_chan_input=6,
+                                                  n_chan_layers=[128, 180, 150, 100],
+                                                  #n_ch_out=2,
+                                                  n_bins_in=6 * 12 * 3,
+                                                  n_bins_out=72,
+                                                  a_lrelu=0.3,
+                                                  p_dropout=0.2,
+                                                  scalefac=2,
+                                                  num_polyphony_steps=24).to(device)
+
+# Define path to pre-trained weights for recommended MusicNet split (test set MuN-10full)
+model_path = os.path.join(deep_models_dir, 'models_pretrained', expr_name)
+
+# Load checkpoint, add to device, and switch to evaluation mode
+PUnet_XL.load_state_dict(torch.load(model_path))
+PUnet_XL.eval()
+
 
 # Construct the path to the final model checkpoint for the base Timbre-Trap model
 model_path = os.path.join('..', '..', 'timbre-trap', 'generated', 'experiments', 'Base', 'models', 'model-8750.pt')
@@ -159,6 +245,7 @@ tt_midi_freqs = tt_mpe.sliCQ.get_midi_freqs()
 tt_invalid_freqs = librosa.midi_to_hz(tt_midi_freqs) > mir_eval.multipitch.MAX_FREQ
 
 
+"""
 import crepe
 
 # Determine cent values for each bin of CREPE predictions
@@ -176,6 +263,7 @@ import pesto
 pe_midi_freqs = torch.arange(384) / 3
 # Determine which Timbre-Trap bins correspond to valid frequencies for mir_eval
 pe_invalid_freqs = librosa.midi_to_hz(pe_midi_freqs) < mir_eval.multipitch.MIN_FREQ
+"""
 
 
 ##############
@@ -183,11 +271,20 @@ pe_invalid_freqs = librosa.midi_to_hz(pe_midi_freqs) < mir_eval.multipitch.MIN_F
 ##############
 
 # Point to the datasets within the storage drive containing them or use the default location
-bch10_base_dir     = os.path.join('/', 'storage', 'frank', 'Bach10') if path_layout else None
-urmp_base_dir      = os.path.join('/', 'storage', 'frank', 'URMP') if path_layout else None
-su_base_dir        = os.path.join('/', 'storage', 'frank', 'Su') if path_layout else None
-trios_base_dir     = os.path.join('/', 'storage', 'frank', 'TRIOS') if path_layout else None
-gset_base_dir      = os.path.join('/', 'storage', 'frank', 'GuitarSet') if path_layout else None
+urmp_base_dir   = os.path.join('/', 'storage', 'frank', 'URMP') if path_layout else None
+nsynth_base_dir = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if path_layout else None
+bch10_base_dir  = os.path.join('/', 'storage', 'frank', 'Bach10') if path_layout else None
+su_base_dir     = os.path.join('/', 'storage', 'frank', 'Su') if path_layout else None
+trios_base_dir  = os.path.join('/', 'storage', 'frank', 'TRIOS') if path_layout else None
+mnet_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if path_layout else None
+gset_base_dir   = os.path.join('/', 'storage', 'frank', 'GuitarSet') if path_layout else None
+
+# Instantiate NSynth validation split for validation
+nsynth_val = NSynth(base_dir=nsynth_base_dir,
+                    splits=['valid'],
+                    n_tracks=200,
+                    sample_rate=sample_rate,
+                    cqt=hcqt)
 
 # Instantiate Bach10 dataset mixtures for evaluation
 bch10_test = Bach10(base_dir=bch10_base_dir,
@@ -195,11 +292,13 @@ bch10_test = Bach10(base_dir=bch10_base_dir,
                     sample_rate=sample_rate,
                     cqt=hcqt)
 
-# Instantiate URMP dataset mixtures for evaluation
-urmp_test = URMP(base_dir=urmp_base_dir,
-                 splits=None,
-                 sample_rate=sample_rate,
-                 cqt=hcqt)
+# Set the URMP validation set in accordance with the MT3 paper
+urmp_val_splits = ['01', '02', '12', '13', '24', '25', '31', '38', '39']
+# Instantiate URMP dataset mixtures for validation
+urmp_val = URMP(base_dir=urmp_base_dir,
+                splits=urmp_val_splits,
+                sample_rate=sample_rate,
+                cqt=hcqt)
 
 # Instantiate Su dataset for evaluation
 su_test = Su(base_dir=su_base_dir,
@@ -212,6 +311,12 @@ trios_test = TRIOS(base_dir=trios_base_dir,
                    splits=None,
                    sample_rate=sample_rate,
                    cqt=hcqt)
+
+# Instantiate MusicNet dataset mixtures for evaluation
+mnet_test = MusicNet(base_dir=mnet_base_dir,
+                     splits=['test'],
+                     sample_rate=sample_rate,
+                     cqt=hcqt)
 
 # Instantiate GuitarSet dataset for evaluation
 gset_test = GuitarSet(base_dir=gset_base_dir,
@@ -241,13 +346,14 @@ if os.path.exists(save_path):
     os.remove(save_path)
 
 # Loop through validation and evaluation datasets
-for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
+for eval_set in [urmp_val, nsynth_val, bch10_test, su_test, trios_test, mnet_test, gset_test]:
     # Initialize evaluators for each algorithm/model
     bp_evaluator = MultipitchEvaluator()
     ds_evaluator = MultipitchEvaluator()
+    pu_evaluator = MultipitchEvaluator()
     tt_evaluator = MultipitchEvaluator()
-    cr_evaluator = MultipitchEvaluator()
-    pe_evaluator = MultipitchEvaluator()
+    #cr_evaluator = MultipitchEvaluator()
+    #pe_evaluator = MultipitchEvaluator()
 
     print_and_log(f'Results for {eval_set.name()}:', save_path)
 
@@ -275,8 +381,10 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
 
         # Obtain a path for the track's audio
         audio_path = eval_set.get_audio_path(track)
+
+
         # Obtain predictions from the BasicPitch model
-        model_output, _, _ = predict(audio_path, basic_pitch)
+        model_output, _, _ = predict(audio_path, basic_pitch_model)
         # Extract the pitch salience predictions
         bp_salience = model_output['contour'].T
         # Determine times associated with each frame of predictions
@@ -311,6 +419,77 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
             print_and_log(f'\t\t-(dp-slnc): {ds_results}', save_path)
 
 
+        # Load the audio using librosa for consistency
+        audio_lib, fs_lib = librosa.load(audio_path, sr=22050)
+
+        #n_bins_PUnet = 3 * 12 * 6
+        #min_pitch_PUnet = 24
+
+        # https://github.com/christofw/multipitch_architectures/blob/master/02_predict_with_pretrained_model.ipynb
+        f_hcqt, fs_hcqt, hopsize_cqt = compute_efficient_hcqt(audio_lib,
+                                                              fs=22050,
+                                                              fmin=librosa.note_to_hz('C1'),
+                                                              fs_hcqt_target=50,
+                                                              bins_per_octave=3 * 12,
+                                                              num_octaves=6,
+                                                              num_harmonics=5,
+                                                              num_subharmonics=1,
+                                                              center_bins=True)
+
+        test_params = {'batch_size': 1,
+                       'shuffle': False,
+                       'num_workers': 1
+                       }
+
+        test_dataset_params = {'context': 75,
+                               'stride': 1,
+                               'compression': 10
+                               }
+        half_context = test_dataset_params['context'] // 2
+
+        inputs = np.transpose(f_hcqt, (2, 1, 0))
+        targets = np.zeros(inputs.shape[1:])  # need dummy targets to use dataset object
+
+        inputs_context = torch.from_numpy(np.pad(inputs, ((0, 0), (half_context, half_context + 1), (0, 0))))
+        targets_context = torch.from_numpy(np.pad(targets, ((half_context, half_context + 1), (0, 0))))
+
+        test_set = dataset_context(inputs_context, targets_context, test_dataset_params)
+        test_generator = torch.utils.data.DataLoader(test_set, **test_params)
+
+        pred_tot = np.zeros((0, 72))
+
+        #max_frames = 160
+        #k = 0
+        for test_batch, test_labels in tqdm(test_generator, position=0, leave=True):
+            #k += 1
+            #if k > max_frames:
+            #    break
+            # Model computations
+            y_pred, n_pred = PUnet_XL(test_batch.to(device))
+            pred_log = torch.squeeze(torch.squeeze(y_pred, 2), 1).cpu().detach().numpy()
+            # pred_log = torch.squeeze(y_pred.to('cpu')).detach().numpy()
+            pred_tot = np.append(pred_tot, pred_log, axis=0)
+
+
+        pu_midi_freqs = 24 + np.arange(72)
+        pu_times = np.arange(pred_tot.shape[0]) / fs_hcqt
+
+        pu_salience = pred_tot.T
+        # Apply thresholding on the raw salience
+        pu_salience = threshold(pu_salience, 0.4)
+        #pu_salience = threshold(filter_non_peaks(pu_salience), 0.4)
+        # Convert the activations to frame-level multi-pitch estimates
+        pu_multi_pitch = eval_set.activations_to_multi_pitch(pu_salience, pu_midi_freqs)
+        # Compute results for PUnet:XL predictions
+        pu_results = pu_evaluator.evaluate(pu_times, pu_multi_pitch, times_ref, multi_pitch_ref)
+        # Store results for this track
+        pu_evaluator.append_results(pu_results)
+
+        if verbose:
+            # Print results for the individual track
+            print_and_log(f'\t\t-(pu-netx): {pu_results}', save_path)
+
+
         # Extract audio and add to the appropriate device
         audio = data[constants.KEY_AUDIO].to(device).unsqueeze(0)
 
@@ -319,7 +498,7 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
         # Determine the times associated with features
         times_est = tt_mpe.sliCQ.get_times(tt_mpe.sliCQ.get_expected_frames(audio_padded.size(-1)))
         # Transcribe the audio using the Timbre-Trap model
-        tt_salience = to_array(tt_mpe.transcribe(audio_padded).squeeze())
+        tt_salience = to_array(tt_mpe.to_activations(tt_mpe.inference(audio_padded, True)).squeeze())
         # Peak-pick and threshold the Timbre-Trap activations
         tt_salience = threshold(filter_non_peaks(tt_salience), 0.5)
         # Remove activations for invalid frequencies
@@ -335,6 +514,7 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
             # Print results for the individual track
             print_and_log(f'\t\t-(tt-mpe): {tt_results}', save_path)
 
+        """
         # Obtain salience predictions from the CREPE model
         cr_times, _, _, cr_salience = crepe.predict(to_array(audio.squeeze()), sample_rate, viterbi=False)
         # Apply peak-picking and thresholding on the raw salience
@@ -369,6 +549,7 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
         if verbose:
             # Print results for the individual track
             print_and_log(f'\t\t-(pesto): {pe_results}', save_path)
+        """
 
     # Print a header for average results across all tracks of the dataset
     print_and_log(f'\tAverage Results ({eval_set.name()}):', save_path)
@@ -376,6 +557,7 @@ for eval_set in [bch10_test, urmp_test, su_test, trios_test, gset_test]:
     # Print average results
     print_and_log(f'\t\t-(bsc-ptc): {bp_evaluator.average_results()[0]}', save_path)
     print_and_log(f'\t\t-(dp-slnc): {ds_evaluator.average_results()[0]}', save_path)
+    print_and_log(f'\t\t-(pu-netx): {pu_evaluator.average_results()[0]}', save_path)
     print_and_log(f'\t\t-(tt-mpe): {tt_evaluator.average_results()[0]}', save_path)
-    print_and_log(f'\t\t-(crepe): {cr_evaluator.average_results()[0]}', save_path)
-    print_and_log(f'\t\t-(pesto): {pe_evaluator.average_results()[0]}', save_path)
+    #print_and_log(f'\t\t-(crepe): {cr_evaluator.average_results()[0]}', save_path)
+    #print_and_log(f'\t\t-(pesto): {pe_evaluator.average_results()[0]}', save_path)

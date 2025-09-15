@@ -1,23 +1,33 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
-from timbre_trap.datasets.MixedMultiPitch import URMP as URMP_Mixtures, Bach10 as Bach10_Mixtures, Su, TRIOS
-from timbre_trap.datasets.SoloMultiPitch import GuitarSet, MAESTRO
+from timbre_trap.datasets.MixedMultiPitch import (URMP,
+                                                  Bach10,
+                                                  MusicNet,
+                                                  Su,
+                                                  TRIOS)
+from timbre_trap.datasets.SoloMultiPitch import (MAESTRO,
+                                                 GuitarSet)
+from timbre_trap.datasets.AudioMixtures import (FMA,
+                                                MedleyDB)
 from timbre_trap.datasets import ComboDataset
 
 from ss_mpe.datasets.SoloMultiPitch import NSynth
 from ss_mpe.datasets.AudioMixtures import E_GMD
+from ss_mpe.datasets import BalancedComboDataset
 
-from ss_mpe.framework import SS_MPE, TT_Base
-from ss_mpe.framework.objectives import *
+from ss_mpe.framework import SS_MPE, TT_Base, TT_Enc, PerfectPitch
+from ss_mpe.objectives import *
 from timbre_trap.utils import *
 from evaluate import evaluate
+from utils import *
 
 # Regular imports
 from torch.utils.tensorboard import SummaryWriter
 from sacred.observers import FileStorageObserver
 from torch.utils.data import DataLoader
 from sacred import Experiment
+from random import shuffle
 from tqdm import tqdm
 
 import numpy as np
@@ -28,9 +38,8 @@ import math
 import os
 
 
-DEBUG = 0 # (0 - off | 1 - on)
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['URMP_SU_EG_TM_GM_PC_1'])
+EX_NAME = '_'.join(['URMP_SPV_T_G_P_LR5E-4|2_BS8_MC3_W100_TTFC'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -45,45 +54,49 @@ def config():
     checkpoint_path = None
 
     # Maximum number of training iterations to conduct
-    max_epochs = 5000
+    max_epochs = 12500
 
     # Number of iterations between checkpoints
     checkpoint_interval = 250
 
     # Number of samples to gather for a batch
-    batch_size = 4 if DEBUG else 8
+    batch_size = 8
 
     # Number of seconds of audio per sample
     n_secs = 4
 
-    # Initial learning rate for encoder
-    learning_rate_encoder = 1e-3
-
-    # Initial learning rate for decoder
-    learning_rate_decoder = learning_rate_encoder
-
-    # Group together both learning rates
-    learning_rates = [learning_rate_encoder, learning_rate_decoder]
+    # Initial learning rate
+    learning_rate = 5e-4
 
     # Scaling factors for each loss term
     multipliers = {
-        'support' : 1,
-        'harmonic' : 1,
-        'sparsity' : 1,
+        'energy' : 0,
+        'support' : 0,
+        'harmonic' : 0,
+        'sparsity' : 0,
+        'entropy' : 0,
+        'content' : 0,
+        'contrastive' : 0,
         'timbre' : 1,
         'geometric' : 1,
         'percussion' : 1,
+        'noise' : 0,
+        'additivity' : 0,
+        'feature' : 0,
         'supervised' : 1
     }
 
-    # Whether to formulate objectives as self-supervision or augmentation
-    self_supervised_targets = True
+    # Compute energy-based losses over supervised data as well
+    energy_based_on_supervised = False
+
+    # Perform augmentations on input features for energy-based and/or supervised objectives
+    augment_features = False
 
     # Number of epochs spanning warmup phase (0 to disable)
-    n_epochs_warmup = 50
+    n_epochs_warmup = 100
 
     # Set validation dataset to compare for learning rate decay and early stopping
-    validation_criteria_set = URMP_Mixtures.name()
+    validation_criteria_set = URMP.name()
 
     # Set validation metric to compare for learning rate decay and early stopping
     validation_criteria_metric = 'mpe/f1-score'
@@ -92,19 +105,19 @@ def config():
     validation_criteria_maximize = True # (False - minimize | True - maximize)
 
     # Number of epochs without improvement before reducing learning rate (0 to disable)
-    n_epochs_decay = 500
+    n_epochs_decay = 0
 
     # Number of epochs before starting epoch counter for learning rate decay
-    n_epochs_cooldown = 100
+    n_epochs_cooldown = 0
 
     # Number of epochs without improvement before early stopping (None to disable)
     n_epochs_early_stop = None
 
     # IDs of the GPUs to use, if available
-    gpu_ids = [1]
+    gpu_ids = [0, 1]
 
     # Random seed for this experiment
-    seed = 1
+    seed = 0
 
     ########################
     ## FEATURE EXTRACTION ##
@@ -125,7 +138,7 @@ def config():
     # Number of frequency bins per CQT
     n_bins = 440
 
-    # Harmonics to stack along channel dimension of HCQT
+    # Harmonics to stack along channel dimension
     harmonics = [0.5, 1, 2, 3, 4, 5]
 
     ############
@@ -133,38 +146,37 @@ def config():
     ############
 
     # Number of threads to use for data loading
-    n_workers = 0 #if DEBUG else 8 * len(gpu_ids)
+    n_workers = 4 * len(gpu_ids)
 
     # Top-level directory under which to save all experiment files
     if CONFIG == 1:
-        root_dir = os.path.join('/', 'storage', 'frank', 'ss-mpe_leveraging', EX_NAME)
+        root_dir = os.path.join('/', 'storage', 'frank', 'ss-mpe_journal', EX_NAME)
     else:
         root_dir = os.path.join('..', 'generated', 'experiments', EX_NAME)
 
     # Create the root directory
     os.makedirs(root_dir, exist_ok=True)
 
-    if DEBUG:
-        # Print a warning message indicating debug mode is active
-        warnings.warn('Running in DEBUG mode...', RuntimeWarning)
-
     # Add a file storage observer for the log directory
     ex.observers.append(FileStorageObserver(root_dir))
 
 
 @ex.automain
-def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_secs, learning_rates, multipliers,
-                self_supervised_targets, n_epochs_warmup, validation_criteria_set, validation_criteria_metric,
-                validation_criteria_maximize, n_epochs_decay, n_epochs_cooldown, n_epochs_early_stop, gpu_ids,
-                seed, sample_rate, hop_length, fmin, bins_per_octave, n_bins, harmonics, n_workers, root_dir):
+def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_secs, learning_rate, multipliers,
+                energy_based_on_supervised, augment_features, n_epochs_warmup, validation_criteria_set,
+                validation_criteria_metric, validation_criteria_maximize, n_epochs_decay, n_epochs_cooldown,
+                n_epochs_early_stop, gpu_ids, seed, sample_rate, hop_length, fmin, bins_per_octave, n_bins,
+                harmonics, n_workers, root_dir):
     # Discard read-only types
-    learning_rates = list(learning_rates)
     multipliers = dict(multipliers)
     harmonics = list(harmonics)
     gpu_ids = list(gpu_ids)
 
     # Seed everything with the same seed
     seed_everything(seed)
+
+    # Disable CUDA for debugging purposes
+    #torch.cuda.is_available = lambda: False
 
     # Initialize the primary PyTorch device
     device = torch.device(f'cuda:{gpu_ids[0]}'
@@ -206,10 +218,18 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ###########
 
     if checkpoint_path is None:
-        # Initialize autoencoder model
+        # Initialize Timbre-Trap model
         model = TT_Base(hcqt_params,
                         model_complexity=3,
                         skip_connections=False)
+        # Initialize Timbre-Trap encoder
+        #model = TT_Enc(hcqt_params,
+        #               n_blocks=4,
+        #               model_complexity=2)
+        # Initialize Perfect-Pitch
+        #model = PerfectPitch(hcqt_params,
+        #                     n_blocks=4,
+        #                     model_complexity=2)
     else:
         # Load weights of the specified model checkpoint
         model = SS_MPE.load(checkpoint_path, device=device)
@@ -236,58 +256,190 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ## DATASETS ##
     ##############
 
-    # Point to the datasets within the storage drive containing them or use the default location
-    nsynth_base_dir = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
-    urmp_base_dir   = os.path.join('/', 'storage', 'frank', '1', 'URMP') if CONFIG else None
-    bch10_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'Bach10') if CONFIG else None
-    su_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'Su') if CONFIG else None
-    trios_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'TRIOS') if CONFIG else None
-    gset_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'GuitarSet') if CONFIG else None
-    mstro_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'MAESTRO') if CONFIG else None
+    # Audio dataset paths
+    fma_base_dir    = os.path.join('/', 'storage', 'frank', 'FMA') if CONFIG else None
+    mdb_base_dir    = os.path.join('/', 'storage', 'frank', 'MedleyDB') if CONFIG else None
     egmd_base_dir   = os.path.join('/', 'storageNVME', 'frank', 'E-GMD') if CONFIG else None
+    nsynth_base_dir = os.path.join('/', 'storageNVME', 'frank', 'NSynth') if CONFIG else None
 
-    # Initialize list to hold training datasets
-    all_train = list()
+    # MPE dataset paths
+    urmp_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'URMP') if CONFIG else None
+    bch10_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'Bach10') if CONFIG else None
+    gset_base_dir     = os.path.join('/', 'storageNVME', 'frank', 'GuitarSet') if CONFIG else None
+    mdb_ptch_base_dir = os.path.join('/', 'storage', 'frank', 'MedleyDB-Pitch') if CONFIG else None
+
+    # AMT dataset paths
+    mstro_base_dir = os.path.join('/', 'storage', 'frank', 'MAESTRO') if CONFIG else None
+    mnet_base_dir  = os.path.join('/', 'storageNVME', 'frank', 'MusicNet') if CONFIG else None
+    su_base_dir    = os.path.join('/', 'storageNVME', 'frank', 'Su') if CONFIG else None
+    trios_base_dir = os.path.join('/', 'storageNVME', 'frank', 'TRIOS') if CONFIG else None
+
+    # Initialize lists to hold training datasets
+    train_ss, train_sup, train_both = list(), list(), list()
+
+    # Instantiate NSynth training split for training
+    nsynth_train = NSynth(base_dir=nsynth_base_dir,
+                          splits=['train'],
+                          midi_range=np.array([fmin, fmax]),
+                          sample_rate=sample_rate,
+                          n_secs=n_secs,
+                          seed=seed)
+    #train_ss.append(nsynth_train)
+
+    # Instantiate MusicNet audio (training) mixtures for training
+    mnet_audio = MusicNet(base_dir=mnet_base_dir,
+                          splits=['train'],
+                          sample_rate=sample_rate,
+                          n_secs=n_secs,
+                          seed=seed)
+    #train_ss.append(mnet_audio)
+
+    # Use all available splits for FMA
+    fma_genres_harmonic = FMA.available_splits()
+
+    # Instantiate FMA audio mixtures for training
+    fma_audio = FMA(base_dir=fma_base_dir,
+                    splits=fma_genres_harmonic,
+                    sample_rate=sample_rate,
+                    n_secs=n_secs,
+                    seed=seed)
+    #train_ss.append(fma_audio)
+
+    # Instantiate MedleyDB audio mixtures for training
+    """mdb_audio = MedleyDB(base_dir=mdb_base_dir,
+                         sample_rate=sample_rate,
+                         n_secs=n_secs,
+                         seed=seed)"""
+    #train_ss.append(mdb_audio)
 
     # Set the URMP validation set in accordance with the MT3 paper
     urmp_val_splits = ['01', '02', '12', '13', '24', '25', '31', '38', '39']
 
     # Allocate remaining tracks to URMP training set
-    urmp_train_splits = URMP_Mixtures.available_splits()
+    urmp_train_splits = URMP.available_splits()
 
     for t in urmp_val_splits:
         # Remove validation tracks
         urmp_train_splits.remove(t)
 
-    if DEBUG:
-        # Instantiate URMP dataset (validation) mixtures for training
-        urmp_mixes_train = URMP_Mixtures(base_dir=urmp_base_dir,
-                                         splits=urmp_val_splits,
-                                         sample_rate=sample_rate,
-                                         cqt=model.hcqt,
-                                         n_secs=n_secs,
-                                         seed=seed)
-        all_train.append(urmp_mixes_train)
-    else:
-        # Instantiate URMP dataset mixtures for training
-        urmp_mixes_train = URMP_Mixtures(base_dir=urmp_base_dir,
-                                         splits=urmp_train_splits,
-                                         sample_rate=sample_rate,
-                                         cqt=model.hcqt,
-                                         n_secs=n_secs,
-                                         seed=seed)
-        all_train.append(urmp_mixes_train)
+    # Create another split starting from training partition
+    urmp_train_splits_T1 = urmp_train_splits.copy()
+
+    # Create a second training split roughly balanced w.r.t. polyphony
+    urmp_train_splits_T2 = ['03', '04', '05', '14', '15', '16', '26', '27', '40', '41']
+
+    for t in urmp_train_splits_T2:
+        # Remove validation tracks
+        urmp_train_splits_T1.remove(t)
+
+    # Instantiate URMP dataset mixtures for training
+    urmp_mixes_train = URMP(base_dir=urmp_base_dir,
+                            splits=urmp_train_splits,
+                            #splits=urmp_train_splits_T1,
+                            sample_rate=sample_rate,
+                            cqt=model.hcqt,
+                            n_secs=n_secs,
+                            seed=seed)
+    #train_sup.append(urmp_mixes_train)
+    train_both.append(urmp_mixes_train)
+
+    # Instantiate URMP dataset mixtures for self-supervision
+    urmp_mixes_ss = URMP(base_dir=urmp_base_dir,
+                         splits=urmp_train_splits_T2,
+                         sample_rate=sample_rate,
+                         cqt=model.hcqt,
+                         n_secs=n_secs,
+                         seed=seed)
+    #train_ss.append(urmp_mixes_ss)
 
     # Combine training datasets
-    all_train = ComboDataset(all_train)
+    train_ss = BalancedComboDataset(train_ss)
+    train_sup = BalancedComboDataset(train_sup)
+    train_both = BalancedComboDataset(train_both)
 
-    # Initialize a PyTorch dataloader for data
-    loader = DataLoader(dataset=all_train,
-                        batch_size=batch_size,
-                        shuffle=True,
-                        num_workers=n_workers,
-                        pin_memory=True,
-                        drop_last=True)
+    # Ratio for self-supervised to supervised training data
+    ss_ratio = 0.66
+
+    # Default batch size and workers
+    batch_size_ss, n_workers_ss = 0, 0
+    batch_size_sup, n_workers_sup = 0, 0
+    batch_size_both, n_workers_both = 0, 0
+
+    if len(train_ss) and not len(train_sup) and not len(train_both):
+        # All data is for self-supervised training
+        batch_size_ss, n_workers_ss = batch_size, n_workers
+    elif not len(train_ss) and len(train_sup) and not len(train_both):
+        # All data is for supervised training
+        batch_size_sup, n_workers_sup = batch_size, n_workers
+    elif not len(train_ss) and not len(train_sup) and len(train_both):
+        # All data is for both types of supervised training
+        batch_size_both, n_workers_both = batch_size, n_workers
+    elif len(train_ss) and len(train_sup) and not len(train_both):
+        # Split data between self-supervised and supervised training
+        batch_size_ss, n_workers_ss = round(ss_ratio * batch_size), round(ss_ratio * n_workers)
+        batch_size_sup, n_workers_sup = round((1 - ss_ratio) * batch_size), round((1 - ss_ratio) * n_workers)
+    elif len(train_ss) and not len(train_sup) and len(train_both):
+        # Split data between self-supervised and both types of training
+        batch_size_ss, n_workers_ss = round(ss_ratio * batch_size), round(ss_ratio * n_workers)
+        batch_size_both, n_workers_both = round((1 - ss_ratio) * batch_size), round((1 - ss_ratio) * n_workers)
+    elif not len(train_ss) and len(train_sup) and len(train_both):
+        # Split data between supervised and both types of training
+        batch_size_sup, n_workers_sup = round((1 - ss_ratio) * batch_size), round((1 - ss_ratio) * n_workers)
+        batch_size_both, n_workers_both = round(ss_ratio * batch_size), round(ss_ratio * n_workers)
+    else:
+        # Split data between all combinations of training
+        batch_size_ss, n_workers_ss = round(ss_ratio * batch_size), round(ss_ratio * n_workers)
+        batch_size_sup, n_workers_sup = round(0.5 * (1 - ss_ratio) * batch_size), round(0.5 * (1 - ss_ratio) * n_workers)
+        batch_size_both, n_workers_both = round(0.5 * (1 - ss_ratio) * batch_size), round(0.5 * (1 - ss_ratio) * n_workers)
+
+    # Determine number of samples for each type of training
+    n_ss = batch_size_ss + batch_size_both
+    n_sup = batch_size_sup + batch_size_both
+    n_eg = n_ss if energy_based_on_supervised else batch_size_ss
+
+    # Default loaders to empty list
+    loader_ss = list()
+    loader_sup = list()
+    loader_both = list()
+
+    if batch_size_ss:
+        # Initialize dataloader for self-supervised data
+        loader_ss = DataLoader(dataset=train_ss,
+                               batch_size=batch_size_ss,
+                               shuffle=True,
+                               num_workers=n_workers_ss,
+                               pin_memory=True,
+                               drop_last=True)
+
+    if batch_size_sup:
+        # Initialize dataloader for supervised data
+        loader_sup = DataLoader(dataset=train_sup,
+                                batch_size=batch_size_sup,
+                                shuffle=True,
+                                num_workers=n_workers_sup,
+                                pin_memory=True,
+                                drop_last=True)
+
+    if batch_size_both:
+        # Initialize dataloader for comprehensive data
+        loader_both = DataLoader(dataset=train_both,
+                                 batch_size=batch_size_both,
+                                 shuffle=True,
+                                 num_workers=n_workers_both,
+                                 pin_memory=True,
+                                 drop_last=True)
+
+    if not len(loader_ss):
+        # Add null entries for each batch of self-supervised training data
+        loader_ss += [None] * max(len(loader_sup), len(loader_both))
+
+    if not len(loader_sup):
+        # Add null entries for each batch of supervised training data
+        loader_sup += [None] * max(len(loader_ss), len(loader_both))
+
+    if not len(loader_both):
+        # Add null entries for each batch of both types training data
+        loader_both += [None] * max(len(loader_ss), len(loader_sup))
 
     # Instantiate NSynth validation split for validation
     nsynth_val = NSynth(base_dir=nsynth_base_dir,
@@ -299,18 +451,18 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                         seed=seed)
 
     # Instantiate URMP dataset mixtures for validation
-    urmp_val = URMP_Mixtures(base_dir=urmp_base_dir,
-                             splits=urmp_val_splits,
-                             sample_rate=sample_rate,
-                             cqt=model.hcqt,
-                             seed=seed)
+    urmp_val = URMP(base_dir=urmp_base_dir,
+                    splits=urmp_val_splits,
+                    sample_rate=sample_rate,
+                    cqt=model.hcqt,
+                    seed=seed)
 
     # Instantiate Bach10 dataset mixtures for evaluation
-    bch10_test = Bach10_Mixtures(base_dir=bch10_base_dir,
-                                 splits=None,
-                                 sample_rate=sample_rate,
-                                 cqt=model.hcqt,
-                                 seed=seed)
+    bch10_test = Bach10(base_dir=bch10_base_dir,
+                        splits=None,
+                        sample_rate=sample_rate,
+                        cqt=model.hcqt,
+                        seed=seed)
 
     # Instantiate Su dataset for evaluation
     su_test = Su(base_dir=su_base_dir,
@@ -326,6 +478,13 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                        cqt=model.hcqt,
                        seed=seed)
 
+    # Instantiate MusicNet dataset mixtures for evaluation
+    mnet_test = MusicNet(base_dir=mnet_base_dir,
+                         splits=['test'],
+                         sample_rate=sample_rate,
+                         cqt=model.hcqt,
+                         seed=seed)
+
     # Instantiate GuitarSet dataset for validation
     gset_val = GuitarSet(base_dir=gset_base_dir,
                          splits=['05'],
@@ -340,22 +499,42 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                           cqt=model.hcqt,
                           seed=seed)
 
+    # Instantiate MAESTRO dataset for validation
+    mstro_val = MAESTRO(base_dir=mstro_base_dir,
+                        splits=['validation'],
+                        sample_rate=sample_rate,
+                        n_secs=30,
+                        cqt=model.hcqt,
+                        seed=seed)
+    shuffle(mstro_val.tracks)
+    mstro_val.tracks = mstro_val.tracks[:10]
+
+    # Instantiate MAESTRO dataset for evaluation
+    mstro_test = MAESTRO(base_dir=mstro_base_dir,
+                         splits=['test'],
+                         sample_rate=sample_rate,
+                         cqt=model.hcqt,
+                         seed=seed)
+
     # Add all validation datasets to a list
-    validation_sets = [nsynth_val, urmp_val, bch10_test, su_test, trios_test, gset_val]
+    validation_sets = [urmp_val, nsynth_val, bch10_test, su_test, trios_test, mnet_test, gset_val, mstro_val]
 
     # Add all evaluation datasets to a list
-    evaluation_sets = [nsynth_val, bch10_test, su_test, trios_test, gset_test]
+    evaluation_sets = [bch10_test, su_test, trios_test, mnet_test, gset_test, mstro_test]
 
     #################
     ## PREPARATION ##
     #################
 
-    # Initialize an optimizer for the model parameters with differential learning rates
-    optimizer = torch.optim.AdamW([{'params' : model.encoder_parameters(), 'lr' : learning_rates[0]},
-                                   {'params' : model.decoder_parameters(), 'lr' : learning_rates[1]}])
+    # Initialize an optimizer for the model's encoder parameters
+    optimizer = torch.optim.AdamW([{'params' : model.encoder_parameters(), 'lr' : learning_rate}])
+
+    if next(model.decoder_parameters(), None) is not None:
+        # Add decoder parameters to the optimizer if the model has a decoder
+        optimizer.add_param_group({'params' : model.decoder_parameters(), 'lr' : learning_rate / 2})
 
     # Determine the amount of batches in one epoch
-    epoch_steps = len(loader)
+    epoch_steps = min(len(loader_ss), len(loader_sup), len(loader_both))
 
     # Compute number of validation checkpoints corresponding to learning rate decay cooldown and window
     n_checkpoints_cooldown = math.ceil(n_epochs_cooldown * epoch_steps / checkpoint_interval)
@@ -380,7 +559,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                                                  cooldown=n_checkpoints_cooldown)
 
     # Enable anomaly detection to debug any NaNs (can increase overhead)
-    torch.autograd.set_detect_anomaly(True)
+    #torch.autograd.set_detect_anomaly(True)
 
     # Enable cuDNN auto-tuner to optimize CUDA kernel (might improve
     # performance, but adds initial overhead to find the best kernel)
@@ -415,51 +594,20 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ## TIMBRE LOSS ##
     #################
 
-    # Number of random points to sample per octave
-    points_per_octave = 3
+    # Pointiness for parabolic equalization
+    pointiness = 2
 
-    # Infer the number of bins per semitone
-    bins_per_semitone = bins_per_octave / 12
-
-    # Determine semitone span of frequency support
-    semitone_span = model.hcqt.midi_freqs.max() - model.hcqt.midi_freqs.min()
-
-    # Determine how many bins are represented across all harmonics
-    n_psuedo_bins = (bins_per_semitone * semitone_span).round()
-
-    # Determine how many octaves have been covered
-    n_octaves = int(math.ceil(n_psuedo_bins / bins_per_octave))
-
-    # Calculate number of cut/boost points to sample
-    n_points = 1 + points_per_octave * n_octaves
-
-    # Standard deviation of boost/cut
-    std_dev = 0.25
-
-    # Set keyword arguments for random equalization
-    random_kwargs = {
-        'n_points' : n_points,
-        'std_dev' : std_dev
+    # Set keyword arguments for parabolic equalization
+    parabolic_kwargs = {
+        'eq_fn' : sample_parabolic_equalization,
+        'pointiness': pointiness
     }
 
-    # Maximum amplitude for Gaussian equalization
-    max_A = 0.375
+    # Use random equalization
+    eq_kwargs = parabolic_kwargs
 
-    # Maximum standard deviation for Gaussian equalization
-    max_std_dev = 2 * bins_per_octave
-
-    # Whether to sample fixed rather than varied shapes
-    fixed_shape = False
-
-    # Set keyword arguments for Gaussian equalization
-    gaussian_kwargs = {
-        'max_A' : max_A,
-        'max_std_dev' : max_std_dev,
-        'fixed_shape' : fixed_shape
-    }
-
-    # Set equalization type and corresponding parameter values
-    eq_fn, eq_kwargs = sample_random_equalization, random_kwargs
+    # Insert equalization density argument
+    eq_kwargs.update({'density' : 1})
 
     ####################
     ## GEOMETRIC LOSS ##
@@ -469,7 +617,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     n_frames = int(n_secs * sample_rate / hop_length)
 
     # Define maximum time and frequency shift
-    max_shift_v = 2 * bins_per_octave
+    max_shift_v = round(1 * bins_per_octave)
     max_shift_h = n_frames // 4
 
     # Maximum rate by which audio can be sped up or slowed down
@@ -487,28 +635,69 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     #####################
 
     # Initialize list to hold unpitched datasets
-    perc_train = list()
+    percussive_sets = list()
 
     # Instantiate E-GMD audio for percussion-invariance
     egmd = E_GMD(base_dir=egmd_base_dir,
                  splits=['train'],
                  sample_rate=sample_rate,
-                 n_secs=n_secs,
                  seed=seed)
-    perc_train.append(egmd)
+    percussive_sets.append(egmd)
 
-    # TODO - other noise / percussion datasets
+    # Combine percussive and noise datasets
+    percussive_set_combo = BalancedComboDataset(percussive_sets)
 
-    # Combine unpitched datasets
-    perc_train = ComboDataset(perc_train)
+    # Maximum volume of percussion relative to original audio
+    max_volume = 1.0
 
-    # Initialize a PyTorch dataloader for percussion data
-    percussion_loader = DataLoader(dataset=perc_train,
-                                   batch_size=batch_size,
-                                   shuffle=True,
-                                   num_workers=n_workers,
-                                   pin_memory=True,
-                                   drop_last=True)
+    # Set keyword arguments for percussion mixtures
+    pc_kwargs = {
+        'percussive_set_combo' : percussive_set_combo,
+        'max_volume' : max_volume
+    }
+
+    ################
+    ## NOISE LOSS ##
+    ################
+
+    # Maximum volume of noise relative to original audio
+    max_volume = 0.25
+
+    # Set keyword arguments for additive noise
+    an_kwargs = {
+        'max_volume' : max_volume
+    }
+
+    #####################
+    ## ADDITIVITY LOSS ##
+    #####################
+
+    # Initialize list to hold additive datasets
+    additive_sets = list()
+
+    # Add NSynth to list of additive datasets
+    additive_sets.append(nsynth_train)
+
+    # Combine additive datasets
+    additive_set_combo = BalancedComboDataset(additive_sets)
+
+    # Set keyword arguments for additive mixtures
+    ad_kwargs = {
+        'additive_fn' : mix_random_tracks,
+        'additive_set_combo' : additive_set_combo,
+    }
+
+    ##################
+    ## FEATURE LOSS ##
+    ##################
+
+    # Mode (0 - channel | 1 - frequency | 2 - bin) for dropout
+    mode = 0
+
+    # Set keyword arguments for dropout
+    dp_kwargs = {
+        'mode' : mode
+    }
 
     ##############################
     ## TRAINING/VALIDATION LOOP ##
@@ -516,133 +705,209 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
 
     # Loop through epochs
     for i in range(max_epochs):
+        # Shuffle balanced combo datasets
+        train_ss.shuffle_datasets()
+        train_sup.shuffle_datasets()
+        train_both.shuffle_datasets()
+
         # Loop through batches of both types of data
-        for data in tqdm(loader, desc=f'Epoch {i + 1}'):
+        for (data_ss, data_sup, data_both) in tqdm(zip(loader_ss, loader_sup, loader_both), desc=f'Epoch {i + 1}'):
             # Increment the batch counter
             batch_count += 1
 
-            # Extract audio and add audio to appropriate device
-            audio = data[constants.KEY_AUDIO].to(device)
-            # Extract ground-truth pitch salience activations
-            ground_truth = data[constants.KEY_GROUND_TRUTH].to(device)
-
             # Log the current learning rates for this batch
             writer.add_scalar('train/loss/learning_rate/encoder', optimizer.param_groups[0]['lr'], batch_count)
-            writer.add_scalar('train/loss/learning_rate/decoder', optimizer.param_groups[1]['lr'], batch_count)
+
+            # Initialize a list for audio and ground-truth from all data partitions
+            audio, ground_truth = list(), list()
+
+            if data_ss is not None:
+                # Extract self-supervised audio and add to appropriate device
+                audio.append(data_ss[constants.KEY_AUDIO].to(device))
+
+            if data_both is not None:
+                # Extract both types data and add to appropriate device
+                audio.append(data_both[constants.KEY_AUDIO].to(device))
+                ground_truth.append(data_both[constants.KEY_GROUND_TRUTH].to(device))
+
+            if data_sup is not None:
+                # Extract supervised data and add to appropriate device
+                audio.append(data_sup[constants.KEY_AUDIO].to(device))
+                ground_truth.append(data_sup[constants.KEY_GROUND_TRUTH].to(device))
+
+            # Combine audio from all data partitions
+            audio = torch.cat(audio)
+            # Combine audio from supervised data partitions
+            ground_truth = torch.cat(ground_truth) if len(ground_truth) else None
 
             # Compute full set of spectral features
             features = model.get_all_features(audio)
 
-            # Extract relevant feature sets
-            features_db   = features['db']
+            # Extract spectral features from original audio
+            features_db = features['db']
             features_db_1 = features['db_1']
             features_db_h = features['db_h']
+            features_rms_vals = features['rms']
 
-            # Sample a batch of percussion audio
-            percussion_data = next(iter(percussion_loader))
-            # Sample random volumes for percussion audio
-            volumes = 2.0 * torch.rand((batch_size, 1, 1), device=device)
-            # Superimpose percussion audio onto original audio
-            percussion_audio = audio + volumes * percussion_data[constants.KEY_AUDIO].to(device)
-            # Compute spectral features for percussion audio mixture
-            features_perc = model.hcqt.to_decibels(model.hcqt(percussion_audio))
+            if augment_features:
+                # Superimpose percussion audio onto augmented audio
+                audio_aug = mix_random_percussion(audio, **pc_kwargs)
+                # Superimpose noise onto augmented audio
+                audio_aug = add_random_noise(audio_aug, **an_kwargs)
+                # Compute spectral features for augmented audio
+                features_db_aug = model.get_all_features(audio_aug)['db']
+                # Apply random equalizations to augmented audio
+                features_db_aug, _ = apply_random_equalizations(features_db_aug, model.hcqt, **eq_kwargs)
+                # Apply random geometric transformations to augmentation audio
+                features_db_aug, (vs, hs, sfs) = apply_random_transformations(features_db_aug, **gm_kwargs)
+                # Apply parallel geometric transformations to targets and ground-truth
+                features_db_1 = apply_geometric_transformations(features_db_1.unsqueeze(1), vs, hs, sfs).squeeze(1)
+                features_db_h = apply_geometric_transformations(features_db_h.unsqueeze(1), vs, hs, sfs).squeeze(1)
+                ground_truth = apply_geometric_transformations(ground_truth.unsqueeze(1), vs, hs, sfs).squeeze(1)
+                # Apply dropout to input features
+                features_db_aug = drop_random_features(features_db_aug, **dp_kwargs)
+                # Compute energy-based losses using augmented spectral features
+                features_in = features_db_aug
+            else:
+                # Compute energy-based losses using original spectral features
+                features_in = features_db
 
             with torch.autocast(device_type=f'cuda'):
                 # Process features to obtain logits
-                logits, _, _ = model(features_db)
+                logits = model(features_in)
                 # Convert to (implicit) pitch salience activations
                 activations = torch.sigmoid(logits)
 
-                # Keep track of total loss
-                #total_loss = 0.
+                with compute_grad(multipliers['energy']):
+                    # Compute energy loss w.r.t. weighted harmonic sum for the batch
+                    energy_loss = compute_energy_loss(logits[:n_eg], features_db_h[:n_eg]) if n_eg else torch.tensor(0.)
+                    # Log the energy loss for this batch
+                    writer.add_scalar('train/loss/energy', energy_loss.item(), batch_count)
 
-                # Compute support loss w.r.t. first harmonic for the batch
-                support_loss = compute_support_loss(logits, features_db_1)
-                # Log the support loss for this batch
-                writer.add_scalar('train/loss/support', support_loss.item(), batch_count)
+                debug_nans(energy_loss, 'energy')
+
+                with compute_grad(multipliers['support']):
+                    # Compute support loss w.r.t. first harmonic for the batch
+                    support_loss = compute_support_loss(logits[:n_eg], features_db_1[:n_eg]) if n_eg else torch.tensor(0.)
+                    # Log the support loss for this batch
+                    writer.add_scalar('train/loss/support', support_loss.item(), batch_count)
 
                 debug_nans(support_loss, 'support')
 
-                #if multipliers['support']:
-                #    # Add the support loss to the total loss
-                #    total_loss.add(multipliers['support'] * support_loss)
-
-                # Compute harmonic loss w.r.t. weighted harmonic sum for the batch
-                harmonic_loss = compute_harmonic_loss(logits, features_db_h)
-                # Log the harmonic loss for this batch
-                writer.add_scalar('train/loss/harmonic', harmonic_loss.item(), batch_count)
+                with compute_grad(multipliers['harmonic']):
+                    # Compute harmonic loss w.r.t. weighted harmonic sum for the batch
+                    harmonic_loss = compute_harmonic_loss(logits[:n_eg], features_db_h[:n_eg]) if n_eg else torch.tensor(0.)
+                    # Log the harmonic loss for this batch
+                    writer.add_scalar('train/loss/harmonic', harmonic_loss.item(), batch_count)
 
                 debug_nans(harmonic_loss, 'harmonic')
 
-                #if multipliers['harmonic']:
-                #    # Add the harmonic loss to the total loss
-                #    total_loss.add(multipliers['harmonic'] * harmonic_loss)
-
-                # Compute sparsity loss for the batch
-                sparsity_loss = compute_sparsity_loss(activations)
-                # Log the sparsity loss for this batch
-                writer.add_scalar('train/loss/sparsity', sparsity_loss.item(), batch_count)
+                with compute_grad(multipliers['sparsity']):
+                    # Compute sparsity loss for the batch
+                    sparsity_loss = compute_sparsity_loss(activations[:n_eg]) if n_eg else torch.tensor(0.)
+                    # Log the sparsity loss for this batch
+                    writer.add_scalar('train/loss/sparsity', sparsity_loss.item(), batch_count)
 
                 debug_nans(sparsity_loss, 'sparsity')
 
-                #if multipliers['sparsity']:
-                #    # Add the sparsity loss to the total loss
-                #    total_loss.add(multipliers['sparsity'] * sparsity_loss)
+                with compute_grad(multipliers['entropy']):
+                    # Compute entropy loss for the batch
+                    entropy_loss = compute_entropy_loss(logits[:n_eg]) if n_eg else torch.tensor(0.)
+                    # Log the entropy loss for this batch
+                    writer.add_scalar('train/loss/entropy', entropy_loss.item(), batch_count)
 
-                # Determine whether targets should be logits or ground-truth
-                targets = activations if self_supervised_targets else ground_truth
+                debug_nans(entropy_loss, 'entropy')
 
-                # Compute timbre-invariance loss for the batch
-                timbre_loss = compute_timbre_loss(model, features_db, targets, eq_fn=eq_fn, **eq_kwargs)
-                # Log the timbre-invariance loss for this batch
-                writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
+                with compute_grad(multipliers['content']):
+                    # Compute content loss for the batch
+                    # TODO - designated kwargs dictionary for content loss?
+                    content_loss = compute_content_loss(logits[:n_eg], k=1, rms_vals=features_rms_vals[:n_eg]) if n_eg else torch.tensor(0.)
+                    # Log the content loss for this batch
+                    writer.add_scalar('train/loss/content', content_loss.item(), batch_count)
+
+                debug_nans(content_loss, 'content')
+
+                with compute_grad(multipliers['contrastive']):
+                    # Compute contrastive loss for the batch
+                    contrastive_loss = compute_contrastive_loss(activations[:n_eg], rms_vals=features_rms_vals[:n_eg]) if n_eg else torch.tensor(0.)
+                    # Log the contrastive loss for this batch
+                    writer.add_scalar('train/loss/contrastive', contrastive_loss.item(), batch_count)
+
+                debug_nans(contrastive_loss, 'contrastive')
+
+                with compute_grad(multipliers['timbre']):
+                    # Compute timbre-invariance loss for the batch
+                    timbre_loss = compute_timbre_loss(model, features_db[:n_ss], activations[:n_ss], **eq_kwargs) if n_ss else torch.tensor(0.)
+                    # Log the timbre-invariance loss for this batch
+                    writer.add_scalar('train/loss/timbre', timbre_loss.item(), batch_count)
 
                 debug_nans(timbre_loss, 'timbre')
 
-                #if multipliers['timbre']:
-                #    # Add the timbre-invariance loss to the total loss
-                #    total_loss.add(multipliers['timbre'] * timbre_loss)
-
-                # Compute geometric-equivariance loss for the batch
-                geometric_loss = compute_geometric_loss(model, features_db, targets, **gm_kwargs)
-                # Log the geometric-equivariance loss for this batch
-                writer.add_scalar('train/loss/geometric', geometric_loss.item(), batch_count)
+                with compute_grad(multipliers['geometric']):
+                    # Compute geometric-equivariance loss for the batch
+                    geometric_loss = compute_geometric_loss(model, features_db[:n_ss], activations[:n_ss], **gm_kwargs) if n_ss else torch.tensor(0.)
+                    # Log the geometric-equivariance loss for this batch
+                    writer.add_scalar('train/loss/geometric', geometric_loss.item(), batch_count)
 
                 debug_nans(geometric_loss, 'geometric')
 
-                #if multipliers['geometric']:
-                #    # Add the geometric-equivariance loss to the total loss
-                #    total_loss.add(multipliers['geometric'] * geometric_loss)
-
-                # Compute percussion-invariance loss for the batch
-                percussion_loss = compute_percussion_loss(model, features_perc, targets)
-                # Log the percussion-invariance loss for this batch
-                writer.add_scalar('train/loss/percussion', percussion_loss.item(), batch_count)
+                with compute_grad(multipliers['percussion']):
+                    # Compute percussion-invariance loss for the batch
+                    percussion_loss = compute_percussion_loss(model, audio[:n_ss], activations[:n_ss], **pc_kwargs) if n_ss else torch.tensor(0.)
+                    # Log the percussion-invariance loss for this batch
+                    writer.add_scalar('train/loss/percussion', percussion_loss.item(), batch_count)
 
                 debug_nans(percussion_loss, 'percussion')
 
-                #if multipliers['percussion']:
-                #    # Add the percussion-invariance loss to the total loss
-                #    total_loss.add(multipliers['percussion'] * percussion_loss)
+                with compute_grad(multipliers['noise']):
+                    # Compute noise-invariance loss for the batch
+                    noise_loss = compute_noise_loss(model, audio[:n_ss], activations[:n_ss], **an_kwargs) if n_ss else torch.tensor(0.)
+                    # Log the noise-invariance loss for this batch
+                    writer.add_scalar('train/loss/noise', noise_loss.item(), batch_count)
 
-                # Compute supervised BCE loss for the batch
-                supervised_loss = compute_supervised_loss(logits, ground_truth, True)
-                # Log the supervised BCE loss for this batch
-                writer.add_scalar('train/loss/supervised', supervised_loss.item(), batch_count)
+                debug_nans(noise_loss, 'noise')
+
+                with compute_grad(multipliers['additivity']):
+                    # Compute additivity loss for the batch
+                    additivity_loss = compute_additivity_loss(model, audio[:n_ss], activations[:n_ss], **ad_kwargs) if n_ss else torch.tensor(0.)
+                    # Log the additivity loss for this batch
+                    writer.add_scalar('train/loss/additivity', additivity_loss.item(), batch_count)
+
+                debug_nans(additivity_loss, 'additivity')
+
+                with compute_grad(multipliers['feature']):
+                    # Compute feature-invariance loss for the batch
+                    feature_loss = compute_feature_loss(model, features_db[:n_ss], activations[:n_ss]) if n_ss else torch.tensor(0.)
+                    # Log the feature-invariance loss for this batch
+                    writer.add_scalar('train/loss/feature', feature_loss.item(), batch_count)
+
+                debug_nans(feature_loss, 'feature')
+
+                with compute_grad(multipliers['supervised']):
+                    # Compute supervised BCE loss for the batch
+                    supervised_loss = compute_supervised_loss(logits[batch_size_ss:], ground_truth) if n_sup else torch.tensor(0.)
+                    #supervised_loss = compute_supervised_loss(logits[batch_size_ss:], ground_truth, rms_vals=features_rms_vals[batch_size_ss:]) if n_sup else torch.tensor(0.)
+                    # Log the supervised BCE loss for this batch
+                    writer.add_scalar('train/loss/supervised', supervised_loss.item(), batch_count)
 
                 debug_nans(supervised_loss, 'supervised')
 
-                #if multipliers['supervised']:
-                #    # Add the supervised loss to the total loss
-                #    total_loss.add(multipliers['supervised'] * supervised_loss)
+                # upward: (1 - cosine_anneal(batch_count, 1000 * epoch_steps, start=0, floor=0.))
 
                 # Compute the total loss for this batch
-                total_loss = multipliers['support'] * support_loss + \
+                total_loss = multipliers['energy'] * energy_loss + \
+                             multipliers['support'] * support_loss + \
                              multipliers['harmonic'] * harmonic_loss + \
                              multipliers['sparsity'] * sparsity_loss + \
+                             multipliers['entropy'] * entropy_loss + \
+                             multipliers['content'] * content_loss + \
+                             multipliers['contrastive'] * contrastive_loss + \
                              multipliers['timbre'] * timbre_loss + \
                              multipliers['geometric'] * geometric_loss + \
                              multipliers['percussion'] * percussion_loss + \
+                             multipliers['noise'] * noise_loss + \
+                             multipliers['additivity'] * additivity_loss + \
+                             multipliers['feature'] * feature_loss + \
                              multipliers['supervised'] * supervised_loss
 
                 # Log the total loss for this batch
@@ -662,17 +927,18 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                 # Log the maximum gradient norm of the encoder for this batch
                 writer.add_scalar('train/max_norm/encoder', max_norm_encoder, batch_count)
 
-                # Compute the average gradient norm across the decoder
-                avg_norm_decoder = average_gradient_norms(model.decoder)
-                # Log the average gradient norm of the decoder for this batch
-                writer.add_scalar('train/avg_norm/decoder', avg_norm_decoder, batch_count)
-                # Determine the maximum gradient norm across decoder
-                max_norm_decoder = get_max_gradient_norm(model.decoder)
-                # Log the maximum gradient norm of the decoder for this batch
-                writer.add_scalar('train/max_norm/decoder', max_norm_decoder, batch_count)
+                if next(model.decoder_parameters(), None) is not None:
+                    # Compute the average gradient norm across the decoder
+                    avg_norm_decoder = average_gradient_norms(model.decoder)
+                    # Log the average gradient norm of the decoder for this batch
+                    writer.add_scalar('train/avg_norm/decoder', avg_norm_decoder, batch_count)
+                    # Determine the maximum gradient norm across decoder
+                    max_norm_decoder = get_max_gradient_norm(model.decoder)
+                    # Log the maximum gradient norm of the decoder for this batch
+                    writer.add_scalar('train/max_norm/decoder', max_norm_decoder, batch_count)
 
                 # Apply gradient clipping for training stability
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
                 # Perform an optimization step
                 optimizer.step()
@@ -703,11 +969,12 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                                                                       writer=writer,
                                                                       i=batch_count,
                                                                       device=device,
-                                                                      self_supervised_targets=self_supervised_targets,
-                                                                      eq_fn=eq_fn,
                                                                       eq_kwargs=eq_kwargs,
                                                                       gm_kwargs=gm_kwargs,
-                                                                      pc_set=egmd)
+                                                                      pc_kwargs=pc_kwargs,
+                                                                      an_kwargs=an_kwargs,
+                                                                      ad_kwargs=ad_kwargs,
+                                                                      dp_kwargs=dp_kwargs)
                     except Exception as e:
                         print(f'Error validating \'{val_set.name()}\': {repr(e)}')
 
@@ -765,6 +1032,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
     ## EVALUATION ##
     ################
 
+    """
     # Construct a path to the best model checkpoint
     best_model_path = os.path.join(log_dir, f'model-{best_model_checkpoint}.pt')
     # Load best model and make sure it is in evaluation mode
@@ -781,14 +1049,16 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
             final_results = evaluate(model=best_model,
                                      eval_set=eval_set,
                                      multipliers=multipliers,
-                                     device=device,
-                                     self_supervised_targets=self_supervised_targets,
-                                     eq_fn=eq_fn,
+                                     #device=device,
                                      eq_kwargs=eq_kwargs,
                                      gm_kwargs=gm_kwargs,
-                                     pc_set=egmd)
+                                     pc_kwargs=pc_kwargs,
+                                     an_kwargs=an_kwargs,
+                                     ad_kwargs=ad_kwargs,
+                                     dp_kwargs=dp_kwargs)
         except Exception as e:
             print(f'Error evaluating \'{eval_set.name()}\': {repr(e)}')
 
         # Log the evaluation results for this dataset in metrics.json
         ex.log_scalar(f'Evaluation Results ({eval_set.name()})', final_results, best_model_checkpoint)
+    """

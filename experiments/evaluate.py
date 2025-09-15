@@ -2,7 +2,7 @@
 
 # My imports
 from timbre_trap.datasets import NoteDataset
-from ss_mpe.framework.objectives import *
+from ss_mpe.objectives import *
 from timbre_trap.utils import *
 
 # Regular imports
@@ -10,7 +10,7 @@ import librosa
 import torch
 
 
-def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', self_supervised_targets=True, eq_fn=None, eq_kwargs={}, gm_kwargs={}, pc_set=None):
+def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', eq_kwargs=None, gm_kwargs=None, pc_kwargs=None, an_kwargs=None, ad_kwargs=None, dp_kwargs=None):
     # Initialize a new evaluator for the dataset
     evaluator = MultipitchEvaluator()
 
@@ -20,7 +20,9 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', self_
 
     with torch.no_grad():
         # Loop through tracks
-        for data in eval_set:
+        for k in range(eval_set.__len__()):
+            # Extract the track data (always from t=0)
+            data = eval_set.__getitem__(k, offset_s=0)
             # Determine which track is being processed
             track = data[constants.KEY_TRACK]
             # Extract audio and add to the appropriate device
@@ -41,6 +43,11 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', self_
                 # Obtain the ground-truth multi-pitch annotations
                 times_ref, multi_pitch_ref = eval_set.get_ground_truth(track)
 
+                if eval_set.n_secs is not None:
+                    # Slice times and multi-pitch annotations
+                    times_ref = times_ref[times_ref <= eval_set.n_secs]
+                    multi_pitch_ref = multi_pitch_ref[:len(times_ref)]
+
             # Compute full set of spectral features
             features = model.get_all_features(audio)
 
@@ -48,16 +55,19 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', self_
             features_db   = features['db']
             features_db_1 = features['db_1']
             features_db_h = features['db_h']
+            features_rms_vals = features['rms']
 
             # Process features to obtain logits
-            logits, _, losses = model(features_db)
+            logits = model(features_db)
             # Convert to (implicit) pitch salience activations
             raw_activations = torch.sigmoid(logits)
+            #raw_activations = torch.softmax(logits, dim=-2)
 
             # Determine the times associated with predictions
             times_est = model.hcqt.get_times(model.hcqt.get_expected_frames(audio.size(-1)))
             # Perform peak-picking and thresholding on the activations
             activations = threshold(filter_non_peaks(to_array(raw_activations)), 0.5).squeeze(0)
+            #activations = threshold(filter_non_peaks(to_array(raw_activations)), 0.01).squeeze(0)
 
             # Convert the activations to frame-level multi-pitch estimates
             multi_pitch_est = eval_set.activations_to_multi_pitch(activations, model.hcqt.get_midi_freqs())
@@ -67,67 +77,109 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', self_
             # Store the computed results
             evaluator.append_results(results)
 
+            # TODO - the following is super similar to training loop
+
+            # Compute energy loss w.r.t. weighted harmonic sum for the track
+            energy_loss = compute_energy_loss(logits, features_db_h)
+            # Store the energy loss for the track
+            evaluator.append_results({'loss/energy' : energy_loss.item()})
+
             # Compute support loss w.r.t. first harmonic for the track
             support_loss = compute_support_loss(logits, features_db_1)
+            # Store the support loss for the track
+            evaluator.append_results({'loss/support' : support_loss.item()})
+
             # Compute harmonic loss w.r.t. weighted harmonic sum for the track
             harmonic_loss = compute_harmonic_loss(logits, features_db_h)
+            # Store the harmonic loss for the track
+            evaluator.append_results({'loss/harmonic' : harmonic_loss.item()})
+
             # Compute sparsity loss for the track
             sparsity_loss = compute_sparsity_loss(raw_activations)
+            # Store the sparsity loss for the track
+            evaluator.append_results({'loss/sparsity' : sparsity_loss.item()})
+
+            # Compute entropy loss for the track
+            entropy_loss = compute_entropy_loss(logits)
+            # Store the entropy loss for the track
+            evaluator.append_results({'loss/entropy' : entropy_loss.item()})
+
+            # Compute content loss for the track
+            content_loss = compute_content_loss(logits, k=1, rms_vals=features_rms_vals)
+            # Store the content loss for the track
+            evaluator.append_results({'loss/content' : content_loss.item()})
+
+            # Compute contrastive loss for the track
+            contrastive_loss = compute_contrastive_loss(raw_activations, rms_vals=features_rms_vals)
+            # Store the contrastive loss for the track
+            evaluator.append_results({'loss/contrastive' : contrastive_loss.item()})
+
             # Compute supervised BCE loss for the batch
             supervised_loss = compute_supervised_loss(logits, ground_truth)
-
-            # Determine whether targets should be logits or ground-truth
-            targets = raw_activations if self_supervised_targets else ground_truth
-
-            # Compute geometric-equivariance loss for the track
-            geometric_loss = compute_geometric_loss(model, features_db, targets, **gm_kwargs)
-            # Store the geometric-equivariance loss for the track
-            evaluator.append_results({'loss/geometric' : geometric_loss.item()})
+            #supervised_loss = compute_supervised_loss(logits, ground_truth, rms_vals=features_rms_vals)
+            # Store the supervised loss for the track
+            evaluator.append_results({'loss/supervised' : supervised_loss.item()})
 
             # Compute the total loss for the track
-            total_loss = multipliers['support'] * support_loss + \
+            total_loss = multipliers['energy'] * energy_loss + \
+                         multipliers['support'] * support_loss + \
                          multipliers['harmonic'] * harmonic_loss + \
                          multipliers['sparsity'] * sparsity_loss + \
-                         multipliers['supervised'] * supervised_loss + \
-                         multipliers['geometric'] * geometric_loss
+                         multipliers['entropy'] * entropy_loss + \
+                         multipliers['content'] * content_loss + \
+                         multipliers['contrastive'] * contrastive_loss + \
+                         multipliers['supervised'] * supervised_loss
 
-            if eq_fn is not None:
+            # TODO - why don't I check for the kwargs?
+            # Compute feature-invariance loss for the track
+            feature_loss = compute_feature_loss(model, features_db, raw_activations, **dp_kwargs)
+            # Store the feature-invariance loss for the track
+            evaluator.append_results({'loss/feature' : feature_loss.item()})
+            # Add the feature-invariance loss to the total loss
+            total_loss += multipliers['feature'] * feature_loss
+
+            if eq_kwargs is not None:
                 # Compute timbre-invariance loss for the track using specified equalization
-                timbre_loss = compute_timbre_loss(model, features_db, targets, eq_fn, **eq_kwargs)
+                timbre_loss = compute_timbre_loss(model, features_db, raw_activations, **eq_kwargs)
                 # Store the timbre-invariance loss for the track
                 evaluator.append_results({'loss/timbre' : timbre_loss.item()})
                 # Add the timbre-invariance loss to the total loss
                 total_loss += multipliers['timbre'] * timbre_loss
 
-            if pc_set is not None:
-                # Sample a track of percussion audio
-                # TODO - make these operations compatible with ComboDataset
-                percussion_audio = pc_set.get_audio(pc_set.tracks[torch.randint(len(pc_set), (1,))])
-                # Sample random volume for percussion audio
-                volume = 2.0 * torch.rand((1,), device=device)
-                # Superimpose percussion audio onto original audio
-                percussion_audio = audio + volume * pc_set.slice_audio(percussion_audio.to(device), audio.size(-1))[0].unsqueeze(0)
-                # Compute spectral features for percussion audio mixture
-                features_perc = model.hcqt.to_decibels(model.hcqt(percussion_audio))
+            if gm_kwargs is not None:
+                # Compute geometric-equivariance loss for the track
+                geometric_loss = compute_geometric_loss(model, features_db, raw_activations, **gm_kwargs)
+                # Store the geometric-equivariance loss for the track
+                evaluator.append_results({'loss/geometric' : geometric_loss.item()})
+                # Add the geometric-equivariance loss to the total loss
+                total_loss += multipliers['geometric'] * geometric_loss
+
+            if pc_kwargs is not None:
                 # Compute percussion-invariance loss for the batch
-                percussion_loss = compute_percussion_loss(model, features_perc, targets)
+                percussion_loss = compute_percussion_loss(model, audio, raw_activations, **pc_kwargs)
                 # Store the percussion-invariance loss for the track
                 evaluator.append_results({'loss/percussion' : percussion_loss.item()})
                 # Add the percussion-invariance loss to the total loss
                 total_loss += multipliers['percussion'] * percussion_loss
 
-            for key_loss, val_loss in losses.items():
-                # Store the model loss for the track
-                evaluator.append_results({f'loss/{key_loss}' : val_loss.item()})
-                # Add the model loss to the total loss
-                total_loss += multipliers.get(key_loss, 1) * val_loss
+            if an_kwargs is not None:
+                # Compute noise-invariance loss for the batch
+                noise_loss = compute_noise_loss(model, audio, raw_activations, **an_kwargs)
+                # Store the noise-invariance loss for the track
+                evaluator.append_results({'loss/noise' : noise_loss.item()})
+                # Add the noise-invariance loss to the total loss
+                total_loss += multipliers['noise'] * noise_loss
 
-            # Store all losses for the track
-            evaluator.append_results({'loss/support' : support_loss.item(),
-                                      'loss/harmonic' : harmonic_loss.item(),
-                                      'loss/sparsity' : sparsity_loss.item(),
-                                      'loss/supervised' : supervised_loss.item(),
-                                      'loss/total' : total_loss.item()})
+            if ad_kwargs is not None:
+                # Compute additivity loss for the batch
+                additivity_loss = compute_additivity_loss(model, audio, raw_activations, **ad_kwargs)
+                # Store the additivity loss for the track
+                evaluator.append_results({'loss/additivity' : additivity_loss.item()})
+                # Add the additivity loss to the total loss
+                total_loss += multipliers['additivity'] * additivity_loss
+
+            # Store the total loss for the track
+            evaluator.append_results({'loss/total' : total_loss.item()})
 
         # Compute the average for all scores
         average_results, _ = evaluator.average_results()
@@ -139,21 +191,23 @@ def evaluate(model, eval_set, multipliers, writer=None, i=0, device='cpu', self_
                 writer.add_scalar(f'{eval_set.name()}/{key}', average_results[key], i)
 
             # Add channel dimension to input/outputs
-            ground_truth = ground_truth.unsqueeze(-3)
-            transcription = raw_activations.unsqueeze(-3)
             features_log_1 = features_db_1.unsqueeze(-3)
             features_log_h = features_db_h.unsqueeze(-3)
+            transcription = raw_activations.unsqueeze(-3)
+            ground_truth = ground_truth.unsqueeze(-3)
 
             # Remove batch dimension from inputs
-            ground_truth = ground_truth.squeeze(0)
-            transcription = transcription.squeeze(0)
             features_log_1 = features_log_1.squeeze(0)
             features_log_h = features_log_h.squeeze(0)
+            transcription = transcription.squeeze(0)
+            ground_truth = ground_truth.squeeze(0)
+
+            # TODO - plot constants images only for first validation loop?
 
             # Visualize predictions for the final sample of the evaluation dataset
-            writer.add_image(f'{eval_set.name()}/ground-truth', ground_truth.flip(-2), i)
-            writer.add_image(f'{eval_set.name()}/transcription', transcription.flip(-2), i)
             writer.add_image(f'{eval_set.name()}/CQT (dB)', features_log_1.flip(-2), i)
             writer.add_image(f'{eval_set.name()}/W.Avg. HCQT', features_log_h.flip(-2), i)
+            writer.add_image(f'{eval_set.name()}/transcription', transcription.flip(-2), i)
+            writer.add_image(f'{eval_set.name()}/ground-truth', ground_truth.flip(-2), i)
 
     return average_results

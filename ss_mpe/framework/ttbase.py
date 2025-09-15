@@ -11,6 +11,12 @@ import torch.nn as nn
 import torch
 
 
+all = ['TT_Base',
+       'EncoderNorm',
+       'DecoderNorm',
+       'LayerNormPermute']
+
+
 class TT_Base(SS_MPE):
     """
     Implements base model from Timbre-Trap (https://arxiv.org/abs/2309.15717).
@@ -54,7 +60,7 @@ class TT_Base(SS_MPE):
 
         self.decoder.convout = nn.Sequential(
             nn.Conv2d(convout_in_channels, 1, kernel_size=3, padding='same'),
-            LayerNormPermute(normalized_shape=[1, n_bins])
+            #LayerNormPermute(normalized_shape=[1, n_bins])
         )
 
         latent_channels = self.decoder.convin[0].out_channels
@@ -130,14 +136,10 @@ class TT_Base(SS_MPE):
         ----------
         output : Tensor (B x F X T)
           Batch of (implicit) pitch salience logits
-        latents : Tensor (B x D_lat x T)
-          Batch of latent codes
-        losses : dict containing
-          ...
         """
 
         # Process features with the encoder
-        latents, embeddings, losses = self.encoder(features)
+        latents, embeddings, _ = self.encoder(features)
 
         debug_nans(latents, 'encoder output')
 
@@ -152,117 +154,132 @@ class TT_Base(SS_MPE):
         # Collapse channel dimension
         output = output.squeeze(-3)
 
-        return output, latents, losses
+        return output
 
 
-class EncoderNorm(Encoder):
+class EncoderNorm(nn.Module):
     """
     Implements the 2D convolutional encoder from Timbre-Trap with layer normalization.
     """
 
-    def __init__(self, feature_size, latent_size=None, model_complexity=1):
+    def __init__(self, feature_size, latent_size=None, n_blocks=4, model_complexity=1):
         """
         Initialize the encoder.
 
         Parameters
         ----------
-        feature_size : int
-          Dimensionality of input features
-        latent_size : int or None (Optional)
-          Dimensionality of latent space
-        model_complexity : int
-          Scaling factor for number of filters
+        n_blocks : int
+          Number of blocks for encoder
+
+        See Encoder class for others...
         """
 
         nn.Module.__init__(self)
 
-        channels = (2 * 2 ** (model_complexity - 1),
-                    4 * 2 ** (model_complexity - 1),
-                    8 * 2 ** (model_complexity - 1),
-                    16 * 2 ** (model_complexity - 1),
-                    32 * 2 ** (model_complexity - 1))
+        channels = [2 ** (i + 1) * 2 ** (model_complexity - 1) for i in range(n_blocks + 1)]
 
         # Make sure all channel sizes are integers
         channels = tuple([round(c) for c in channels])
 
         if latent_size is None:
             # Set default dimensionality
-            latent_size = 32 * 2 ** (model_complexity - 1)
+            latent_size = channels[-1]
 
         embedding_sizes = [feature_size]
 
-        for i in range(4):
+        for i in range(n_blocks):
             # Dimensionality after strided convolutions
             embedding_sizes.append(embedding_sizes[-1] // 2 - 1)
 
         self.convin = nn.Sequential(
             nn.Conv2d(2, channels[0], kernel_size=3, padding='same'),
-            nn.ELU(inplace=True),
-            LayerNormPermute(normalized_shape=[channels[0], embedding_sizes[0]])
+            LayerNormPermute(normalized_shape=[channels[0], embedding_sizes[0]]),
+            nn.ELU(inplace=True)
         )
 
-        self.block1 = nn.Sequential(
-            EncoderBlock(channels[0], channels[1], stride=2),
-            LayerNormPermute(normalized_shape=[channels[1], embedding_sizes[1]])
-        )
-        self.block2 = nn.Sequential(
-            EncoderBlock(channels[1], channels[2], stride=2),
-            LayerNormPermute(normalized_shape=[channels[2], embedding_sizes[2]])
-        )
-        self.block3 = nn.Sequential(
-            EncoderBlock(channels[2], channels[3], stride=2),
-            LayerNormPermute(normalized_shape=[channels[3], embedding_sizes[3]])
-        )
-        self.block4 = nn.Sequential(
-            EncoderBlock(channels[3], channels[4], stride=2),
-            LayerNormPermute(normalized_shape=[channels[4], embedding_sizes[4]])
-        )
+        self.blocks = nn.ModuleList()
+
+        for i in range(n_blocks):
+            block = EncoderBlock(channels[i], channels[i + 1], stride=2)
+            block.sconv.insert(1, LayerNormPermute(normalized_shape=[channels[i + 1], embedding_sizes[i + 1]]))
+            self.blocks.append(block)
 
         self.convlat = nn.Sequential(
-            nn.Conv2d(channels[4], latent_size, kernel_size=(embedding_sizes[-1], 1)),
+            nn.Conv2d(channels[-1], latent_size, kernel_size=(embedding_sizes[-1], 1)),
             LayerNormPermute(normalized_shape=[latent_size, 1])
         )
 
+    def forward(self, coefficients):
+        """
+        Encode a batch of input spectral coefficients.
 
-class DecoderNorm(Decoder):
+        Parameters
+        ----------
+        coefficients : Tensor (B x 2 x F X T)
+          Batch of spectral coefficients
+
+        Returns
+        ----------
+        latents : Tensor (B x D_lat x T)
+          Batch of latent codes
+        embeddings : list of [Tensor (B x C x E x T)]
+          Embeddings produced by encoder at each level
+        losses : dict containing
+          ...
+        """
+
+        # Initialize a list to hold features for skip connections
+        embeddings = list()
+
+        # Encode features into embeddings
+        embeddings.append(self.convin(coefficients))
+
+        for block in self.blocks:
+            # Feed embeddings through next encoder block
+            embeddings.append(block(embeddings[-1]))
+
+        # Compute latent vectors from embeddings
+        latents = self.convlat(embeddings[-1]).squeeze(-2)
+
+        # No encoder losses
+        loss = dict()
+
+        return latents, embeddings, loss
+
+
+class DecoderNorm(nn.Module):
     """
     Implements the 2D convolutional decoder from Timbre-Trap with layer normalization.
     """
 
-    def __init__(self, feature_size, latent_size=None, model_complexity=1):
+    def __init__(self, feature_size, latent_size=None, n_blocks=4, model_complexity=1):
         """
         Initialize the decoder.
 
         Parameters
         ----------
-        feature_size : int
-          Dimensionality of input features
-        latent_size : int or None (Optional)
-          Dimensionality of latent space
-        model_complexity : int
-          Scaling factor for number of filters
+        n_blocks : int
+          Number of blocks for encoder
+
+        See Decoder class for others...
         """
 
         nn.Module.__init__(self)
 
-        channels = (32 * 2 ** (model_complexity - 1),
-                    16 * 2 ** (model_complexity - 1),
-                    8  * 2 ** (model_complexity - 1),
-                    4  * 2 ** (model_complexity - 1),
-                    2  * 2 ** (model_complexity - 1))
+        channels = [2 ** (n_blocks + 1 - i) * 2 ** (model_complexity - 1) for i in range(n_blocks + 1)]
 
         # Make sure all channel sizes are integers
         channels = tuple([round(c) for c in channels])
 
         if latent_size is None:
             # Set default dimensionality
-            latent_size = 32 * 2 ** (model_complexity - 1)
+            latent_size = channels[-1]
 
         padding = list()
 
         embedding_sizes = [feature_size]
 
-        for i in range(4):
+        for i in range(n_blocks):
             # Padding required for expected output size
             padding.append(embedding_sizes[-1] % 2)
             # Dimensionality after strided convolutions
@@ -274,31 +291,60 @@ class DecoderNorm(Decoder):
 
         self.convin = nn.Sequential(
             nn.ConvTranspose2d(latent_size + 1, channels[0], kernel_size=(embedding_sizes[0], 1)),
-            nn.ELU(inplace=True),
-            LayerNormPermute(normalized_shape=[channels[0], embedding_sizes[0]])
+            LayerNormPermute(normalized_shape=[channels[0], embedding_sizes[0]]),
+            nn.ELU(inplace=True)
         )
 
-        self.block1 = nn.Sequential(
-            DecoderBlock(channels[0], channels[1], stride=2, padding=padding[0]),
-            LayerNormPermute(normalized_shape=[channels[1], embedding_sizes[1]])
-        )
-        self.block2 = nn.Sequential(
-            DecoderBlock(channels[1], channels[2], stride=2, padding=padding[1]),
-            LayerNormPermute(normalized_shape=[channels[2], embedding_sizes[2]])
-        )
-        self.block3 = nn.Sequential(
-            DecoderBlock(channels[2], channels[3], stride=2, padding=padding[2]),
-            LayerNormPermute(normalized_shape=[channels[3], embedding_sizes[3]])
-        )
-        self.block4 = nn.Sequential(
-            DecoderBlock(channels[3], channels[4], stride=2, padding=padding[3]),
-            LayerNormPermute(normalized_shape=[channels[4], embedding_sizes[4]])
-        )
+        self.blocks = nn.ModuleList()
+
+        for i in range(n_blocks):
+            block = DecoderBlock(channels[i], channels[i + 1], stride=2, padding=padding[i])
+            block.tconv.insert(1, LayerNormPermute(normalized_shape=[channels[i + 1], embedding_sizes[i + 1]]))
+            self.blocks.append(block)
 
         self.convout = nn.Sequential(
-            nn.Conv2d(channels[4], 2, kernel_size=3, padding='same'),
-            LayerNormPermute(normalized_shape=[2, feature_size])
+            nn.Conv2d(channels[-1], 2, kernel_size=3, padding='same'),
         )
+
+    def forward(self, latents, encoder_embeddings=None):
+        """
+        Decode a batch of input latent codes.
+
+        Parameters
+        ----------
+        latents : Tensor (B x D_lat x T)
+          Batch of latent codes
+        encoder_embeddings : list of [Tensor (B x C x E x T)] or None (no skip connections)
+          Embeddings produced by encoder at each level
+
+        Returns
+        ----------
+        output : Tensor (B x 2 x F X T)
+          Batch of output logits [-∞, ∞]
+        """
+
+        # Restore feature dimension
+        latents = latents.unsqueeze(-2)
+
+        # Process latents with decoder blocks
+        embeddings = self.convin(latents)
+
+        if encoder_embeddings is not None:
+            # Add encoder embeddings through skip connection
+            embeddings = embeddings + encoder_embeddings[-1]
+
+        for i, block in enumerate(self.blocks):
+            # Feed embeddings through next decoder block
+            embeddings = block(embeddings)
+
+            if encoder_embeddings is not None:
+                # Add encoder embeddings through skip connection
+                embeddings = embeddings + encoder_embeddings[-2 - i]
+
+        # Decode embeddings into spectral logits
+        output = self.convout(embeddings)
+
+        return output
 
 
 class LayerNormPermute(nn.LayerNorm):

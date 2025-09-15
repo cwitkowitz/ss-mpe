@@ -1,7 +1,6 @@
 torchaudio
 torch
-# TODO - update following url after eventual merge
-#git+https://github.com/sony/timbre-trap@release
+git+https://github.com/sony/timbre-trap
 #cqt_pytorch
 #basic-pitch
 lhvqt>=0.5.3
