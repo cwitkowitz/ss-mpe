@@ -54,6 +54,7 @@ def mix_random_percussion(audio, percussive_set_combo, max_volume=1.0):
     mixtures = audio + volumes * percussive_audio
 
     return mixtures
+    #return mixtures, volumes, percussive_audio
 
 
 def compute_percussion_loss(model, audio, targets, **pc_kwargs):

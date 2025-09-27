@@ -163,4 +163,22 @@ def compute_geometric_loss(model, features, targets, **gm_kwargs):
     geometric_loss = geometric_loss.sum(-2).mean(-1).mean(-1)
     #geometric_loss = geometric_loss.mean(-1).mean(-1)
 
+    powers = 1 + torch.arange(model.hcqt_params['n_bins'])
+
+    alpha = 1.019440644  # 2 ** (1/36)
+    tau = 0.122462048  # 2 ** (1/6) - 1
+
+    alphas = (alpha ** powers).unsqueeze(-1).to(targets.device)
+
+    projected_targets = alphas * targets.squeeze(-3)
+    projected_transformation = alphas * torch.sigmoid(transformation_embeddings)
+
+    projected_difference = projected_targets / projected_transformation - (alpha ** vs).unsqueeze(-1).unsqueeze(-1).to(targets.device)
+
+    x = projected_difference.abs()
+
+    equivariance_loss = torch.where(x.le(tau), x ** 2 / 2, tau ** 2 / 2 + tau * (x - tau))
+
+    equivariance_loss = equivariance_loss.sum(-2).mean(-1).mean(-1)
+
     return geometric_loss

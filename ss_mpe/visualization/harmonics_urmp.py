@@ -4,23 +4,25 @@
 from timbre_trap.datasets.MixedMultiPitch import URMP as URMP_Mixtures
 from ss_mpe.datasets.AudioMixtures import E_GMD
 
-from ss_mpe.framework.objectives import apply_translation, apply_distortion
+from ss_mpe.objectives import *
 from ss_mpe.framework import SS_MPE
 from timbre_trap.utils import *
 
 # Regular imports
+from scipy.signal import convolve2d
 from tqdm import tqdm
 
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import os
 
 
 # Name of the model to evaluate
-ex_name = 'URMP_SU_0'
+ex_name = 'URMP_SPV_T_G_P_LR5E-4_2_BS8_MC3_W100_TTFC'
 
 # Choose the model checkpoint to compare
-checkpoint = 1000
+checkpoint = 9000
 
 # Choose the GPU on which to perform evaluation
 gpu_id = None
@@ -87,7 +89,7 @@ urmp_mixes_train = URMP_Mixtures(base_dir=None,
                                  seed=seed)
 
 # Sample from which to start NSynth analysis
-urmp_start_idx = 20
+urmp_start_idx = 20 # higher polyphony
 
 # Slice NSynth dataset
 urmp_mixes_train.tracks = urmp_mixes_train.tracks[urmp_start_idx:]
@@ -124,8 +126,7 @@ for i, data in enumerate(tqdm(urmp_mixes_train)):
     features_db_1 = features['db_1'].squeeze(0)
     features_db_h = features['db_h'].squeeze(0)
 
-    """
-    if i == 1:
+    if i == 0:
         # Seed everything with the same seed
         seed_everything(0)
 
@@ -139,64 +140,37 @@ for i, data in enumerate(tqdm(urmp_mixes_train)):
     # Maximum rate by which audio can be sped up or slowed down
     max_stretch_factor = 2
 
-    # Sample a random vertical / horizontal shift for each sample in the batch
-    v_shifts = torch.randint(low=-max_shift_v, high=max_shift_v + 1, size=(1,))-30
-    h_shifts = torch.randint(low=-max_shift_h, high=max_shift_h + 1, size=(1,))
-
-    # Compute inverse of maximum stretch factor
-    min_stretch_factor = 1 / max_stretch_factor
-
-    # Sample a random stretch factor for each sample in the batch, starting at minimum
-    stretch_factors, stretch_factors_ = min_stretch_factor, torch.rand(size=(1,))
-    # Split sampled values into piecewise ranges
-    neg_perc = 2 * stretch_factors_.clip(max=0.5)
-    pos_perc = 2 * (stretch_factors_ - 0.5).relu()
-    # Scale stretch factor evenly across effective range
-    stretch_factors += neg_perc * (1 - min_stretch_factor)
-    stretch_factors += pos_perc * (max_stretch_factor - 1)
-
-    # Apply vertical and horizontal translations, inserting zero at empties
-    features_db = apply_translation(features_db.unsqueeze(0), v_shifts, axis=-2, val=0)
-    features_db = apply_translation(features_db, h_shifts, axis=-1, val=0)
-    # Apply time distortion, maintaining original dimensionality and padding with zeros
-    features_db = apply_distortion(features_db, stretch_factors)
-
-    # Process transformed features with provided model
-    ss_activations = to_array(ss_mpe(features_db)[0].squeeze())
-
-    features_db = features_db.squeeze(0)
-
-    # Apply vertical and horizontal translations, inserting zero at empties
-    transformed_output = apply_translation(ss_mpe.transcribe(audio), v_shifts, axis=-2, val=0)
-    transformed_output = apply_translation(transformed_output, h_shifts, axis=-1, val=0)
-    # Apply time distortion, maintaining original dimensionality and padding with zeros
-    transformed_output = apply_distortion(transformed_output.unsqueeze(0), stretch_factors).squeeze().cpu().detach().numpy()
     """
-
-    """"""
     # Sample a track of percussion audio
     percussion_audio = egmd.get_audio(egmd.tracks[torch.randint(len(egmd), (1,))])
     # Superimpose percussion audio onto original audio
     percussion_audio = audio + egmd.slice_audio(percussion_audio.to(device), audio.size(-1))[0].unsqueeze(0)
     # Compute spectral features for percussion audio mixture
     features_db = ss_mpe.hcqt.to_decibels(ss_mpe.hcqt(percussion_audio)).squeeze(0)
+    """
+
+    #_, (vs, hs, sfs) = apply_random_transformations(features_db.unsqueeze(0), max_shift_v, max_shift_h, max_stretch_factor)
+    """"""
+    features_db, (vs, hs, sfs) = apply_random_transformations(features_db.unsqueeze(0), max_shift_v, max_shift_h, max_stretch_factor)
+    features_db = features_db.squeeze(0)
     """"""
 
-    """"""
     # Transcribe the audio using the SS-MPE model
-    ss_activations = to_array(ss_mpe.transcribe(audio).squeeze())
-    """"""
+    #ss_activations = to_array(ss_mpe.transcribe(audio).squeeze())
+    ss_activations = to_array(ss_mpe(features_db.unsqueeze(0))[0]).squeeze(0)
 
     # Extract ground-truth pitch salience activations
     gt_activations = data[constants.KEY_GROUND_TRUTH]
 
-    """
+    # Widen the activations for easier visualization
+    #gt_activations = convolve2d(gt_activations,
+    #                            np.array([[0.5, 1, 0.5]]).T, 'same')
+
     # Apply vertical and horizontal translations, inserting zero at empties
-    gt_activations = apply_translation(torch.Tensor(gt_activations).unsqueeze(0), v_shifts, axis=-2, val=0)
-    gt_activations = apply_translation(gt_activations, h_shifts, axis=-1, val=0)
-    # Apply time distortion, maintaining original dimensionality and padding with zeros
-    gt_activations = apply_distortion(gt_activations.unsqueeze(0), stretch_factors).squeeze().cpu().detach().numpy()
-    """
+    """"""
+    gt_activations = to_array(apply_geometric_transformations(torch.Tensor(gt_activations).unsqueeze(0).unsqueeze(0), vs, hs, sfs).squeeze(0).squeeze(0))
+    """"""
+    ss_activations_t_ev = to_array(apply_geometric_transformations(torch.Tensor(ss_activations).unsqueeze(0).unsqueeze(0), vs, hs, sfs).squeeze(0).squeeze(0))
 
     # Create a directory for saving visualized harmonics
     save_dir = os.path.join(vis_dir, track)
@@ -212,14 +186,16 @@ for i, data in enumerate(tqdm(urmp_mixes_train)):
         # Minimize free space
         fig.tight_layout()
         # Construct path under visualization directory
-        save_path = os.path.join(save_dir, f'{track}_h{h}.pdf')
+        #save_path = os.path.join(save_dir, f'{track}_h{h}.jpg')
+        #save_path = os.path.join(save_dir, f'{track}_h{h}-P.jpg')
+        save_path = os.path.join(save_dir, f'{track}_h{h}-G.jpg')
         # Save the figure with minimal whitespace
         fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
 
     # Loop through custom features, output, and ground-truth
-    for (h, cqt) in zip(['h1\'', 'wavg', 'out', 'pgt', 'equiv'],
+    for (h, cqt) in zip(['h1\'', 'wavg', 'out', 'gt', 't_ev'],
                         [features_db_1, features_db_h,
-                         ss_activations, gt_activations]):#, transformed_output]):
+                         ss_activations, gt_activations, ss_activations_t_ev]):
         # Open a new figure
         fig = initialize_figure(figsize=(4, 3))
         # Plot spectral features
@@ -227,16 +203,20 @@ for i, data in enumerate(tqdm(urmp_mixes_train)):
         # Minimize free space
         fig.tight_layout()
         # Construct path under visualization directory
-        save_path = os.path.join(save_dir, f'{track}_{h}.pdf')
+        #save_path = os.path.join(save_dir, f'{track}_{h}.jpg')
+        #save_path = os.path.join(save_dir, f'{track}_{h}-P.jpg')
+        save_path = os.path.join(save_dir, f'{track}_{h}-G.jpg')
         # Save the figure with minimal whitespace
         fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
 
+    """
     # Open the figure manually
     plt.show(block=False)
 
     # Wait for keyboard input
     while plt.waitforbuttonpress() != True:
         continue
+    """
 
     # Close figure
     plt.close('all')

@@ -13,16 +13,16 @@ import os
 
 # Experiments to plot
 experiments = {
-    'base/URMP_SPV_T_G_P_LR5E-4_2_BS8_MC3_W100_TTFC' : ('Ref.', 'black'),
+    'URMP_SPV_T_G_P_LR5E-4_2_BS8_MC3_W100_TTFC' : ('Ref.', 'black'),
 
-    'additional/URMP_SPV_T_G_P_+NSynth_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+NS-16', 'darkorange'),
-    'energy/URMP_SPV_T_G_P_+NSynth_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+NS-16+EG', 'maroon'),
-    'additional/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+MN-16', 'violet'),
-    'energy/URMP_SPV_T_G_P_+MNet_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+MN-16+EG', 'deepskyblue'),
-    'two-stage/URMP_SPV_T_G_P_-_+MNet_LR1E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+MN-16-FT', 'darkslateblue'),
-    'additional/URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+FMA-16', 'darkgoldenrod'),
-    'energy/URMP_SPV_T_G_P_+FMA_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+FMA-16+EG', 'darkkhaki'),
-    'two-stage/URMP_SPV_T_G_P_-_+FMA_LR1E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+FMA-16-FT', 'darkgreen')
+    'URMP_SPV_T_G_P_+NSynth_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+NS-16', 'red'),
+    #'energy/URMP_SPV_T_G_P_+NSynth_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+NS-16+EG', 'maroon'),
+    'URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+MN-16', 'blue'),
+    #'energy/URMP_SPV_T_G_P_+MNet_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+MN-16+EG', 'deepskyblue'),
+    #'two-stage/URMP_SPV_T_G_P_-_+MNet_LR1E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+MN-16-FT', 'darkslateblue'),
+    'URMP_SPV_T_G_P_+FMA_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+FMA-16', 'green'),
+    #'energy/URMP_SPV_T_G_P_+FMA_EG_SPR_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+FMA-16+EG', 'darkkhaki'),
+    #'two-stage/URMP_SPV_T_G_P_-_+FMA_LR1E-4_2_BS24_R0.66_MC3_W100_TTFC' : ('+FMA-16-FT', 'darkgreen')
 
     #'additional/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS24_R0.66_MC3_W100_TTFC': ('+MN-16', 'darkred'),
     #'batch/URMP_SPV_T_G_P_+MNet_LR5E-4_2_BS16_R0.5_MC3_W100_TTFC' : ('+MN-8', 'orangered'),
@@ -43,16 +43,16 @@ path_layout = 0
 if path_layout == 1:
     experiment_dir = os.path.join('/', 'storage', 'frank', 'self-supervised-pitch')
 else:
-    #experiment_dir = os.path.join('..', 'generated', 'experiments', ex_name)
-    experiment_dir = f'/media/rockstar/Icarus/ss-mpe_ISMIR_overfitting_degeneration/'
+    experiment_dir = os.path.join('..', '..', 'generated', 'experiments')
+    #experiment_dir = f'/media/rockstar/Icarus/ss-mpe_ISMIR_overfitting_degeneration/'
 
 idcs = {
-    'URMP' : (0, 0),
-    'Bach10' : (0, 1),
-    'Su' : (0, 2),
-    'TRIOS' : (1, 0),
-    'MusicNet' : (1, 1),
-    'GuitarSet' : (1, 2)
+    'URMP' : 0,#(0, 0),
+    #'Bach10' : (0, 1),
+    #'Su' : (0, 2),
+    #'TRIOS' : (1, 0),
+    #'MusicNet' : 1,#(1, 1),
+    'GuitarSet' : 1#(1, 2)
 }
 
 plt.rcParams.update({'axes.titlesize': 'x-large'})
@@ -71,12 +71,12 @@ plt.rcParams.update({'lines.linewidth': 1.25 * plt.rcParams['lines.linewidth']})
 labels = [v[0] for v in experiments.values()]
 
 # Open a new figure
-fig, axes = plt.subplots(2, 3, figsize=(18, 7.5))
+fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 axes[idcs['URMP']].set_title('URMP')
-axes[idcs['Bach10']].set_title('Bach10')
-axes[idcs['Su']].set_title('Su')
-axes[idcs['TRIOS']].set_title('TRIOS')
-axes[idcs['MusicNet']].set_title('MusicNet')
+#axes[idcs['Bach10']].set_title('Bach10')
+#axes[idcs['Su']].set_title('Su')
+#axes[idcs['TRIOS']].set_title('TRIOS')
+#axes[idcs['MusicNet']].set_title('MusicNet')
 axes[idcs['GuitarSet']].set_title('GuitarSet')
 
 for exp, (tag, color) in experiments.items():
@@ -124,36 +124,39 @@ for exp, (tag, color) in experiments.items():
 
     steps = df.index.to_numpy()
     f1_urmp_val = df['URMP/mpe/f1-score'].to_numpy()
-    f1_bach10 = df['Bach10/mpe/f1-score'].to_numpy()
-    f1_su = df['Su/mpe/f1-score'].to_numpy()
-    f1_trios = df['TRIOS/mpe/f1-score'].to_numpy()
-    f1_mnet_test = df['MusicNet/mpe/f1-score'].to_numpy()
+    #f1_bach10 = df['Bach10/mpe/f1-score'].to_numpy()
+    #f1_su = df['Su/mpe/f1-score'].to_numpy()
+    #f1_trios = df['TRIOS/mpe/f1-score'].to_numpy()
+    #f1_mnet_test = df['MusicNet/mpe/f1-score'].to_numpy()
     f1_gset_val = df['GuitarSet/mpe/f1-score'].to_numpy()
 
     axes[idcs['URMP']].plot(steps, f1_urmp_val, label=tag, color=color, alpha=0.8)
-    axes[idcs['Bach10']].plot(steps, f1_bach10, color=color, alpha=0.8)
-    axes[idcs['Su']].plot(steps, f1_su, color=color, alpha=0.8)
-    axes[idcs['TRIOS']].plot(steps, f1_trios, color=color, alpha=0.8)
-    axes[idcs['MusicNet']].plot(steps, f1_mnet_test, color=color, alpha=0.8)
+    #axes[idcs['Bach10']].plot(steps, f1_bach10, color=color, alpha=0.8)
+    #axes[idcs['Su']].plot(steps, f1_su, color=color, alpha=0.8)
+    #axes[idcs['TRIOS']].plot(steps, f1_trios, color=color, alpha=0.8)
+    #axes[idcs['MusicNet']].plot(steps, f1_mnet_test, color=color, alpha=0.8)
     axes[idcs['GuitarSet']].plot(steps, f1_gset_val, color=color, alpha=0.8)
 
-for (i, j) in idcs.values():
-    axes[i, j].set_ylim(-0.05, 1.05)
-    axes[i, j].set_yticks(np.arange(21) * 0.05, minor=True)
-    axes[i, j].grid(which='both')
-    axes[i, j].set_xlabel('# Batches')
-    axes[i, j].set_ylabel('$\mathit{F_1}$-Score')
+#for (i, j) in idcs.values():
+for i in idcs.values():
+    axes[i].set_ylim(-0.05, 1.05)
+    axes[i].set_yticks(np.arange(21) * 0.05, minor=True)
+    axes[i].grid(which='both')
+    axes[i].set_xlabel('# Batches')
+    axes[i].set_ylabel('$\mathit{F_1}$-Score')
 # Add a legend below the subplots
-fig.legend(labels, loc='lower center', bbox_to_anchor=(0.5, 0.0), ncol=9, frameon=False)
+#fig.legend(labels, loc='lower center', bbox_to_anchor=(0.5, 0.0), ncol=9, frameon=False)
 #fig.legend(labels, loc='lower center', bbox_to_anchor=(0.5, 0.0), ncol=7, frameon=False)
 #fig.legend(labels, loc='lower center', bbox_to_anchor=(0.5, 0.0), ncol=4, frameon=False)
+fig.legend(labels, loc='lower center', bbox_to_anchor=(0.5, -0.15), ncol=4, frameon=False)
 
 # Open the figure manually
 plt.show(block=False)
 
 #plt.subplots_adjust(bottom=0.2, hspace=0.4, wspace=0.3)
-fig.tight_layout(rect=[0, 0.05, 1, 1])
+#fig.tight_layout()#rect=[0, 0.05, 1, 1])
 
+"""
 # Wait for keyboard input
 while plt.waitforbuttonpress() != True:
     continue
@@ -162,12 +165,13 @@ while plt.waitforbuttonpress() != True:
 save = input('Save figure? (y/n)')
 
 if save == 'y':
-    # Create a directory for saving visualized loss curves
-    save_dir = os.path.join('..', '..', 'generated', 'visualization')
-    # Construct save path under visualization directory
-    save_path = os.path.join(save_dir, f'f1_curves.pdf')
-    # Save the figure with minimal whitespace
-    fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
+"""
+# Create a directory for saving visualized loss curves
+save_dir = os.path.join('..', '..', 'generated', 'visualization')
+# Construct save path under visualization directory
+save_path = os.path.join(save_dir, f'f1_curves.pdf')
+# Save the figure with minimal whitespace
+fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
 
 # Close figure
 plt.close(fig)

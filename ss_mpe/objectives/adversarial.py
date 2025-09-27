@@ -78,12 +78,15 @@ class DomainClassifier(nn.Module):
         self.b = torch.nn.Parameter(torch.tensor([[0.]]))
         """
 
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)
-        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
+        #self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1)
+        self.conv1 = nn.Conv2d(1, 4, kernel_size=3, stride=2, padding=1)
+        #self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
+        self.conv2 = nn.Conv2d(4, 8, kernel_size=3, stride=2, padding=1)
+        #self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
         #self.conv4 = nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1)
         #self.conv5 = nn.Conv2d(256, 1, kernel_size=5, stride=1, padding=2)
-        self.conv5 = nn.Conv2d(64, 1, kernel_size=5, stride=1, padding=2)
+        #self.conv5 = nn.Conv2d(128, 1, kernel_size=5, stride=1, padding=2)
+        self.conv5 = nn.Conv2d(8, 1, kernel_size=5, stride=1, padding=2)
 
     def forward(self, x):
         """
@@ -121,7 +124,7 @@ class DomainClassifier(nn.Module):
         x = x.unsqueeze(-3)
         x = F.dropout(F.leaky_relu(self.conv1(x), negative_slope=0.2), 0.5)
         x = F.dropout(F.leaky_relu(self.conv2(x), negative_slope=0.2), 0.5)
-        x = F.dropout(F.leaky_relu(self.conv3(x), negative_slope=0.2), 0.5)
+        #x = F.dropout(F.leaky_relu(self.conv3(x), negative_slope=0.2), 0.5)
         #x = F.dropout(F.leaky_relu(self.conv4(x), negative_slope=0.2), 0.5)
         x = self.conv5(x)
         return x
@@ -181,7 +184,7 @@ def compute_adversarial_loss(classifier, features, labels, n_frames=None, rms_va
     # Attempt to classify the features as originating from supervised (1) vs. fully self-supervised (0) data
     #domains = classifier(reverse_gradient(features, lmbda))
     #domains = classifier(features.detach())
-    domains = classifier(mixed_features).mean(-1).mean(-1)
+    domains = classifier(mixed_features).mean(-2).mean(-1)
 
     # Repeat ground-truth labels across time
     #labels = labels.unsqueeze(-1).repeat(1, domains.size(-1))
@@ -267,7 +270,7 @@ def compute_confusion_loss(classifier, features, labels=None, n_frames=None, rms
     #lmbdas = torch.cat((lmbdas, (1 - lmbdas)), dim=0)
 
     # Attempt to classify the features
-    domains = classifier(features).mean(-1).mean(-1)
+    domains = classifier(features).mean(-2).mean(-1)
     #domains = classifier(mixed_features)
 
     """"""

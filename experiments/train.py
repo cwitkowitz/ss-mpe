@@ -39,7 +39,7 @@ import os
 
 
 CONFIG = 0 # (0 - desktop | 1 - lab)
-EX_NAME = '_'.join(['Test66-RPR-LR1E-4-x10-DCLR1E-3-4L-'])
+EX_NAME = '_'.join(['Test66-RPR-LR1E-4-x15-DCLR1E-3-3L*-vsl'])
 
 ex = Experiment('Train a model to perform MPE with self-supervised objectives only')
 
@@ -85,7 +85,7 @@ def config():
         'feature' : 0,
         'supervised' : 1,
         'adversarial' : 1,
-        'confusion' : 10 # lambda
+        'confusion' : 15 # lambda
     }
 
     # Compute energy-based losses over supervised data as well
@@ -116,7 +116,7 @@ def config():
     n_epochs_early_stop = None
 
     # IDs of the GPUs to use, if available
-    gpu_ids = [1, 0]
+    gpu_ids = [0]
 
     # Random seed for this experiment
     seed = 0
@@ -831,7 +831,7 @@ def train_model(checkpoint_path, max_epochs, checkpoint_interval, batch_size, n_
                     logits_balanced = torch.cat([logits[:n_min_domain], logits[batch_size_ss : batch_size_ss + n_min_domain]])
                     domain_labels_balanced = torch.cat([domain_labels[:n_min_domain], domain_labels[batch_size_ss : batch_size_ss + n_min_domain]])
                     # Compute adversarial loss for the batch
-                    adversarial_loss, (acc, acc_sp, acc_ss, avg_sup, avg_ss) = compute_adversarial_loss(model.domain_classifier, logits_balanced, domain_labels_balanced) if batch_size_ss else torch.tensor(0.)
+                    adversarial_loss, (acc, acc_sp, acc_ss, avg_sup, avg_ss) = compute_adversarial_loss(model.domain_classifier, logits, domain_labels) if batch_size_ss else torch.tensor(0.)
                     # Log the adversarial loss for this batch
                     writer.add_scalar('train/loss/adversarial', adversarial_loss.item(), batch_count)
                     writer.add_scalar('train/adversarial/acc_total', acc.item(), batch_count)

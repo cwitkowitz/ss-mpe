@@ -1,12 +1,13 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
+from timbre_trap.datasets.MixedMultiPitch import URMP as URMP_Mixtures
 from ss_mpe.datasets.SoloMultiPitch import NSynth
 
-from ss_mpe.objectives import sample_gaussian_equalization
+from ss_mpe.objectives import sample_gaussian_equalization, sample_parabolic_equalization
 from ss_mpe.framework import TT_Base
 from timbre_trap.utils import *
-from .utils import *
+from ss_mpe.visualization.utils import *
 
 # Regular imports
 import matplotlib.pyplot as plt
@@ -101,6 +102,24 @@ nsynth_start_idx = 0
 # Slice NSynth dataset
 nsynth_val.tracks = nsynth_val.tracks[nsynth_start_idx:]
 
+# Set the URMP validation set in accordance with the MT3 paper
+urmp_val_splits = ['01', '02', '12', '13', '24', '25', '31', '38', '39']
+
+# Allocate remaining tracks to URMP training set
+urmp_train_splits = URMP_Mixtures.available_splits()
+
+for t in urmp_val_splits:
+    # Remove validation tracks
+    urmp_train_splits.remove(t)
+
+# Instantiate URMP dataset mixtures for training
+urmp_mixes_train = URMP_Mixtures(base_dir=None,
+                                 splits=urmp_train_splits,
+                                 sample_rate=sample_rate,
+                                 cqt=ss_mpe.hcqt,
+                                 n_secs=4,
+                                 seed=seed)
+
 
 ###################
 ## Visualization ##
@@ -118,6 +137,9 @@ max_A = 0.375
 # Maximum standard deviation for Gaussian equalization
 max_std_dev = 2 * bins_per_octave
 
+# Pointiness for parabolic equalization
+pointiness = 2
+
 # Determine how many octaves have been covered
 n_octaves = int(math.ceil(n_bins / bins_per_octave))
 
@@ -125,7 +147,7 @@ n_octaves = int(math.ceil(n_bins / bins_per_octave))
 n_out = n_octaves * bins_per_octave
 
 # Loop through all tracks in the test set
-for i, data in enumerate(tqdm(nsynth_val)):
+for i, data in enumerate(tqdm(urmp_mixes_train)):
     # Determine which track is being processed
     track = data[constants.KEY_TRACK]
     # Extract audio and add a batch dimension
@@ -138,16 +160,15 @@ for i, data in enumerate(tqdm(nsynth_val)):
     features_db_1 = to_array(features['db_1'][0])
 
     # Sample parametric Gaussian equalization curves
-    gaussian_curves = sample_gaussian_equalization(n_out,
+    gaussian_curves = sample_parabolic_equalization(n_out,
                                                    batch_size=n_curves,
-                                                   max_A=max_A,
-                                                   max_std_dev=max_std_dev)
+                                                   pointiness=pointiness)
 
     # Initialize a new figure with subplots
     (fig, ax) = plt.subplots(nrows=n_curves, ncols=3, width_ratios=[2, 1, 2], figsize=(6.666, 3 * n_curves))
 
     # Determine track's attributes
-    name, pitch, vel = track.split('-')
+    #name, pitch, vel = track.split('-')
     # Add a global title above all sub-plots
     #fig.suptitle(f'Track: {name} | Pitch: {pitch} | Velocity: {vel}')
 
@@ -177,26 +198,30 @@ for i, data in enumerate(tqdm(nsynth_val)):
     ax[i, 1].set_xlabel('Scaling')
     ax[i, 2].set_xlabel('Time (s)')
 
+    fig.suptitle('Example Timbral Transformations $t_{iv-t}$')
+
     # Minimize free space
     fig.tight_layout()
 
     # Open the figure manually
     plt.show(block=False)
-    
+
+    """    
     # Wait for keyboard input
     while plt.waitforbuttonpress() != True:
         continue
-    
+
     # Prompt user to save figure
     save = input('Save figure? (y/n)')
     
     if save == 'y':
         # Replace / in the track name
         track = track.replace('/', '-')
-        # Construct path under visualization directory
-        save_path = os.path.join(save_dir, f'{track}_c{n_curves}_s{seed}.pdf')
-        # Save the figure with minimal whitespace
-        fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
+    """
+    # Construct path under visualization directory
+    save_path = os.path.join(save_dir, f'{track}_c{n_curves}_s{seed}.jpg')
+    # Save the figure with minimal whitespace
+    fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
 
     # Close figure
     plt.close(fig)

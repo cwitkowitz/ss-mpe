@@ -1,9 +1,10 @@
 # Author: Frank Cwitkowitz <fcwitkow@ur.rochester.edu>
 
 # My imports
+from timbre_trap.datasets.MixedMultiPitch import URMP as URMP_Mixtures
 from ss_mpe.datasets.SoloMultiPitch import NSynth
 
-from ss_mpe.framework.objectives import apply_translation, apply_distortion
+from ss_mpe.objectives import apply_random_transformations
 from ss_mpe.framework import TT_Base
 from timbre_trap.utils import *
 
@@ -99,6 +100,24 @@ nsynth_start_idx = 0
 # Slice NSynth dataset
 nsynth_val.tracks = nsynth_val.tracks[nsynth_start_idx:]
 
+# Set the URMP validation set in accordance with the MT3 paper
+urmp_val_splits = ['01', '02', '12', '13', '24', '25', '31', '38', '39']
+
+# Allocate remaining tracks to URMP training set
+urmp_train_splits = URMP_Mixtures.available_splits()
+
+for t in urmp_val_splits:
+    # Remove validation tracks
+    urmp_train_splits.remove(t)
+
+# Instantiate URMP dataset mixtures for training
+urmp_mixes_train = URMP_Mixtures(base_dir=None,
+                                 splits=urmp_train_splits,
+                                 sample_rate=sample_rate,
+                                 cqt=ss_mpe.hcqt,
+                                 n_secs=4,
+                                 seed=seed)
+
 
 ###################
 ## Visualization ##
@@ -124,7 +143,7 @@ max_stretch_factor = 2
 min_stretch_factor = 1 / max_stretch_factor
 
 # Loop through all tracks in the test set
-for i, data in enumerate(tqdm(nsynth_val)):
+for i, data in enumerate(tqdm(urmp_mixes_train)):
     # Determine which track is being processed
     track = data[constants.KEY_TRACK]
     # Extract audio and add a batch dimension
@@ -134,30 +153,11 @@ for i, data in enumerate(tqdm(nsynth_val)):
     features = ss_mpe.get_all_features(audio)
 
     # Extract first harmonic CQT spectral features and repeat across transforms
-    features= torch.cat([features['db_1'].unsqueeze(0) for t in range(n_transforms)])
+    features_db = torch.cat([features['db'] for t in range(n_transforms)])
 
-    # Sample a random vertical / horizontal shift for each sample in the batch
-    v_shifts = torch.randint(low=-max_shift_v, high=max_shift_v + 1, size=(n_transforms,))
-    h_shifts = torch.randint(low=-max_shift_h, high=max_shift_h + 1, size=(n_transforms,))
-
-    # Sample a random stretch factor for each sample in the batch, starting at minimum
-    stretch_factors, stretch_factors_ = min_stretch_factor, torch.rand(size=(n_transforms,))
-    # Split sampled values into piecewise ranges
-    neg_perc = 2 * stretch_factors_.clip(max=0.5)
-    pos_perc = 2 * (stretch_factors_ - 0.5).relu()
-    # Scale stretch factor evenly across effective range
-    stretch_factors += neg_perc * (1 - min_stretch_factor)
-    stretch_factors += pos_perc * (max_stretch_factor - 1)
-
-    # Apply vertical and horizontal translations, inserting zero at empties
-    transform = apply_translation(features, v_shifts, axis=-2, val=0)
-    transform = apply_translation(transform, h_shifts, axis=-1, val=0)
-    # Apply time distortion, maintaining original dimensionality and padding with zeros
-    transform = apply_distortion(transform, stretch_factors)
-
-    # Remove the temporary batch and channel dimensions
-    features = to_array(features.squeeze(1)[0])
-    transform = to_array(transform.squeeze(1))
+    features_db_transformed, (vs, hs, sfs) = apply_random_transformations(features_db, max_shift_v, max_shift_h, max_stretch_factor)
+    features_db = to_array(features_db[0, harmonics.index(1)])
+    features_db_transformed = to_array(features_db_transformed[:, harmonics.index(1)])
 
     # Initialize a new figure
     fig = initialize_figure(figsize=(6.666, 3 * n_transforms))
@@ -167,7 +167,7 @@ for i, data in enumerate(tqdm(nsynth_val)):
                                                           height_ratios=[1] * (n_transforms - 1) + [1.065])
 
     # Determine track's attributes
-    name, pitch, vel = track.split('-')
+    #name, pitch, vel = track.split('-')
     # Add a global title above all sub-plots
     #fig.suptitle(f'Track: {name} | Pitch: {pitch} | Velocity: {vel}')
 
@@ -182,8 +182,8 @@ for i, data in enumerate(tqdm(nsynth_val)):
         ax_trns = subfigs[i, 2].subplots(nrows=1, ncols=1)
         ax_param = subfigs[i, 1].subplots(nrows=3, ncols=1)
         # Plot original and transformed features as images
-        ax_orig.imshow(features, vmin=0, vmax=1, aspect='auto', origin='lower', extent=extent_midi)
-        ax_trns.imshow(transform[i], vmin=0, vmax=1, aspect='auto', origin='lower', extent=extent_midi)
+        ax_orig.imshow(features_db, vmin=0, vmax=1, aspect='auto', origin='lower', extent=extent_midi)
+        ax_trns.imshow(features_db_transformed[i], vmin=0, vmax=1, aspect='auto', origin='lower', extent=extent_midi)
         # Ticks and labels
         ax_orig.set_ylabel('Frequency (MIDI)')
         ax_orig.set_yticks(midi_ticks)
@@ -191,24 +191,24 @@ for i, data in enumerate(tqdm(nsynth_val)):
         ax_trns.set_yticks(midi_ticks)
         ax_trns.set_yticklabels(['' for t in midi_ticks])
         # Plot sampled parameter values
-        ax_param[0].plot([v_shifts[i], v_shifts[i]], [0, 1], linewidth=2)
+        ax_param[0].plot([vs[i], vs[i]], [0, 1], linewidth=2)
         ax_param[0].set_ylim([0, 1])
         ax_param[0].set_xlim([-max_shift_v, max_shift_v])
         ax_param[0].set_xticks([-max_shift_v, 0, max_shift_v])
         ax_param[0].set_xticklabels(['-2 oct.', '0', '2 oct.'])
         ax_param[0].get_yaxis().set_visible(False)
         ax_param[0].set_xlabel('Freq. Shift (bins)')
-        ax_param[1].plot([h_shifts[i], h_shifts[i]], [0, 1], linewidth=2)
+        ax_param[1].plot([hs[i], hs[i]], [0, 1], linewidth=2)
         ax_param[1].set_ylim([0, 1])
         ax_param[1].set_xlim([-max_shift_h, max_shift_h])
         ax_param[1].set_xticks([-max_shift_h, 0, max_shift_h])
         ax_param[1].set_xticklabels(['-1 s', '0', '1 s'])
         ax_param[1].get_yaxis().set_visible(False)
         ax_param[1].set_xlabel('Time Shift')
-        ax_param[2].plot([stretch_factors_[i], stretch_factors_[i]], [0, 1], linewidth=2)
+        ax_param[2].plot([sfs[i], sfs[i]], [0, 1], linewidth=2)
         ax_param[2].set_ylim([0, 1])
-        ax_param[2].set_xlim([0, 1])
-        ax_param[2].set_xticks([0, 0.5, 1.0])
+        ax_param[2].set_xlim([min_stretch_factor, max_stretch_factor])
+        ax_param[2].set_xticks([min_stretch_factor, min_stretch_factor + (max_stretch_factor - min_stretch_factor) / 2, max_stretch_factor])
         ax_param[2].set_xticklabels([f'{min_stretch_factor}x', '1x', f'{max_stretch_factor}x'])
         ax_param[2].get_yaxis().set_visible(False)
         ax_param[2].set_xlabel('Time Stretch')
@@ -217,6 +217,9 @@ for i, data in enumerate(tqdm(nsynth_val)):
     ax_orig.set_xlabel('Time (s)')
     ax_trns.set_xlabel('Time (s)')
 
+    fig.suptitle('Example Geometric Transformations $t_{ev-g}$')
+
+    """
     # Open the figure manually
     plt.show(block=False)
 
@@ -230,10 +233,11 @@ for i, data in enumerate(tqdm(nsynth_val)):
     if save == 'y':
         # Replace / in the track name
         track = track.replace('/', '-')
-        # Construct path under visualization directory
-        save_path = os.path.join(save_dir, f'{track}_t{n_transforms}_s{seed}.pdf')
-        # Save the figure with minimal whitespace
-        fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
+    """
+    # Construct path under visualization directory
+    save_path = os.path.join(save_dir, f'{track}_t{n_transforms}_s{seed}.jpg')
+    # Save the figure with minimal whitespace
+    fig.savefig(save_path, bbox_inches='tight', pad_inches=0)
 
     # Close figure
     plt.close(fig)
